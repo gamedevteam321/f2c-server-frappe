@@ -8,6 +8,7 @@
     "field_order": [
         "block_no",
         "block_area",
+        "block_area_unit",
         "hybrid",
         "spacing",
         "no_of_seedlings",
@@ -25,6 +26,13 @@
             "fieldtype": "Float",
             "in_list_view": 1,
             "label": "Block Area"
+        },
+        {
+            "fieldname": "block_area_unit",
+            "fieldtype": "Link",
+            "in_list_view": 1,
+            "label": "Unit",
+            "options": "UOM"
         },
         {
             "fieldname": "hybrid",
