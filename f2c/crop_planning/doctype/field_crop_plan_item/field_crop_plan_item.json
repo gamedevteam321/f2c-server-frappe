@@ -1,0 +1,65 @@
+{
+    "actions": [],
+    "allow_rename": 1,
+    "creation": "2025-11-19 23:22:00.000000",
+    "doctype": "DocType",
+    "editable_grid": 1,
+    "engine": "InnoDB",
+    "field_order": [
+        "block_no",
+        "block_area",
+        "hybrid",
+        "spacing",
+        "no_of_seedlings",
+        "pop_code"
+    ],
+    "fields": [
+        {
+            "fieldname": "block_no",
+            "fieldtype": "Data",
+            "in_list_view": 1,
+            "label": "Block No"
+        },
+        {
+            "fieldname": "block_area",
+            "fieldtype": "Float",
+            "in_list_view": 1,
+            "label": "Block Area"
+        },
+        {
+            "fieldname": "hybrid",
+            "fieldtype": "Data",
+            "in_list_view": 1,
+            "label": "Hybrid"
+        },
+        {
+            "fieldname": "spacing",
+            "fieldtype": "Data",
+            "in_list_view": 1,
+            "label": "Spacing"
+        },
+        {
+            "fieldname": "no_of_seedlings",
+            "fieldtype": "Int",
+            "in_list_view": 1,
+            "label": "No of Seedlings"
+        },
+        {
+            "fieldname": "pop_code",
+            "fieldtype": "Data",
+            "in_list_view": 1,
+            "label": "POP Code"
+        }
+    ],
+    "istable": 1,
+    "links": [],
+    "modified": "2025-11-19 23:22:00.000000",
+    "modified_by": "Administrator",
+    "module": "Crop Planning",
+    "name": "Field Crop Plan Item",
+    "owner": "Administrator",
+    "permissions": [],
+    "sort_field": "modified",
+    "sort_order": "DESC",
+    "track_changes": 1
+}
