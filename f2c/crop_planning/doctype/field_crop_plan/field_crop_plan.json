@@ -1,0 +1,102 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:FCP-{YYYY}-{MM}-{#####}",
+ "creation": "2025-11-19 23:22:00.000000",
+ "default_view": "List",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "field_no",
+  "date",
+  "column_break_1",
+  "total_field_area",
+  "total_blocks",
+  "section_break_1",
+  "irrigation_type",
+  "soil_type",
+  "crop_plan_details",
+  "remarks"
+ ],
+ "fields": [
+  {
+   "fieldname": "field_no",
+   "fieldtype": "Data",
+   "label": "Field No.",
+   "reqd": 1
+  },
+  {
+   "fieldname": "date",
+   "fieldtype": "Date",
+   "label": "Date",
+   "reqd": 1,
+   "default": "Today"
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "total_field_area",
+   "fieldtype": "Float",
+   "label": "Total Field Area"
+  },
+  {
+   "fieldname": "total_blocks",
+   "fieldtype": "Int",
+   "label": "Total Blocks"
+  },
+  {
+   "fieldname": "section_break_1",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "irrigation_type",
+   "fieldtype": "Select",
+   "label": "Irrigation Type",
+   "options": "\nDrip\nSprinkler\nFlood"
+  },
+  {
+   "fieldname": "soil_type",
+   "fieldtype": "Select",
+   "label": "Soil Type",
+   "options": "\nClay\nLoam\nSandy\nSilt"
+  },
+  {
+   "fieldname": "crop_plan_details",
+   "fieldtype": "Table",
+   "label": "Crop Plan Details",
+   "options": "Field Crop Plan Item"
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Small Text",
+   "label": "Remarks"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-11-19 23:22:00.000000",
+ "modified_by": "Administrator",
+ "module": "Crop Planning",
+ "name": "Field Crop Plan",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "track_changes": 1
+}
