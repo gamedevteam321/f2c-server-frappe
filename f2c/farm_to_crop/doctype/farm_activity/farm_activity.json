@@ -9,7 +9,9 @@
     "field_order": [
         "id",
         "activity_name",
-        "activity_group_type"
+        "activity_group_type",
+        "sequence",
+        "parent_activity"
     ],
     "fields": [
         {
@@ -36,15 +38,32 @@
             "label": "Activity Group Type",
             "options": "Field Planning\nLand Preparation\nPlant Management\nFloor Management\nNutrition & Plant Protection\nCrop Recordkeeping\nHarvest Management\nLabour Management\nEquipment & Infra",
             "reqd": 1
+        },
+        {
+            "fieldname": "sequence",
+            "fieldtype": "Int",
+            "in_list_view": 1,
+            "label": "Sequence",
+            "reqd": 1,
+            "default": 1
+        },
+        {
+            "fieldname": "parent_activity",
+            "fieldtype": "Link",
+            "label": "Parent Activity",
+            "options": "Farm Activity"
         }
     ],
     "index_web_pages_for_search": 1,
+    "is_tree": 1,
     "links": [],
     "modified": "2025-11-20 15:00:00.000000",
     "modified_by": "Administrator",
     "module": "Farm To Crop",
     "name": "Farm Activity",
     "naming_rule": "Expression",
+    "nsm_parent_field": "parent_activity",
+    "parent_field": "parent_activity",
     "owner": "Administrator",
     "permissions": [
         {
@@ -71,8 +90,8 @@
             "write": 1
         }
     ],
-    "sort_field": "modified",
-    "sort_order": "DESC",
+    "sort_field": "sequence",
+    "sort_order": "ASC",
     "states": [],
     "track_changes": 1
 }

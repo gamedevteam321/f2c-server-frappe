@@ -52,4 +52,85 @@ class FarmActivity(Document):
 		
 		# Format as 3-digit number (001, 002, etc.)
 		self.name = f"{prefix}{next_number:03d}"
+	
+	def validate(self):
+		"""Validate parent activity and sequence"""
+		# Validate sequence
+		if not self.sequence or self.sequence < 1:
+			frappe.throw("Sequence must be a positive integer")
+		
+		# Auto-set sequence based on parent if not explicitly set
+		if self.parent_activity:
+			# Prevent an activity from being its own parent
+			if self.parent_activity == self.name:
+				frappe.throw("An activity cannot be its own parent")
+			
+			# Check if parent activity exists
+			if not frappe.db.exists("Farm Activity", self.parent_activity):
+				frappe.throw(f"Parent Activity '{self.parent_activity}' does not exist")
+			
+			# Get parent sequence
+			parent_sequence = frappe.db.get_value("Farm Activity", self.parent_activity, "sequence")
+			if parent_sequence:
+				# If sequence is not set or is less than parent + 1, auto-set it
+				if not self.sequence or self.sequence <= parent_sequence:
+					self.sequence = parent_sequence + 1
+			
+			# Check for circular references
+			self._check_circular_reference(self.name, self.parent_activity)
+		else:
+			# If no parent, ensure sequence is 1 for top-level activities
+			if not self.sequence or self.sequence < 1:
+				self.sequence = 1
+	
+	def _check_circular_reference(self, current_activity, parent_activity, visited=None):
+		"""Recursively check for circular references in parent hierarchy"""
+		if visited is None:
+			visited = set()
+		
+		if parent_activity in visited:
+			frappe.throw("Circular reference detected in parent activity hierarchy")
+		
+		visited.add(parent_activity)
+		
+		# Get the parent's parent
+		parent_doc = frappe.get_doc("Farm Activity", parent_activity)
+		if parent_doc.parent_activity:
+			self._check_circular_reference(current_activity, parent_doc.parent_activity, visited)
+
+
+@frappe.whitelist()
+@frappe.validate_and_sanitize_search_inputs
+def get_parent_activities(doctype, txt, searchfield, start, page_len, filters):
+	"""Custom query to show activity_name in parent_activity field dropdown"""
+	# Exclude current document to prevent self-reference
+	current_doc = filters.get("name") if filters else None
+	
+	conditions = []
+	if current_doc:
+		conditions.append("name != %(current_doc)s")
+	
+	where_clause = " AND ".join(conditions) if conditions else ""
+	if where_clause:
+		where_clause = "WHERE " + where_clause
+	
+	# Return format: (name, activity_name) - Frappe will use activity_name as the display
+	return frappe.db.sql("""
+		SELECT 
+			name,
+			activity_name
+		FROM `tabFarm Activity`
+		{where_clause}
+		AND (
+			activity_name LIKE %(txt)s 
+			OR name LIKE %(txt)s
+		)
+		ORDER BY activity_name
+		LIMIT %(start)s, %(page_len)s
+	""".format(where_clause=where_clause), {
+		'txt': f'%{txt}%',
+		'start': start,
+		'page_len': page_len,
+		'current_doc': current_doc
+	}, as_dict=False)
 
