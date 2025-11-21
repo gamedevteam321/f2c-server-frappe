@@ -2,7 +2,7 @@
     "actions": [],
     "allow_import": 1,
     "allow_rename": 1,
-    "autoname": "field:area_name",
+    "autoname": "format:GFA{###}",
     "creation": "2025-11-20 13:07:00.000000",
     "doctype": "DocType",
     "document_type": "Document",
@@ -11,7 +11,6 @@
         "area_name",
         "geo_fencing_type",
         "level_sequence",
-        "code",
         "column_break_1",
         "parent_area",
         "is_root",
@@ -26,8 +25,7 @@
             "fieldtype": "Data",
             "in_list_view": 1,
             "label": "Area Name",
-            "reqd": 1,
-            "unique": 1
+            "reqd": 1
         },
         {
             "fieldname": "geo_fencing_type",
@@ -50,13 +48,6 @@
             "label": "Geo Fencing Coordinates",
             "options": "Geo Fencing Coordinate",
             "reqd": 1
-        },
-        {
-            "fieldname": "code",
-            "fieldtype": "Data",
-            "in_list_view": 1,
-            "label": "Code",
-            "unique": 1
         },
         {
             "fieldname": "level_sequence",
@@ -93,14 +84,12 @@
         }
     ],
     "index_web_pages_for_search": 1,
-    "is_tree": 1,
     "links": [],
     "modified": "2025-11-20 13:07:00.000000",
     "modified_by": "Administrator",
     "module": "Farm To Crop",
     "name": "Geo Fencing Area",
     "naming_rule": "By fieldname",
-    "nsm_parent_field": "parent_area",
     "owner": "Administrator",
     "permissions": [
         {

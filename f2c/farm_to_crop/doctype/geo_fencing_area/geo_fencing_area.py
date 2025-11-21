@@ -3,10 +3,9 @@
 
 import frappe
 from frappe.model.document import Document
-from frappe.utils.nestedset import NestedSet
 
 
-class GeoFencingArea(NestedSet):
+class GeoFencingArea(Document):
 	def before_save(self):
 		"""Set level sequence based on geo fencing type"""
 		self.set_level_sequence()
