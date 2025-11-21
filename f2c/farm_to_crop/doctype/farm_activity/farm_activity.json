@@ -1,0 +1,79 @@
+{
+    "actions": [],
+    "allow_import": 1,
+    "allow_rename": 1,
+    "creation": "2025-11-20 15:00:00.000000",
+    "doctype": "DocType",
+    "document_type": "Document",
+    "engine": "InnoDB",
+    "field_order": [
+        "id",
+        "activity_name",
+        "activity_group_type"
+    ],
+    "fields": [
+        {
+            "fieldname": "id",
+            "fieldtype": "Select",
+            "label": "Series",
+            "options": "FA-",
+            "reqd": 1,
+            "default": "FA-"
+        },
+        {
+            "fieldname": "activity_name",
+            "fieldtype": "Data",
+            "in_list_view": 1,
+            "label": "Activity Name",
+            "reqd": 1,
+            "unique": 1
+        },
+        {
+            "fieldname": "activity_group_type",
+            "fieldtype": "Select",
+            "in_list_view": 1,
+            "in_standard_filter": 1,
+            "label": "Activity Group Type",
+            "options": "Field Planning\nLand Preparation\nPlant Management\nFloor Management\nNutrition & Plant Protection\nCrop Recordkeeping\nHarvest Management\nLabour Management\nEquipment & Infra",
+            "reqd": 1
+        }
+    ],
+    "index_web_pages_for_search": 1,
+    "links": [],
+    "modified": "2025-11-20 15:00:00.000000",
+    "modified_by": "Administrator",
+    "module": "Farm To Crop",
+    "name": "Farm Activity",
+    "naming_rule": "Expression",
+    "owner": "Administrator",
+    "permissions": [
+        {
+            "create": 1,
+            "delete": 1,
+            "email": 1,
+            "export": 1,
+            "print": 1,
+            "read": 1,
+            "report": 1,
+            "role": "System Manager",
+            "share": 1,
+            "write": 1
+        },
+        {
+            "create": 1,
+            "email": 1,
+            "export": 1,
+            "print": 1,
+            "read": 1,
+            "report": 1,
+            "role": "All",
+            "share": 1,
+            "write": 1
+        }
+    ],
+    "sort_field": "modified",
+    "sort_order": "DESC",
+    "states": [],
+    "track_changes": 1
+}
+
