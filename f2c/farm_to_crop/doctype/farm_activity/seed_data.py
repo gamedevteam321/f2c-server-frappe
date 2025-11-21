@@ -19,17 +19,8 @@ def seed_farm_activity():
 			]
 		},
 		"Land Preparation": {
-			"Primary Tilling-MB Plough": [],
-			"Primary Tilling-Disc Plough": [],
-			"Primary Tilling-Sub Soiler": [],
-			"Secondary Tilling-Cultivator": [],
-			"Secondary Tilling-Duck Foot Cultivator": [],
-			"Secondary Tilling-Rotavator": [],
-			"Secondary Tilling-Tine Harrow": [],
-			"Secondary Tilling-Disc Harrow": [],
-			"Secondary Tilling-Power Harrow": [],
-			"Secondary Tilling-Ridge & Furrow": [],
-			"Secondary Tilling-Raised Bed": [],
+			"Primary Tilling": [],
+			"Secondary Tilling": [],
 			"Pit Digging": [],
 			"Stone Removal": [],
 			"Boundary Clearance": []
@@ -47,17 +38,13 @@ def seed_farm_activity():
 			"Thinning": []
 		},
 		"Floor Management": {
-			"Deweeding - Row to Row": [],
-			"Deweeding - Plant to Plant": [],
+			"Deweeding": [],
 			"Hoeing": [],
 			"Digging": [],
 			"Earthing up": [],
 			"Drain Mgmt": [],
 			"Mulching": [],
-			"Irrigation - Canal": [],
-			"Irrigation - Flood": [],
-			"Irrigation - Drip": [],
-			"Irrigation - Sprinkler": [],
+			"Irrigation": [],
 			"Sanitation": []
 		},
 		"Nutrition & Plant Protection": {
