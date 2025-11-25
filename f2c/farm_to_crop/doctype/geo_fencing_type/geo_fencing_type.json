@@ -8,7 +8,8 @@
     "document_type": "Document",
     "engine": "InnoDB",
     "field_order": [
-        "geo_fencing_type_name"
+        "geo_fencing_type_name",
+        "color"
     ],
     "fields": [
         {
@@ -16,9 +17,16 @@
             "fieldtype": "Select",
             "in_list_view": 1,
             "label": "Geo Fencing Type",
-            "options": "Farm\nCluster\nField\nPlot\nBlock\nRow",
+            "options": "Farm\nCluster\nField\nPlot\nBlock\nRow\nUnallocated",
             "reqd": 1,
             "unique": 1
+        },
+        {
+            "fieldname": "color",
+            "fieldtype": "Color",
+            "in_list_view": 1,
+            "label": "Color",
+            "default": "#10b981"
         }
     ],
     "index_web_pages_for_search": 1,
