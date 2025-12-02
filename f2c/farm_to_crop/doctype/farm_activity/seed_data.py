@@ -95,8 +95,21 @@ def seed_farm_activity():
 		seq_counter = 1
 		
 		for activity_name, sub_activities in activities.items():
-			# Create main activity (sequence 1, no parent)
-			if not frappe.db.exists("Farm Activity", {"activity_name": activity_name}):
+			# Create or update main activity (sequence 1, no parent)
+			existing_activity = frappe.db.get_value("Farm Activity", {"activity_name": activity_name}, "name")
+			
+			if existing_activity:
+				# Update existing document
+				doc = frappe.get_doc("Farm Activity", existing_activity)
+				doc.activity_group_type = group_name
+				doc.sequence = 1
+				doc.parent_activity = None
+				doc.save(ignore_permissions=True)
+				frappe.db.commit()
+				activity_id = doc.name
+				print(f"Updated main activity: {activity_name} (Sequence: 1, Group: {group_name})")
+			else:
+				# Create new document
 				doc = frappe.get_doc({
 					"doctype": "Farm Activity",
 					"activity_name": activity_name,
@@ -108,39 +121,33 @@ def seed_farm_activity():
 				frappe.db.commit()
 				activity_id = doc.name
 				print(f"Created main activity: {activity_name} (Sequence: 1, Group: {group_name})")
-			else:
-				activity_id = frappe.db.get_value("Farm Activity", {"activity_name": activity_name}, "name")
-				# Update sequence and parent if not set correctly
-				frappe.db.set_value("Farm Activity", activity_id, {
-					"parent_activity": None,
-					"sequence": 1,
-					"activity_group_type": group_name
-				})
-				print(f"Main activity already exists: {activity_name}, updated")
 			
-			# Create sub-activities (sequence 2, parent = main activity)
+			# Create or update sub-activities (sequence 2, parent = main activity)
 			sub_seq = 1
 			for sub_activity_name in sub_activities:
-				if not frappe.db.exists("Farm Activity", {"activity_name": sub_activity_name}):
-					doc = frappe.get_doc({
+				existing_sub_activity = frappe.db.get_value("Farm Activity", {"activity_name": sub_activity_name}, "name")
+				
+				if existing_sub_activity:
+					# Update existing document
+					sub_doc = frappe.get_doc("Farm Activity", existing_sub_activity)
+					sub_doc.activity_group_type = group_name
+					sub_doc.sequence = 2
+					sub_doc.parent_activity = activity_id
+					sub_doc.save(ignore_permissions=True)
+					frappe.db.commit()
+					print(f"Updated sub-activity: {sub_activity_name} (Sequence: 2, Parent: {activity_name})")
+				else:
+					# Create new document
+					sub_doc = frappe.get_doc({
 						"doctype": "Farm Activity",
 						"activity_name": sub_activity_name,
 						"activity_group_type": group_name,
 						"sequence": 2,
 						"parent_activity": activity_id
 					})
-					doc.insert(ignore_permissions=True)
+					sub_doc.insert(ignore_permissions=True)
 					frappe.db.commit()
 					print(f"Created sub-activity: {sub_activity_name} (Sequence: 2, Parent: {activity_name})")
-				else:
-					sub_activity_id = frappe.db.get_value("Farm Activity", {"activity_name": sub_activity_name}, "name")
-					# Update parent and sequence if not set
-					frappe.db.set_value("Farm Activity", sub_activity_id, {
-						"parent_activity": activity_id,
-						"sequence": 2,
-						"activity_group_type": group_name
-					})
-					print(f"Sub-activity already exists: {sub_activity_name}, updated parent")
 				sub_seq += 1
 			
 			seq_counter += 1

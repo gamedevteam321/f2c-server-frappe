@@ -1,0 +1,203 @@
+{
+    "actions": [],
+    "allow_import": 1,
+    "allow_rename": 1,
+    "autoname": "format:POP-{###}",
+    "creation": "2025-01-20 10:00:00.000000",
+    "doctype": "DocType",
+    "document_type": "Document",
+    "engine": "InnoDB",
+    "field_order": [
+        "section_break_crop",
+        "crop_type",
+        "crop_stage",
+        "crop_stage_name",
+        "column_break_1",
+        "trigger_event",
+        "trigger_event_name",
+        "section_break_1",
+        "trigger_data",
+        "column_break_2",
+        "trigger_unit",
+        "section_break_2",
+        "activity_type",
+        "activity_type_name",
+        "item",
+        "item_quantity",
+        "column_break_3",
+        "item_unit",
+        "section_break_3",
+        "purpose",
+        "remarks"
+    ],
+    "fields": [
+        {
+            "fieldname": "section_break_crop",
+            "fieldtype": "Section Break",
+            "label": "Crop Information"
+        },
+        {
+            "fieldname": "crop_type",
+            "fieldtype": "Link",
+            "in_list_view": 1,
+            "in_standard_filter": 1,
+            "label": "Crop Type",
+            "options": "Crop Type",
+            "reqd": 1
+        },
+        {
+            "fieldname": "crop_stage",
+            "fieldtype": "Link",
+            "in_standard_filter": 1,
+            "label": "Crop Stage",
+            "options": "Crop Stage",
+            "reqd": 1
+        },
+        {
+            "depends_on": "crop_stage",
+            "fetch_from": "crop_stage.stage",
+            "fieldname": "crop_stage_name",
+            "fieldtype": "Data",
+            "in_list_view": 1,
+            "label": "Stage Name",
+            "read_only": 1
+        },
+        {
+            "fieldname": "column_break_1",
+            "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "trigger_event",
+            "fieldtype": "Link",
+            "in_standard_filter": 1,
+            "label": "Trigger Event",
+            "options": "Trigger Event",
+            "reqd": 1
+        },
+        {
+            "depends_on": "trigger_event",
+            "fetch_from": "trigger_event.event_name",
+            "fieldname": "trigger_event_name",
+            "fieldtype": "Data",
+            "in_list_view": 1,
+            "label": "Event Name",
+            "read_only": 1
+        },
+        {
+            "fieldname": "section_break_1",
+            "fieldtype": "Section Break",
+            "label": "Trigger Details"
+        },
+        {
+            "fieldname": "trigger_data",
+            "fieldtype": "Data",
+            "label": "Trigger Data"
+        },
+        {
+            "fieldname": "column_break_2",
+            "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "trigger_unit",
+            "fieldtype": "Link",
+            "label": "Trigger Unit",
+            "options": "UOM"
+        },
+        {
+            "fieldname": "section_break_2",
+            "fieldtype": "Section Break",
+            "label": "Activity & Item Details"
+        },
+        {
+            "fieldname": "activity_type",
+            "fieldtype": "Link",
+            "label": "Activity Type",
+            "options": "Farm Activity"
+        },
+        {
+            "depends_on": "activity_type",
+            "fetch_from": "activity_type.activity_name",
+            "fieldname": "activity_type_name",
+            "fieldtype": "Data",
+            "in_list_view": 1,
+            "label": "Activity Name",
+            "read_only": 1
+        },
+        {
+            "fieldname": "item",
+            "fieldtype": "Link",
+            "in_list_view": 1,
+            "label": "Item",
+            "options": "Item"
+        },
+        {
+            "fieldname": "item_quantity",
+            "fieldtype": "Float",
+            "label": "Item Quantity",
+            "precision": 3
+        },
+        {
+            "fieldname": "column_break_3",
+            "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "item_unit",
+            "fieldtype": "Link",
+            "label": "Item Unit",
+            "options": "UOM"
+        },
+        {
+            "fieldname": "section_break_3",
+            "fieldtype": "Section Break",
+            "label": "Additional Information"
+        },
+        {
+            "fieldname": "purpose",
+            "fieldtype": "Data",
+            "label": "Purpose"
+        },
+        {
+            "fieldname": "remarks",
+            "fieldtype": "Text Editor",
+            "label": "Remarks"
+        }
+    ],
+    "index_web_pages_for_search": 1,
+    "links": [],
+    "modified": "2025-01-20 10:00:00.000000",
+    "modified_by": "Administrator",
+    "module": "Farm To Crop",
+    "name": "POP-Activity List",
+    "naming_rule": "By fieldname",
+    "owner": "Administrator",
+    "permissions": [
+        {
+            "create": 1,
+            "delete": 1,
+            "email": 1,
+            "export": 1,
+            "print": 1,
+            "read": 1,
+            "report": 1,
+            "role": "System Manager",
+            "share": 1,
+            "write": 1
+        },
+        {
+            "create": 1,
+            "email": 1,
+            "export": 1,
+            "print": 1,
+            "read": 1,
+            "report": 1,
+            "role": "All",
+            "share": 1,
+            "write": 1
+        }
+    ],
+    "sort_field": "modified",
+    "sort_order": "DESC",
+    "states": [],
+    "track_changes": 1
+}
+

@@ -2,68 +2,71 @@
     "actions": [],
     "allow_import": 1,
     "allow_rename": 1,
-    "creation": "2025-11-20 15:00:00.000000",
+    "autoname": "field:crop_name",
+    "creation": "2025-01-20 10:00:00.000000",
     "doctype": "DocType",
     "document_type": "Document",
     "engine": "InnoDB",
     "field_order": [
-        "id",
-        "activity_name",
-        "activity_group_type",
-        "sequence",
-        "parent_activity"
+        "crop_name",
+        "crop_type",
+        "section_break_1",
+        "description",
+        "section_break_2",
+        "scientific_name",
+        "variety"
     ],
     "fields": [
         {
-            "fieldname": "id",
-            "fieldtype": "Select",
-            "label": "Series",
-            "options": "FA-",
-            "reqd": 1,
-            "default": "FA-"
-        },
-        {
-            "fieldname": "activity_name",
+            "fieldname": "crop_name",
             "fieldtype": "Data",
             "in_list_view": 1,
-            "label": "Activity Name",
+            "label": "Crop Name",
             "reqd": 1,
             "unique": 1
         },
         {
-            "fieldname": "activity_group_type",
+            "fieldname": "crop_type",
             "fieldtype": "Link",
             "in_list_view": 1,
             "in_standard_filter": 1,
-            "label": "Activity Group Type",
-            "options": "Activity Group Type",
+            "label": "Crop Type",
+            "options": "Crop Type",
             "reqd": 1
         },
         {
-            "fieldname": "sequence",
-            "fieldtype": "Int",
-            "in_list_view": 1,
-            "label": "Sequence",
-            "reqd": 1,
-            "default": 1
+            "fieldname": "section_break_1",
+            "fieldtype": "Section Break",
+            "label": "Details"
         },
         {
-            "fieldname": "parent_activity",
-            "fieldtype": "Link",
-            "label": "Parent Activity",
-            "options": "Farm Activity"
+            "fieldname": "description",
+            "fieldtype": "Text Editor",
+            "label": "Description"
+        },
+        {
+            "fieldname": "section_break_2",
+            "fieldtype": "Section Break",
+            "label": "Additional Information"
+        },
+        {
+            "fieldname": "scientific_name",
+            "fieldtype": "Data",
+            "label": "Scientific Name"
+        },
+        {
+            "fieldname": "variety",
+            "fieldtype": "Data",
+            "label": "Variety"
         }
     ],
     "index_web_pages_for_search": 1,
-    "is_tree": 1,
     "links": [],
-    "modified": "2025-11-20 15:00:00.000000",
+    "modified": "2025-01-20 10:00:00.000000",
     "modified_by": "Administrator",
     "module": "Farm To Crop",
-    "name": "Farm Activity",
-    "naming_rule": "Expression",
-    "nsm_parent_field": "parent_activity",
-    "parent_field": "parent_activity",
+    "name": "Crop",
+    "naming_rule": "By fieldname",
     "owner": "Administrator",
     "permissions": [
         {
@@ -90,8 +93,8 @@
             "write": 1
         }
     ],
-    "sort_field": "sequence",
-    "sort_order": "ASC",
+    "sort_field": "modified",
+    "sort_order": "DESC",
     "states": [],
     "track_changes": 1
 }

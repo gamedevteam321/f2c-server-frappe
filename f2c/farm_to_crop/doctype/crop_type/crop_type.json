@@ -2,39 +2,36 @@
     "actions": [],
     "allow_import": 1,
     "allow_rename": 1,
-    "autoname": "field:geo_fencing_type_name",
-    "creation": "2025-11-20 12:57:00.000000",
+    "autoname": "field:crop_type_name",
+    "creation": "2025-01-20 10:00:00.000000",
     "doctype": "DocType",
     "document_type": "Document",
     "engine": "InnoDB",
     "field_order": [
-        "geo_fencing_type_name",
-        "color"
+        "crop_type_name",
+        "description"
     ],
     "fields": [
         {
-            "fieldname": "geo_fencing_type_name",
-            "fieldtype": "Select",
+            "fieldname": "crop_type_name",
+            "fieldtype": "Data",
             "in_list_view": 1,
-            "label": "Geo Fencing Type",
-            "options": "Farm\nCluster\nField\nPlot\nBlock\nRow\nUnallocated",
+            "label": "Crop Type Name",
             "reqd": 1,
             "unique": 1
         },
         {
-            "fieldname": "color",
-            "fieldtype": "Color",
-            "in_list_view": 1,
-            "label": "Color",
-            "default": "#10b981"
+            "fieldname": "description",
+            "fieldtype": "Text Editor",
+            "label": "Description"
         }
     ],
     "index_web_pages_for_search": 1,
     "links": [],
-    "modified": "2025-11-20 12:57:00.000000",
+    "modified": "2025-01-20 10:00:00.000000",
     "modified_by": "Administrator",
     "module": "Farm To Crop",
-    "name": "Geo Fencing Type",
+    "name": "Crop Type",
     "naming_rule": "By fieldname",
     "owner": "Administrator",
     "permissions": [
@@ -67,3 +64,4 @@
     "states": [],
     "track_changes": 1
 }
+
