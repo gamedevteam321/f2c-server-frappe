@@ -2,6 +2,7 @@
     "actions": [],
     "allow_import": 1,
     "allow_rename": 1,
+    "autoname": "format:PA-{####}",
     "creation": "2025-01-20 10:00:00.000000",
     "doctype": "DocType",
     "document_type": "Document",

@@ -4,8 +4,8 @@
 import frappe
 
 
-def seed_crop_type():
-	"""Seed crop types with predefined categories"""
+def seed_crop_group():
+	"""Seed crop groups with predefined categories"""
 	
 	crop_types = [
 		{
@@ -43,20 +43,20 @@ def seed_crop_type():
 	]
 	
 	for crop_type_data in crop_types:
-		# Check if crop type already exists
-		if not frappe.db.exists("Crop Type", crop_type_data["crop_type_name"]):
+		# Check if crop group already exists
+		if not frappe.db.exists("Crop Group", crop_type_data["crop_type_name"]):
 			doc = frappe.get_doc({
-				"doctype": "Crop Type",
+				"doctype": "Crop Group",
 				**crop_type_data
 			})
 			doc.insert(ignore_permissions=True)
 			frappe.db.commit()
-			print(f"Created Crop Type: {crop_type_data['crop_type_name']}")
+			print(f"Created Crop Group: {crop_type_data['crop_type_name']}")
 		else:
-			print(f"Crop Type already exists: {crop_type_data['crop_type_name']}")
+			print(f"Crop Group already exists: {crop_type_data['crop_type_name']}")
 
 
 if __name__ == "__main__":
 	frappe.connect()
-	seed_crop_type()
+	seed_crop_group()
 

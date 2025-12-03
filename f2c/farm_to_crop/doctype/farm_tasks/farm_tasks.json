@@ -2,66 +2,37 @@
     "actions": [],
     "allow_import": 1,
     "allow_rename": 1,
-    "autoname": "format:POP-{####}",
-    "creation": "2025-01-20 10:00:00.000000",
+    "autoname": "field:task_name",
+    "creation": "2025-12-03 00:00:00.000000",
     "doctype": "DocType",
     "document_type": "Document",
     "engine": "InnoDB",
     "field_order": [
-        "pop_name",
-        "crop",
-        "section_break_1",
-        "description",
-        "section_break_2",
-        "activities"
+        "task_name",
+        "items"
     ],
     "fields": [
         {
-            "fieldname": "pop_name",
+            "fieldname": "task_name",
             "fieldtype": "Data",
             "in_list_view": 1,
-            "label": "POP Name",
+            "label": "Task Name",
             "reqd": 1,
             "unique": 1
         },
         {
-            "fieldname": "crop",
-            "fieldtype": "Link",
-            "in_list_view": 1,
-            "in_standard_filter": 1,
-            "label": "Crop",
-            "options": "Crop",
-            "reqd": 1
-        },
-        {
-            "fieldname": "section_break_1",
-            "fieldtype": "Section Break",
-            "label": "Details"
-        },
-        {
-            "fieldname": "description",
-            "fieldtype": "Text Editor",
-            "label": "Description"
-        },
-        {
-            "fieldname": "section_break_2",
-            "fieldtype": "Section Break",
-            "label": "Activities"
-        },
-        {
-            "fieldname": "activities",
+            "fieldname": "items",
             "fieldtype": "Table",
-            "label": "Activities",
-            "options": "POP Activity",
-            "reqd": 1
+            "label": "Items",
+            "options": "Farm Task Item"
         }
     ],
     "index_web_pages_for_search": 1,
     "links": [],
-    "modified": "2025-01-20 10:00:00.000000",
+    "modified": "2025-12-03 00:00:00.000000",
     "modified_by": "Administrator",
     "module": "Farm To Crop",
-    "name": "POP",
+    "name": "Farm Tasks",
     "naming_rule": "By fieldname",
     "owner": "Administrator",
     "permissions": [
@@ -94,4 +65,5 @@
     "states": [],
     "track_changes": 1
 }
+
 

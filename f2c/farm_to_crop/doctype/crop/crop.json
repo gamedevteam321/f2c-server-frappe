@@ -9,7 +9,7 @@
     "engine": "InnoDB",
     "field_order": [
         "crop_name",
-        "crop_type",
+        "crop_group",
         "section_break_1",
         "description",
         "section_break_2",
@@ -30,8 +30,8 @@
             "fieldtype": "Link",
             "in_list_view": 1,
             "in_standard_filter": 1,
-            "label": "Crop Type",
-            "options": "Crop Type",
+            "label": "Crop Group",
+            "options": "Crop Group",
             "reqd": 1
         },
         {

@@ -5,6 +5,6 @@ import frappe
 from frappe.model.document import Document
 
 
-class CropType(Document):
+class CropGroup(Document):
 	pass
 

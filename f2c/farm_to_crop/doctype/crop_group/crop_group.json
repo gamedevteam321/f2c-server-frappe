@@ -31,7 +31,7 @@
     "modified": "2025-01-20 10:00:00.000000",
     "modified_by": "Administrator",
     "module": "Farm To Crop",
-    "name": "Crop Type",
+    "name": "Crop Group",
     "naming_rule": "By fieldname",
     "owner": "Administrator",
     "permissions": [

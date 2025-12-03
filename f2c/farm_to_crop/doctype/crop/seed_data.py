@@ -5,7 +5,7 @@ import frappe
 
 
 def seed_crop():
-	"""Seed crops with predefined common crops mapped to crop types"""
+	"""Seed crops with predefined common crops mapped to crop groups"""
 	
 	crops = [
 		# Cereals/Grains
@@ -256,8 +256,8 @@ def seed_crop():
 	for crop_data in crops:
 		# Check if crop already exists
 		if not frappe.db.exists("Crop", crop_data["crop_name"]):
-			# Verify crop type exists
-			if frappe.db.exists("Crop Type", crop_data["crop_type"]):
+			# Verify crop group exists
+			if frappe.db.exists("Crop Group", crop_data["crop_type"]):
 				doc = frappe.get_doc({
 					"doctype": "Crop",
 					**crop_data
@@ -266,7 +266,7 @@ def seed_crop():
 				frappe.db.commit()
 				print(f"Created Crop: {crop_data['crop_name']} ({crop_data['crop_type']})")
 			else:
-				print(f"Crop Type '{crop_data['crop_type']}' does not exist. Please seed crop types first. Skipping: {crop_data['crop_name']}")
+				print(f"Crop Group '{crop_data['crop_type']}' does not exist. Please seed crop groups first. Skipping: {crop_data['crop_name']}")
 		else:
 			print(f"Crop already exists: {crop_data['crop_name']}")
 

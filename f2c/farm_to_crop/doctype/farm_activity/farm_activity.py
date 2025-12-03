@@ -54,12 +54,7 @@ class FarmActivity(Document):
 		self.name = f"{prefix}{next_number:03d}"
 	
 	def validate(self):
-		"""Validate parent activity and sequence"""
-		# Validate sequence
-		if not self.sequence or self.sequence < 1:
-			frappe.throw("Sequence must be a positive integer")
-		
-		# Auto-set sequence based on parent if not explicitly set
+		"""Validate parent activity hierarchy (no sequence handling)."""
 		if self.parent_activity:
 			# Prevent an activity from being its own parent
 			if self.parent_activity == self.name:
@@ -69,19 +64,8 @@ class FarmActivity(Document):
 			if not frappe.db.exists("Farm Activity", self.parent_activity):
 				frappe.throw(f"Parent Activity '{self.parent_activity}' does not exist")
 			
-			# Get parent sequence
-			parent_sequence = frappe.db.get_value("Farm Activity", self.parent_activity, "sequence")
-			if parent_sequence:
-				# If sequence is not set or is less than parent + 1, auto-set it
-				if not self.sequence or self.sequence <= parent_sequence:
-					self.sequence = parent_sequence + 1
-			
 			# Check for circular references
 			self._check_circular_reference(self.name, self.parent_activity)
-		else:
-			# If no parent, ensure sequence is 1 for top-level activities
-			if not self.sequence or self.sequence < 1:
-				self.sequence = 1
 	
 	def _check_circular_reference(self, current_activity, parent_activity, visited=None):
 		"""Recursively check for circular references in parent hierarchy"""

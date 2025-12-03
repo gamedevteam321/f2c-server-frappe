@@ -10,8 +10,9 @@
         "id",
         "activity_name",
         "activity_group_type",
-        "sequence",
-        "parent_activity"
+        "parent_activity",
+        "section_break_tasks",
+        "farm_tasks"
     ],
     "fields": [
         {
@@ -40,24 +41,27 @@
             "reqd": 1
         },
         {
-            "fieldname": "sequence",
-            "fieldtype": "Int",
-            "in_list_view": 1,
-            "label": "Sequence",
-            "reqd": 1,
-            "default": 1
-        },
-        {
             "fieldname": "parent_activity",
             "fieldtype": "Link",
             "label": "Parent Activity",
             "options": "Farm Activity"
+        },
+        {
+            "fieldname": "section_break_tasks",
+            "fieldtype": "Section Break",
+            "label": "Farm Tasks"
+        },
+        {
+            "fieldname": "farm_tasks",
+            "fieldtype": "Table",
+            "label": "Tasks",
+            "options": "Farm Activity Task"
         }
     ],
     "index_web_pages_for_search": 1,
     "is_tree": 1,
     "links": [],
-    "modified": "2025-11-20 15:00:00.000000",
+    "modified": "2025-12-03 00:00:00.000000",
     "modified_by": "Administrator",
     "module": "Farm To Crop",
     "name": "Farm Activity",
@@ -90,9 +94,10 @@
             "write": 1
         }
     ],
-    "sort_field": "sequence",
+    "sort_field": "modified",
     "sort_order": "ASC",
     "states": [],
     "track_changes": 1
 }
+
 
