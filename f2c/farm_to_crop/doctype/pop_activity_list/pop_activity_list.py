@@ -13,8 +13,8 @@ class POPActivityList(Document):
 @frappe.validate_and_sanitize_search_inputs
 def get_crop_stage_query(doctype, txt, searchfield, start, page_len, filters):
 	"""Custom query to show stage name in Crop Stage dropdown"""
-    return frappe.db.sql(
-        """
+	return frappe.db.sql(
+		"""
 		SELECT 
 			name,
 			CONCAT(stage, ' (', name, ')') as description
@@ -24,50 +24,50 @@ def get_crop_stage_query(doctype, txt, searchfield, start, page_len, filters):
 			OR stage LIKE %(txt)s
 		ORDER BY stage
 		LIMIT %(start)s, %(page_len)s
-        """.format(
-            key=searchfield
-        ),
-        {
-            "txt": f"%{txt}%",
-            "start": start,
-            "page_len": page_len,
-        },
-    )
+		""".format(
+			key=searchfield
+		),
+		{
+			"txt": f"%{txt}%",
+			"start": start,
+			"page_len": page_len,
+		},
+	)
 
 
 @frappe.whitelist()
 @frappe.validate_and_sanitize_search_inputs
 def get_activity_query(doctype, txt, searchfield, start, page_len, filters):
-    """Custom query to show activity_name in Activity dropdown, filtered by Activity Group Type."""
+	"""Custom query to show activity_name in Activity dropdown, filtered by Activity Group Type."""
 
-    where_conditions = [
-        f"(fa.{searchfield} LIKE %(txt)s OR fa.activity_name LIKE %(txt)s)"
-    ]
+	where_conditions = [
+		f"(fa.{searchfield} LIKE %(txt)s OR fa.activity_name LIKE %(txt)s)"
+	]
 
-    params = {
-        "txt": f"%{txt}%",
-        "start": start,
-        "page_len": page_len,
-    }
+	params = {
+		"txt": f"%{txt}%",
+		"start": start,
+		"page_len": page_len,
+	}
 
-    if filters and filters.get("activity_group_type"):
-        where_conditions.append("fa.activity_group_type = %(activity_group_type)s")
-        params["activity_group_type"] = filters.get("activity_group_type")
+	if filters and filters.get("activity_group_type"):
+		where_conditions.append("fa.activity_group_type = %(activity_group_type)s")
+		params["activity_group_type"] = filters.get("activity_group_type")
 
-    where_clause = " AND ".join(where_conditions)
+	where_clause = " AND ".join(where_conditions)
 
-    return frappe.db.sql(
-        f"""
+	return frappe.db.sql(
+		f"""
 		SELECT 
-            fa.name,
-            CONCAT(fa.activity_name, ' (', fa.name, ')') as description
-        FROM `tabFarm Activity` fa
-        WHERE {where_clause}
-        ORDER BY fa.activity_name
+			fa.name,
+			CONCAT(fa.activity_name, ' (', fa.name, ')') as description
+		FROM `tabFarm Activity` fa
+		WHERE {where_clause}
+		ORDER BY fa.activity_name
 		LIMIT %(start)s, %(page_len)s
-        """,
-        params,
-    )
+		""",
+		params,
+	)
 
 
 @frappe.whitelist()
