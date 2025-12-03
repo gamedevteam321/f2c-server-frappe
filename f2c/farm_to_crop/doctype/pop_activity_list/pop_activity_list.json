@@ -9,25 +9,21 @@
     "engine": "InnoDB",
     "field_order": [
         "section_break_crop",
-        "crop_group",
+        "crop",
         "crop_stage",
         "crop_stage_name",
-        "column_break_1",
-        "trigger_event",
-        "trigger_event_name",
-        "section_break_1",
-        "trigger_data",
-        "column_break_2",
-        "trigger_unit",
-        "section_break_2",
-        "activity_type",
-        "activity_type_name",
-        "item",
-        "item_quantity",
-        "column_break_3",
-        "item_unit",
-        "section_break_3",
-        "purpose",
+        "column_break_crop",
+        "duration_after_stage",
+        "is_dat",
+        "dat",
+        "section_break_activity",
+        "activity_group_type",
+        "activity",
+        "activity_name",
+        "section_break_tasks",
+        "tasks_items_view",
+        "tasks_items",
+        "section_break_remarks",
         "remarks"
     ],
     "fields": [
@@ -37,12 +33,12 @@
             "label": "Crop Information"
         },
         {
-            "fieldname": "crop_type",
+            "fieldname": "crop",
             "fieldtype": "Link",
             "in_list_view": 1,
             "in_standard_filter": 1,
-            "label": "Crop Group",
-            "options": "Crop Group",
+            "label": "Crop",
+            "options": "Crop",
             "reqd": 1
         },
         {
@@ -63,98 +59,77 @@
             "read_only": 1
         },
         {
-            "fieldname": "column_break_1",
+            "fieldname": "column_break_crop",
             "fieldtype": "Column Break"
         },
         {
-            "fieldname": "trigger_event",
+            "fieldname": "duration_after_stage",
+            "fieldtype": "Int",
+            "label": "Duration After Stage"
+        },
+        {
+            "fieldname": "is_dat",
+            "fieldtype": "Check",
+            "label": "Is DAT"
+        },
+        {
+            "depends_on": "eval:doc.is_dat==1",
+            "fieldname": "dat",
+            "fieldtype": "Int",
+            "label": "DAT"
+        },
+        {
+            "fieldname": "section_break_activity",
+            "fieldtype": "Section Break",
+            "label": "Activity Details"
+        },
+        {
+            "fieldname": "activity_group_type",
             "fieldtype": "Link",
             "in_standard_filter": 1,
-            "label": "Trigger Event",
-            "options": "Trigger Event",
+            "label": "Activity Group Type",
+            "options": "Activity Group Type",
             "reqd": 1
         },
         {
-            "depends_on": "trigger_event",
-            "fetch_from": "trigger_event.event_name",
-            "fieldname": "trigger_event_name",
-            "fieldtype": "Data",
+            "fieldname": "activity",
+            "fieldtype": "Link",
             "in_list_view": 1,
-            "label": "Event Name",
-            "read_only": 1
+            "in_standard_filter": 1,
+            "label": "Activity",
+            "options": "Farm Activity",
+            "reqd": 1
         },
         {
-            "fieldname": "section_break_1",
-            "fieldtype": "Section Break",
-            "label": "Trigger Details"
-        },
-        {
-            "fieldname": "trigger_data",
-            "fieldtype": "Data",
-            "label": "Trigger Data"
-        },
-        {
-            "fieldname": "column_break_2",
-            "fieldtype": "Column Break"
-        },
-        {
-            "fieldname": "trigger_unit",
-            "fieldtype": "Link",
-            "label": "Trigger Unit",
-            "options": "UOM"
-        },
-        {
-            "fieldname": "section_break_2",
-            "fieldtype": "Section Break",
-            "label": "Activity & Item Details"
-        },
-        {
-            "fieldname": "activity_type",
-            "fieldtype": "Link",
-            "label": "Activity Type",
-            "options": "Farm Activity"
-        },
-        {
-            "depends_on": "activity_type",
-            "fetch_from": "activity_type.activity_name",
-            "fieldname": "activity_type_name",
+            "depends_on": "activity",
+            "fetch_from": "activity.activity_name",
+            "fieldname": "activity_name",
             "fieldtype": "Data",
             "in_list_view": 1,
             "label": "Activity Name",
             "read_only": 1
         },
         {
-            "fieldname": "item",
-            "fieldtype": "Link",
-            "in_list_view": 1,
-            "label": "Item",
-            "options": "Item"
+            "fieldname": "section_break_tasks",
+            "fieldtype": "Section Break",
+            "label": "Tasks and Items"
         },
         {
-            "fieldname": "item_quantity",
-            "fieldtype": "Float",
-            "label": "Item Quantity",
-            "precision": 3
+            "fieldname": "tasks_items_view",
+            "fieldtype": "HTML",
+            "label": "Tasks and Items"
         },
         {
-            "fieldname": "column_break_3",
-            "fieldtype": "Column Break"
+            "fieldname": "tasks_items",
+            "fieldtype": "Table",
+            "label": "Tasks and Items",
+            "options": "POP Activity Task Item",
+            "hidden": 1
         },
         {
-            "fieldname": "item_unit",
-            "fieldtype": "Link",
-            "label": "Item Unit",
-            "options": "UOM"
-        },
-        {
-            "fieldname": "section_break_3",
+            "fieldname": "section_break_remarks",
             "fieldtype": "Section Break",
             "label": "Additional Information"
-        },
-        {
-            "fieldname": "purpose",
-            "fieldtype": "Data",
-            "label": "Purpose"
         },
         {
             "fieldname": "remarks",
@@ -164,7 +139,7 @@
     ],
     "index_web_pages_for_search": 1,
     "links": [],
-    "modified": "2025-01-20 10:00:00.000000",
+    "modified": "2025-12-03 00:00:00.000000",
     "modified_by": "Administrator",
     "module": "Farm To Crop",
     "name": "POP-Activity List",

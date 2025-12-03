@@ -38,3 +38,33 @@ function setup_pop_activity_list_query(frm) {
 	}
 }
 
+// Child table: keep Activity Name in sync when POP-Activity List is selected
+frappe.ui.form.on('POP Activity', {
+	pop_activity_list: function(frm, cdt, cdn) {
+		const row = locals[cdt][cdn];
+
+		if (!row.pop_activity_list) {
+			frappe.model.set_value(cdt, cdn, 'activity_name', null);
+			return;
+		}
+
+		// First try to read cached activity_name from POP-Activity List.
+		// If it's missing (older records), fall back to Farm Activity.activity_name.
+		frappe.db.get_value('POP-Activity List', row.pop_activity_list, ['activity', 'activity_name'])
+			.then(r => {
+				const data = r && r.message ? r.message : {};
+				if (data.activity_name) {
+					frappe.model.set_value(cdt, cdn, 'activity_name', data.activity_name);
+				} else if (data.activity) {
+					frappe.db.get_value('Farm Activity', data.activity, 'activity_name')
+						.then(r2 => {
+							const name = r2 && r2.message ? r2.message.activity_name : '';
+							frappe.model.set_value(cdt, cdn, 'activity_name', name);
+						});
+				} else {
+					frappe.model.set_value(cdt, cdn, 'activity_name', '');
+				}
+			});
+	}
+});
+

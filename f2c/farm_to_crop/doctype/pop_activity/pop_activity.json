@@ -24,7 +24,7 @@
         },
         {
             "depends_on": "pop_activity_list",
-            "fetch_from": "pop_activity_list.activity_type_name",
+            "fetch_from": "pop_activity_list.activity_name",
             "fieldname": "activity_name",
             "fieldtype": "Data",
             "in_list_view": 1,
