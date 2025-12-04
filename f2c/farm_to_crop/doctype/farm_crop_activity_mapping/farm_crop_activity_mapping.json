@@ -20,6 +20,7 @@
   "activity_group_type",
   "activity",
   "activity_name",
+  "category",
   "section_break_tasks",
   "tasks_items_view",
   "tasks_items",
@@ -108,6 +109,16 @@
    "in_list_view": 1,
    "label": "Activity Name",
    "read_only": 1
+  },
+  {
+   "default": "Compulsory",
+   "fieldname": "category",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Category",
+   "options": "Compulsory\nOn Demand",
+   "reqd": 1
   },
   {
    "fieldname": "section_break_tasks",
