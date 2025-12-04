@@ -120,3 +120,85 @@ def get_activity_tasks_and_items(activity: str) -> list[dict]:
 
     return result
 
+
+@frappe.whitelist()
+def get_available_tasks(activity: str) -> list[dict]:
+    """Return list of available tasks for a given Farm Activity.
+    
+    Each row includes:
+    - farm_activity_task (child row name from Farm Activity Task)
+    - farm_task (Farm Tasks document name)
+    - task_name
+    - item_count (number of items in the task)
+    """
+    if not activity:
+        return []
+    
+    result: list[dict] = []
+    
+    try:
+        activity_doc = frappe.get_doc("Farm Activity", activity)
+    except frappe.DoesNotExistError:
+        return []
+    
+    # activity_doc.farm_tasks is the child table of type Farm Activity Task
+    for activity_task in activity_doc.get("farm_tasks", []):
+        farm_task_name = activity_task.get("farm_task")
+        if not farm_task_name:
+            continue
+        
+        try:
+            farm_task_doc = frappe.get_doc("Farm Tasks", farm_task_name)
+        except frappe.DoesNotExistError:
+            continue
+        
+        task_name = farm_task_doc.get("task_name")
+        item_count = len(farm_task_doc.get("items", []))
+        
+        result.append({
+            "farm_activity_task": activity_task.name,
+            "farm_task": farm_task_name,
+            "task_name": task_name,
+            "item_count": item_count
+        })
+    
+    return result
+
+
+@frappe.whitelist()
+def get_task_items(farm_activity_task: str, farm_task: str) -> list[dict]:
+    """Return all items for a specific Farm Task.
+    
+    Each row includes:
+    - farm_activity_task
+    - farm_task
+    - task_name
+    - item, item_name
+    - quantity, unit
+    """
+    if not farm_task:
+        return []
+    
+    result: list[dict] = []
+    
+    try:
+        farm_task_doc = frappe.get_doc("Farm Tasks", farm_task)
+    except frappe.DoesNotExistError:
+        return []
+    
+    task_name = farm_task_doc.get("task_name")
+    
+    # farm_task_doc.items is the child table of type Farm Task Item
+    for item_row in farm_task_doc.get("items", []):
+        result.append({
+            "farm_activity_task": farm_activity_task,
+            "farm_task": farm_task,
+            "task_name": task_name,
+            "item": item_row.get("item"),
+            "item_name": item_row.get("item_name"),
+            "quantity": item_row.get("quantity"),
+            "unit": item_row.get("unit"),
+        })
+    
+    return result
+
