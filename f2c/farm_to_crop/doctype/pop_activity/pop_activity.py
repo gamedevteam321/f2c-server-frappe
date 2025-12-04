@@ -45,7 +45,7 @@ def get_pop_activity_list_query(doctype, txt, searchfield, start, page_len, filt
 				COALESCE(pal.activity_name, ''),
 				' (', pal.name, ')'
 			) as description
-		FROM `tabPOP-Activity List` pal
+		FROM `tabFarm Crop Activity Mapping` pal
 		WHERE {where_clause}
 		ORDER BY pal.crop_stage_name, pal.activity_name
 		LIMIT %(start)s, %(page_len)s

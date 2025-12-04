@@ -1,7 +1,7 @@
 // Copyright (c) 2025, Orgatek and contributors
 // For license information, please see license.txt
 
-frappe.ui.form.on("POP-Activity List", {
+frappe.ui.form.on("Farm Crop Activity Mapping", {
 	refresh(frm) {
 		// Customize Crop Stage Link field to show stage name via custom query
 		if (frm.fields_dict.crop_stage) {

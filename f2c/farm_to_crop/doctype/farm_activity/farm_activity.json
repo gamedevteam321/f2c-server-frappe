@@ -28,8 +28,7 @@
             "fieldtype": "Data",
             "in_list_view": 1,
             "label": "Activity Name",
-            "reqd": 1,
-            "unique": 1
+            "reqd": 1
         },
         {
             "fieldname": "activity_group_type",

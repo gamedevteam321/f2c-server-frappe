@@ -47,7 +47,16 @@ def seed_farm_activity():
 			"Irrigation": [],
 			"Sanitation": []
 		},
-		"Nutrition & Plant Protection": {
+		"Nutrition Management": {
+			"Basal Dose": [],
+			"Pit Dose": [],
+			"Top Dressing": [],
+			"BroadCasting": [],
+			"Spraying": [],
+			"Drip - Fertigation": [],
+			"Drenching": []
+		},
+		"Plant Protection": {
 			"Basal Dose": [],
 			"Pit Dose": [],
 			"Top Dressing": [],

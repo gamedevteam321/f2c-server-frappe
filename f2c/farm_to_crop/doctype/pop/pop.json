@@ -52,8 +52,7 @@
             "fieldname": "activities",
             "fieldtype": "Table",
             "label": "Activities",
-            "options": "POP Activity",
-            "reqd": 1
+            "options": "POP Activity"
         }
     ],
     "index_web_pages_for_search": 1,

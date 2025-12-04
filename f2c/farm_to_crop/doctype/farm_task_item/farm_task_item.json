@@ -43,7 +43,7 @@
             "fieldtype": "Select",
             "in_list_view": 1,
             "label": "Unit",
-            "options": "kg\ng\nml\nL",
+            "options": "kg\ng\nml\nL\nml/L\ng/L\nBags/Acre\nPer Manufacturer",
             "reqd": 1
         }
     ],
