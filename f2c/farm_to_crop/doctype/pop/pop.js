@@ -276,14 +276,6 @@ function show_activity_dialog(frm, activity_data, edit_idx) {
 				}
 			},
 			{
-				fieldname: 'category',
-				fieldtype: 'Select',
-				label: 'Category',
-				options: 'Compulsory\nOn Demand',
-				reqd: 1,
-				default: activity_data.category || 'Compulsory'
-			},
-			{
 				fieldname: 'section_remarks',
 				fieldtype: 'Section Break',
 				label: 'Additional Information'
@@ -310,7 +302,6 @@ function show_activity_dialog(frm, activity_data, edit_idx) {
 						dat: values.dat,
 						activity_group_type: values.activity_group_type,
 						activity: values.activity,
-						category: values.category,
 						remarks: values.remarks
 					}
 				},
