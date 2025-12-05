@@ -199,6 +199,6 @@ def get_task_items(farm_activity_task: str, farm_task: str) -> list[dict]:
             "quantity": item_row.get("quantity"),
             "unit": item_row.get("unit"),
         })
-    
+
     return result
 

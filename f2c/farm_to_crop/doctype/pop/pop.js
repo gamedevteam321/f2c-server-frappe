@@ -276,6 +276,16 @@ function show_activity_dialog(frm, activity_data, edit_idx) {
 				}
 			},
 			{
+				fieldname: 'section_tasks',
+				fieldtype: 'Section Break',
+				label: 'Tasks and Items'
+			},
+			{
+				fieldname: 'tasks_html',
+				fieldtype: 'HTML',
+				label: 'Tasks'
+			},
+			{
 				fieldname: 'section_remarks',
 				fieldtype: 'Section Break',
 				label: 'Additional Information'
@@ -302,7 +312,8 @@ function show_activity_dialog(frm, activity_data, edit_idx) {
 						dat: values.dat,
 						activity_group_type: values.activity_group_type,
 						activity: values.activity,
-						remarks: values.remarks
+						remarks: values.remarks,
+						tasks_items: d.selected_tasks || []
 					}
 				},
 				callback: function(r) {
@@ -331,12 +342,272 @@ function show_activity_dialog(frm, activity_data, edit_idx) {
 		}
 	});
 	
+	// Initialize selected_tasks array
+	d.selected_tasks = [];
+	
 	// Update activity options when activity group changes
 	d.fields_dict.activity_group_type.$input.on('change', function() {
 		d.set_value('activity', '');
+		d.selected_tasks = [];
+		render_dialog_tasks_section(d, frm);
 	});
 	
+	// Update tasks section when activity changes
+	d.fields_dict.activity.$input.on('change', function() {
+		d.selected_tasks = [];
+		render_dialog_tasks_section(d, frm);
+	});
+	
+	// Show dialog first
 	d.show();
+	
+	// Initial render of tasks section after a short delay to ensure DOM is ready
+	setTimeout(function() {
+		render_dialog_tasks_section(d, frm);
+	}, 100);
+}
+
+/**
+ * Render tasks section in the activity dialog
+ */
+function render_dialog_tasks_section(dialog, frm) {
+	const wrapper = dialog.fields_dict.tasks_html.$wrapper;
+	const activity = dialog.get_value('activity');
+	
+	if (!wrapper) return;
+	
+	if (!activity) {
+		wrapper.html('<p class="text-muted">Please select an activity first.</p>');
+		return;
+	}
+	
+	// Get selected_tasks from dialog's parent scope
+	const selected_tasks = dialog.selected_tasks || [];
+	
+	// If no tasks added yet, check if activity has tasks
+	if (!selected_tasks.length) {
+		frappe.call({
+			method: 'f2c.farm_to_crop.doctype.farm_crop_activity_mapping.farm_crop_activity_mapping.get_available_tasks',
+			args: { activity: activity },
+			callback: function(r) {
+				if (!r.message || r.message.length === 0) {
+					wrapper.html('<p class="text-muted">No tasks mapped with this activity.</p>');
+				} else {
+					wrapper.html(`
+						<p class="text-muted">No tasks added yet.</p>
+						<button class="btn btn-sm btn-primary add-task-dialog-btn">
+							<i class="fa fa-plus"></i> Add Task
+						</button>
+					`);
+					
+					wrapper.find('.add-task-dialog-btn').on('click', function() {
+						show_dialog_add_task(dialog, frm);
+					});
+				}
+			}
+		});
+		return;
+	}
+	
+	// Group tasks by task_name
+	const groups = {};
+	selected_tasks.forEach(task => {
+		const key = task.task_name || task.farm_task || 'Untitled Task';
+		if (!groups[key]) {
+			groups[key] = [];
+		}
+		groups[key].push(task);
+	});
+	
+	let html = '';
+	Object.keys(groups).forEach(task_name => {
+		const items = groups[task_name];
+		const farm_task = items[0].farm_task;
+		
+		html += `<div class="mb-3 task-group" style="border: 1px solid #d1d8dd; border-radius: 4px; padding: 10px;">`;
+		html += `<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">`;
+		html += `<h6 style="margin: 0;">${frappe.utils.escape_html(task_name)}</h6>`;
+		html += `<button class="btn btn-xs btn-danger remove-dialog-task-btn" data-farm-task="${farm_task}">
+			<i class="fa fa-trash"></i> Remove
+		</button>`;
+		html += `</div>`;
+		html += `<table class="table table-bordered table-sm mb-0">
+			<thead>
+				<tr>
+					<th style="width: 50%">Item</th>
+					<th style="width: 25%">Quantity</th>
+					<th style="width: 25%">Unit</th>
+				</tr>
+			</thead>
+			<tbody>`;
+		
+		items.forEach((item, idx) => {
+			html += `<tr>
+				<td>${frappe.utils.escape_html(item.item_name || item.item || '')}</td>
+				<td><input type="number" class="form-control input-sm task-item-qty" 
+					data-farm-task="${farm_task}" data-idx="${idx}" 
+					value="${item.quantity || 0}" step="0.001" /></td>
+				<td><select class="form-control input-sm task-item-unit" 
+					data-farm-task="${farm_task}" data-idx="${idx}">
+					<option value="kg" ${item.unit === 'kg' ? 'selected' : ''}>kg</option>
+					<option value="g" ${item.unit === 'g' ? 'selected' : ''}>g</option>
+					<option value="ml" ${item.unit === 'ml' ? 'selected' : ''}>ml</option>
+					<option value="L" ${item.unit === 'L' ? 'selected' : ''}>L</option>
+					<option value="ml/L" ${item.unit === 'ml/L' ? 'selected' : ''}>ml/L</option>
+					<option value="g/L" ${item.unit === 'g/L' ? 'selected' : ''}>g/L</option>
+					<option value="Bags/Acre" ${item.unit === 'Bags/Acre' ? 'selected' : ''}>Bags/Acre</option>
+					<option value="Per Manufacturer" ${item.unit === 'Per Manufacturer' ? 'selected' : ''}>Per Manufacturer</option>
+				</select></td>
+			</tr>`;
+		});
+		
+		html += `</tbody></table></div>`;
+	});
+	
+	html += `<div class="mt-3">
+		<button class="btn btn-sm btn-primary add-task-dialog-btn">
+			<i class="fa fa-plus"></i> Add Task
+		</button>
+	</div>`;
+	
+	wrapper.html(html);
+	
+	// Add event handlers
+	wrapper.find('.remove-dialog-task-btn').on('click', function() {
+		const farm_task = $(this).data('farm-task');
+		remove_dialog_task(dialog, frm, farm_task);
+	});
+	
+	wrapper.find('.add-task-dialog-btn').on('click', function() {
+		show_dialog_add_task(dialog, frm);
+	});
+	
+	// Update quantity and unit in selected_tasks
+	wrapper.find('.task-item-qty, .task-item-unit').on('change', function() {
+		const farm_task = $(this).data('farm-task');
+		const idx = $(this).data('idx');
+		const is_qty = $(this).hasClass('task-item-qty');
+		
+		selected_tasks.forEach(task => {
+			if (task.farm_task === farm_task) {
+				const task_items = selected_tasks.filter(t => t.farm_task === farm_task);
+				if (task_items[idx]) {
+					if (is_qty) {
+						task_items[idx].quantity = parseFloat($(this).val()) || 0;
+					} else {
+						task_items[idx].unit = $(this).val();
+					}
+				}
+			}
+		});
+	});
+}
+
+/**
+ * Show dialog to add a task
+ */
+function show_dialog_add_task(parent_dialog, frm) {
+	const activity = parent_dialog.get_value('activity');
+	if (!activity) {
+		frappe.msgprint('Please select an activity first.');
+		return;
+	}
+	
+	frappe.call({
+		method: 'f2c.farm_to_crop.doctype.farm_crop_activity_mapping.farm_crop_activity_mapping.get_available_tasks',
+		args: { activity: activity },
+		callback: function(r) {
+			if (!r.message || r.message.length === 0) {
+				frappe.msgprint('No tasks available for this activity.');
+				return;
+			}
+			
+			const available_tasks = r.message;
+			const selected_tasks = parent_dialog.selected_tasks || [];
+			const added_tasks = selected_tasks.map(t => t.farm_task);
+			const unique_added = [...new Set(added_tasks)];
+			
+			const tasks_to_show = available_tasks.filter(t => !unique_added.includes(t.farm_task));
+			
+			if (tasks_to_show.length === 0) {
+				frappe.msgprint('All tasks have been added.');
+				return;
+			}
+			
+			const task_dialog = new frappe.ui.Dialog({
+				title: 'Add Task',
+				fields: [
+					{
+						fieldname: 'task',
+						fieldtype: 'Select',
+						label: 'Select Task',
+						options: tasks_to_show.map(t => t.farm_task),
+						reqd: 1,
+						onchange: function() {
+							const selected = this.get_value();
+							const task_info = tasks_to_show.find(t => t.farm_task === selected);
+							if (task_info) {
+								task_dialog.set_df_property('task_info', 'options',
+									`<p><strong>Task Name:</strong> ${task_info.task_name}</p>
+									<p><strong>Number of Items:</strong> ${task_info.item_count}</p>`
+								);
+							}
+						}
+					},
+					{
+						fieldname: 'task_info',
+						fieldtype: 'HTML'
+					}
+				],
+				primary_action_label: 'Add',
+				primary_action: function(values) {
+					const selected_task_id = values.task;
+					const task_data = tasks_to_show.find(t => t.farm_task === selected_task_id);
+					
+					frappe.call({
+						method: 'f2c.farm_to_crop.doctype.farm_crop_activity_mapping.farm_crop_activity_mapping.get_task_items',
+						args: {
+							farm_activity_task: task_data.farm_activity_task,
+							farm_task: task_data.farm_task
+						},
+						callback: function(r) {
+							if (r.message && r.message.length > 0) {
+								if (!parent_dialog.selected_tasks) {
+									parent_dialog.selected_tasks = [];
+								}
+								parent_dialog.selected_tasks.push(...r.message);
+								render_dialog_tasks_section(parent_dialog, frm);
+								frappe.show_alert({ message: 'Task added', indicator: 'green' });
+							}
+							task_dialog.hide();
+						}
+					});
+				}
+			});
+			
+			task_dialog.show();
+			if (tasks_to_show.length > 0) {
+				task_dialog.set_value('task', tasks_to_show[0].farm_task);
+			}
+		}
+	});
+}
+
+/**
+ * Remove a task from dialog
+ */
+function remove_dialog_task(dialog, frm, farm_task) {
+	frappe.confirm(
+		'Are you sure you want to remove this task?',
+		function() {
+			if (!dialog.selected_tasks) {
+				dialog.selected_tasks = [];
+			}
+			dialog.selected_tasks = dialog.selected_tasks.filter(t => t.farm_task !== farm_task);
+			render_dialog_tasks_section(dialog, frm);
+			frappe.show_alert({ message: 'Task removed', indicator: 'green' });
+		}
+	);
 }
 
 // Child table: keep Activity Name in sync when Farm Crop Activity Mapping is selected
