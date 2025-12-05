@@ -112,17 +112,17 @@
   {
    "fieldname": "section_break_tasks",
    "fieldtype": "Section Break",
-   "label": "Tasks and Items"
+   "label": "Approved Input Mixes"
   },
   {
    "fieldname": "tasks_items_view",
    "fieldtype": "HTML",
-   "label": "Tasks and Items"
+   "label": "Approved Input Mixes View"
   },
   {
    "fieldname": "tasks_items",
    "fieldtype": "Table",
-   "label": "Tasks and Items",
+   "label": "Approved Input Mix Items",
    "options": "POP Activity Task Item",
    "hidden": 1
   },

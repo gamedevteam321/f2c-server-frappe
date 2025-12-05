@@ -166,8 +166,12 @@ def get_available_tasks(activity: str) -> list[dict]:
 
 
 @frappe.whitelist()
-def get_task_items(farm_activity_task: str, farm_task: str) -> list[dict]:
+def get_task_items(farm_task: str, farm_activity_task: str = None) -> list[dict]:
     """Return all items for a specific Farm Task.
+    
+    Args:
+        farm_task: Farm Tasks document name (required)
+        farm_activity_task: Farm Activity Task name (optional, can be empty for unmapped tasks)
     
     Each row includes:
     - farm_activity_task
@@ -191,7 +195,7 @@ def get_task_items(farm_activity_task: str, farm_task: str) -> list[dict]:
     # farm_task_doc.items is the child table of type Farm Task Item
     for item_row in farm_task_doc.get("items", []):
         result.append({
-            "farm_activity_task": farm_activity_task,
+            "farm_activity_task": farm_activity_task or "",
             "farm_task": farm_task,
             "task_name": task_name,
             "item": item_row.get("item"),

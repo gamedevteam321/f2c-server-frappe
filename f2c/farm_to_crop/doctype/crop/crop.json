@@ -2,7 +2,7 @@
     "actions": [],
     "allow_import": 1,
     "allow_rename": 1,
-    "autoname": "field:crop_name",
+    "autoname": "format:C-{#####}",
     "creation": "2025-01-20 10:00:00.000000",
     "doctype": "DocType",
     "document_type": "Document",
@@ -14,7 +14,9 @@
         "description",
         "section_break_2",
         "scientific_name",
-        "variety"
+        "variety",
+        "section_break_stages",
+        "crop_stages"
     ],
     "fields": [
         {
@@ -22,8 +24,7 @@
             "fieldtype": "Data",
             "in_list_view": 1,
             "label": "Crop Name",
-            "reqd": 1,
-            "unique": 1
+            "reqd": 1
         },
         {
             "fieldname": "crop_type",
@@ -58,6 +59,17 @@
             "fieldname": "variety",
             "fieldtype": "Data",
             "label": "Variety"
+        },
+        {
+            "fieldname": "section_break_stages",
+            "fieldtype": "Section Break",
+            "label": "Crop Stages"
+        },
+        {
+            "fieldname": "crop_stages",
+            "fieldtype": "Table",
+            "label": "Crop Stage Mapping",
+            "options": "Crop Stage Mapping"
         }
     ],
     "index_web_pages_for_search": 1,
@@ -66,7 +78,7 @@
     "modified_by": "Administrator",
     "module": "Farm To Crop",
     "name": "Crop",
-    "naming_rule": "By fieldname",
+    "naming_rule": "Expression",
     "owner": "Administrator",
     "permissions": [
         {

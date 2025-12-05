@@ -33,14 +33,14 @@
             "fetch_from": "farm_task.task_name",
             "fieldname": "task_name",
             "fieldtype": "Data",
-            "label": "Task Name",
+            "label": "Approved Input Mix Name",
             "read_only": 1
         },
         {
             "fieldname": "item",
             "fieldtype": "Link",
             "in_list_view": 1,
-            "label": "Item",
+            "label": "Approved Input",
             "options": "Item"
         },
         {
@@ -49,7 +49,7 @@
             "fieldname": "item_name",
             "fieldtype": "Data",
             "in_list_view": 1,
-            "label": "Item Name",
+            "label": "Approved Input Name",
             "read_only": 1
         },
         {

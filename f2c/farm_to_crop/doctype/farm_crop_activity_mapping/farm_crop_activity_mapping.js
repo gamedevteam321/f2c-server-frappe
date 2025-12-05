@@ -27,12 +27,12 @@ frappe.ui.form.on("Farm Crop Activity Mapping", {
 				};
 		});
 
-		// Initial render of grouped tasks/items view
+		// Initial render of grouped approved input mixes view
 		render_tasks_items_view(frm);
 	},
 
 	activity_group_type(frm) {
-		// When Activity Group changes, clear Activity and tasks/items table
+		// When Activity Group changes, clear Activity and approved input mixes table
 		if (frm.doc.activity) {
 			frm.set_value("activity", null);
 		}
@@ -41,15 +41,15 @@ frappe.ui.form.on("Farm Crop Activity Mapping", {
 	},
 
 	activity(frm) {
-		// When Activity changes, clear the tasks/items table
-		// User will manually add tasks using the "Add Task" button
+		// When Activity changes, clear the approved input mixes table
+		// User will manually add approved input mixes using the "Add Approved Input Mix" button
 		if (!frm.doc.activity) {
 			frm.clear_table("tasks_items");
 			frm.refresh_field("tasks_items");
 			render_tasks_items_view(frm);
 		}
 		
-		// Refresh to show/hide the "Add Task" button
+		// Refresh to show/hide the "Add Approved Input Mix" button
 		frm.trigger('refresh');
 	},
 
@@ -62,10 +62,10 @@ frappe.ui.form.on("Farm Crop Activity Mapping", {
 });
 
 /**
- * Render tasks and items grouped by task name into the HTML field
+ * Render approved input mixes grouped by mix name into the HTML field
  * so that the user sees:
- *   Task Name
- *     Item | Quantity | Unit
+ *   Approved Input Mix Name
+ *     Approved Input | Quantity | Unit
  */
 function render_tasks_items_view(frm) {
 	const wrapper = frm.fields_dict.tasks_items_view
@@ -76,14 +76,14 @@ function render_tasks_items_view(frm) {
 
 	const rows = frm.doc.tasks_items || [];
 	
-	// If no tasks added yet, check if activity has tasks available
+	// If no approved input mixes added yet, check if activity has mixes available
 	if (!rows.length) {
 		if (!frm.doc.activity) {
 			wrapper.html("<p class=\"text-muted\">Please select an activity first.</p>");
 			return;
 		}
 		
-		// Check if activity has tasks
+		// Check if activity has approved input mixes
 		frappe.call({
 			method: 'f2c.farm_to_crop.doctype.farm_crop_activity_mapping.farm_crop_activity_mapping.get_available_tasks',
 			args: {
@@ -91,12 +91,12 @@ function render_tasks_items_view(frm) {
 			},
 			callback: function(r) {
 				if (!r.message || r.message.length === 0) {
-					wrapper.html("<p class=\"text-muted\">No tasks mapped with this activity.</p>");
+					wrapper.html("<p class=\"text-muted\">No approved input mixes mapped with this activity.</p>");
 				} else {
 					wrapper.html(`
-						<p class="text-muted">No tasks added yet.</p>
+						<p class="text-muted">No approved input mixes added yet.</p>
 						<button class="btn btn-sm btn-primary add-task-inline-btn">
-							<i class="fa fa-plus"></i> Add Task
+							<i class="fa fa-plus"></i> Add Approved Input Mix
 						</button>
 					`);
 					
@@ -110,10 +110,10 @@ function render_tasks_items_view(frm) {
 		return;
 	}
 
-	// Group rows by task_name
+	// Group rows by task_name (approved input mix name)
 	const groups = {};
 	rows.forEach((row) => {
-		const key = row.task_name || row.farm_task || __("Untitled Task");
+		const key = row.task_name || row.farm_task || __("Untitled Mix");
 		if (!groups[key]) {
 			groups[key] = [];
 		}
@@ -121,21 +121,21 @@ function render_tasks_items_view(frm) {
 	});
 
 	let html = "";
-	Object.keys(groups).forEach((task_name) => {
-		const items = groups[task_name];
+	Object.keys(groups).forEach((mix_name) => {
+		const items = groups[mix_name];
 		const farm_task = items[0].farm_task; // Get farm_task from first item
 
 		html += `<div class="mb-3 task-group" style="border: 1px solid #d1d8dd; border-radius: 4px; padding: 10px;">`;
 		html += `<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">`;
-		html += `<h5 style="margin: 0;">${frappe.utils.escape_html(task_name)}</h5>`;
-		html += `<button class="btn btn-xs btn-danger remove-task-btn" data-farm-task="${farm_task}" data-task-name="${frappe.utils.escape_html(task_name)}">
-			<i class="fa fa-trash"></i> ${__("Remove Task")}
+		html += `<h5 style="margin: 0;">${frappe.utils.escape_html(mix_name)}</h5>`;
+		html += `<button class="btn btn-xs btn-danger remove-task-btn" data-farm-task="${farm_task}" data-task-name="${frappe.utils.escape_html(mix_name)}">
+			<i class="fa fa-trash"></i> ${__("Remove Mix")}
 		</button>`;
 		html += `</div>`;
 		html += `<table class="table table-bordered table-sm mb-0">
 			<thead>
 				<tr>
-					<th style="width: 60%">${__("Item")}</th>
+					<th style="width: 60%">${__("Approved Input")}</th>
 					<th style="width: 20%">${__("Quantity")}</th>
 					<th style="width: 20%">${__("Unit")}</th>
 				</tr>
@@ -153,10 +153,10 @@ function render_tasks_items_view(frm) {
 		html += `</tbody></table></div>`;
 	});
 
-	// Add "Add Task" button at the bottom if activity has more tasks
+	// Add "Add Approved Input Mix" button at the bottom if activity has more mixes
 	html += `<div class="mt-3">
 		<button class="btn btn-sm btn-primary add-task-inline-btn">
-			<i class="fa fa-plus"></i> Add Task
+			<i class="fa fa-plus"></i> Add Approved Input Mix
 		</button>
 	</div>`;
 
@@ -165,22 +165,22 @@ function render_tasks_items_view(frm) {
 	// Add click handlers for remove buttons
 	wrapper.find('.remove-task-btn').on('click', function() {
 		const farm_task = $(this).data('farm-task');
-		const task_name = $(this).data('task-name');
-		remove_task_from_table(frm, farm_task, task_name);
+		const mix_name = $(this).data('task-name');
+		remove_task_from_table(frm, farm_task, mix_name);
 	});
 	
-	// Add click handler for inline add task button
+	// Add click handler for inline add approved input mix button
 	wrapper.find('.add-task-inline-btn').on('click', function() {
 		show_add_task_dialog(frm);
 	});
 }
 
 /**
- * Remove a task and all its items from the child table
+ * Remove an approved input mix and all its inputs from the child table
  */
-function remove_task_from_table(frm, farm_task, task_name) {
+function remove_task_from_table(frm, farm_task, mix_name) {
 	frappe.confirm(
-		__('Are you sure you want to remove the task "{0}" and all its items?', [task_name]),
+		__('Are you sure you want to remove the approved input mix "{0}" and all its inputs?', [mix_name]),
 		function() {
 			// Remove all rows with this farm_task
 			const rows_to_remove = [];
@@ -199,7 +199,7 @@ function remove_task_from_table(frm, farm_task, task_name) {
 			render_tasks_items_view(frm);
 			
 			frappe.show_alert({
-				message: __('Task removed successfully'),
+				message: __('Approved input mix removed successfully'),
 				indicator: 'green'
 			});
 		}
@@ -207,7 +207,7 @@ function remove_task_from_table(frm, farm_task, task_name) {
 }
 
 /**
- * Show dialog to select a task from the current activity
+ * Show dialog to select an approved input mix from the current activity
  */
 function show_add_task_dialog(frm) {
 	if (!frm.doc.activity) {
@@ -215,7 +215,7 @@ function show_add_task_dialog(frm) {
 		return;
 	}
 
-	// Fetch available tasks from the selected activity
+	// Fetch available approved input mixes from the selected activity
 	frappe.call({
 		method: 'f2c.farm_to_crop.doctype.farm_crop_activity_mapping.farm_crop_activity_mapping.get_available_tasks',
 		args: {
@@ -223,43 +223,43 @@ function show_add_task_dialog(frm) {
 		},
 		callback: function(r) {
 			if (!r.message || r.message.length === 0) {
-				frappe.msgprint(__('No tasks available for this activity.'));
+				frappe.msgprint(__('No approved input mixes available for this activity.'));
 				return;
 			}
 
-			const available_tasks = r.message;
+			const available_mixes = r.message;
 			
-			// Get already added task names to prevent duplicates
-			const added_tasks = (frm.doc.tasks_items || []).map(row => row.farm_task);
-			const unique_added_tasks = [...new Set(added_tasks)];
+			// Get already added mix names to prevent duplicates
+			const added_mixes = (frm.doc.tasks_items || []).map(row => row.farm_task);
+			const unique_added_mixes = [...new Set(added_mixes)];
 
-			// Filter out already added tasks
-			const tasks_to_show = available_tasks.filter(task => 
-				!unique_added_tasks.includes(task.farm_task)
+			// Filter out already added mixes
+			const mixes_to_show = available_mixes.filter(mix => 
+				!unique_added_mixes.includes(mix.farm_task)
 			);
 
-			if (tasks_to_show.length === 0) {
-				frappe.msgprint(__('All tasks from this activity have already been added.'));
+			if (mixes_to_show.length === 0) {
+				frappe.msgprint(__('All approved input mixes from this activity have already been added.'));
 				return;
 			}
 
 			// Create dialog
 			const d = new frappe.ui.Dialog({
-				title: __('Add Task'),
+				title: __('Add Approved Input Mix'),
 				fields: [
 					{
 						fieldname: 'task',
 						fieldtype: 'Select',
-						label: __('Select Task'),
-						options: tasks_to_show.map(t => t.farm_task),
+						label: __('Select Approved Input Mix'),
+						options: mixes_to_show.map(t => t.farm_task),
 						reqd: 1,
 						onchange: function() {
-							const selected_task = this.get_value();
-							const task_info = tasks_to_show.find(t => t.farm_task === selected_task);
-							if (task_info) {
+							const selected_mix = this.get_value();
+							const mix_info = mixes_to_show.find(t => t.farm_task === selected_mix);
+							if (mix_info) {
 								d.set_df_property('task_info', 'options', 
-									`<p><strong>Task Name:</strong> ${task_info.task_name}</p>
-									<p><strong>Number of Items:</strong> ${task_info.item_count}</p>`
+									`<p><strong>Mix Name:</strong> ${mix_info.task_name}</p>
+									<p><strong>Number of Approved Inputs:</strong> ${mix_info.item_count}</p>`
 								);
 							}
 						}
@@ -267,25 +267,25 @@ function show_add_task_dialog(frm) {
 					{
 						fieldname: 'task_info',
 						fieldtype: 'HTML',
-						label: __('Task Information')
+						label: __('Mix Information')
 					}
 				],
 				primary_action_label: __('Add'),
 				primary_action: function(values) {
-					const selected_task = values.task;
-					const task_data = tasks_to_show.find(t => t.farm_task === selected_task);
+					const selected_mix = values.task;
+					const mix_data = mixes_to_show.find(t => t.farm_task === selected_mix);
 					
-					if (!task_data) {
-						frappe.msgprint(__('Invalid task selection.'));
+					if (!mix_data) {
+						frappe.msgprint(__('Invalid mix selection.'));
 						return;
 					}
 
-					// Fetch task items and add to table
+					// Fetch approved input items and add to table
 					frappe.call({
 						method: 'f2c.farm_to_crop.doctype.farm_crop_activity_mapping.farm_crop_activity_mapping.get_task_items',
 						args: {
-							farm_activity_task: task_data.farm_activity_task,
-							farm_task: task_data.farm_task
+							farm_activity_task: mix_data.farm_activity_task,
+							farm_task: mix_data.farm_task
 						},
 						callback: function(r) {
 							if (r.message && r.message.length > 0) {
@@ -303,7 +303,7 @@ function show_add_task_dialog(frm) {
 								frm.refresh_field('tasks_items');
 								render_tasks_items_view(frm);
 								frappe.show_alert({
-									message: __('Task added successfully'),
+									message: __('Approved input mix added successfully'),
 									indicator: 'green'
 								});
 							}
@@ -315,9 +315,9 @@ function show_add_task_dialog(frm) {
 
 			d.show();
 			
-			// Trigger initial task info display
-			if (tasks_to_show.length > 0) {
-				d.set_value('task', tasks_to_show[0].farm_task);
+			// Trigger initial mix info display
+			if (mixes_to_show.length > 0) {
+				d.set_value('task', mixes_to_show[0].farm_task);
 			}
 		}
 	});
