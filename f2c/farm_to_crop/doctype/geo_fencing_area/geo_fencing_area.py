@@ -205,6 +205,131 @@ def _calculate_farthest_polygon_point_static(center_lat, center_lng, coords):
 	return max_distance
 
 
+@frappe.whitelist()
+def recalculate_circle_from_children(area_name):
+	"""
+	Recalculate circle center and radius from its children
+	Returns the calculated center_latitude, center_longitude, and radius
+	"""
+	try:
+		# Get the area document
+		area_doc = frappe.get_doc("Geo Fencing Area", area_name)
+		
+		# Check if it's a circle
+		if area_doc.shape_type != "Circle":
+			frappe.throw(f"Area {area_name} is not a Circle. Cannot recalculate.")
+		
+		# Get all children
+		children = frappe.get_all(
+			"Geo Fencing Area",
+			filters={"parent_area": area_name},
+			fields=["name", "shape_type", "center_latitude", "center_longitude", "radius"]
+		)
+		
+		if not children:
+			frappe.throw(f"No children found for area {area_name}. Cannot recalculate.")
+		
+		# Separate children by shape type
+		circle_children = [child for child in children if child.get("shape_type") == "Circle"]
+		polygon_children = [child for child in children if child.get("shape_type") == "Polygon"]
+		
+		if not circle_children and not polygon_children:
+			frappe.throw(f"No valid children found for area {area_name}. Cannot recalculate.")
+		
+		# Fetch polygon coordinates for polygon children
+		polygon_children_with_coords = []
+		for polygon_child in polygon_children:
+			try:
+				polygon_doc = frappe.get_doc("Geo Fencing Area", polygon_child["name"])
+				if polygon_doc.geo_fencing_coordinates and len(polygon_doc.geo_fencing_coordinates) >= 3:
+					# Sort coordinates by sequence
+					coords = sorted(polygon_doc.geo_fencing_coordinates, key=lambda x: x.sequence or 0)
+					polygon_children_with_coords.append({
+						"name": polygon_child["name"],
+						"coordinates": coords
+					})
+			except Exception as e:
+				frappe.log_error(f"Error fetching polygon coordinates for {polygon_child['name']}: {str(e)}", "Geo Fencing Area Recalculate")
+				continue
+		
+		# Calculate center from children (average of all child centers/centroids)
+		total_lat = 0
+		total_lng = 0
+		valid_children = 0
+		
+		# Add circle children centers
+		for child in circle_children:
+			child_lat = child.get("center_latitude")
+			child_lng = child.get("center_longitude")
+			
+			if child_lat is not None and child_lng is not None:
+				total_lat += float(child_lat)
+				total_lng += float(child_lng)
+				valid_children += 1
+		
+		# Add polygon children centroids
+		for polygon_child in polygon_children_with_coords:
+			centroid = _calculate_polygon_centroid_static(polygon_child["coordinates"])
+			if centroid:
+				total_lat += centroid[0]
+				total_lng += centroid[1]
+				valid_children += 1
+		
+		if valid_children == 0:
+			frappe.throw(f"No valid children with coordinates found for area {area_name}.")
+		
+		calculated_center_lat = total_lat / valid_children
+		calculated_center_lng = total_lng / valid_children
+		
+		# Calculate radius to cover all children
+		max_distance = 0
+		
+		# Process circle children
+		for child in circle_children:
+			child_lat = child.get("center_latitude")
+			child_lng = child.get("center_longitude")
+			child_radius = child.get("radius") or 0
+			
+			if child_lat is not None and child_lng is not None:
+				# Calculate distance from calculated center to child center
+				distance = _calculate_distance_static(
+					calculated_center_lat, calculated_center_lng,
+					float(child_lat), float(child_lng)
+				)
+				
+				# Total radius needed = distance to child center + child's radius
+				total_radius_needed = distance + float(child_radius)
+				
+				if total_radius_needed > max_distance:
+					max_distance = total_radius_needed
+		
+		# Process polygon children
+		for polygon_child in polygon_children_with_coords:
+			# Find the farthest point of the polygon from calculated center
+			farthest_distance = _calculate_farthest_polygon_point_static(
+				calculated_center_lat, calculated_center_lng,
+				polygon_child["coordinates"]
+			)
+			
+			if farthest_distance > max_distance:
+				max_distance = farthest_distance
+		
+		# Add a small buffer (1% or minimum 10 meters) to ensure all children are fully covered
+		buffer = max(max_distance * 0.01, 10) if max_distance > 0 else 10
+		calculated_radius = max_distance + buffer if max_distance > 0 else 100
+		
+		# Return the calculated values
+		return {
+			"center_latitude": calculated_center_lat,
+			"center_longitude": calculated_center_lng,
+			"radius": calculated_radius
+		}
+		
+	except Exception as e:
+		frappe.log_error(f"Error recalculating circle from children for {area_name}: {str(e)}", "Geo Fencing Area Recalculate")
+		frappe.throw(f"Error recalculating circle: {str(e)}")
+
+
 class GeoFencingArea(Document):
 	def after_insert(self):
 		"""Update parent circle if auto-calculate is enabled"""
