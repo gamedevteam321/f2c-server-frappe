@@ -9,7 +9,29 @@ import json
 class POP(Document):
 	def validate(self):
 		"""Validate and create Farm Crop Activity Mapping records for inline activities"""
+		self.validate_cropping_system()
 		self.handle_inline_activities()
+	
+	def validate_cropping_system(self):
+		"""Validate inter-cropping configuration"""
+		if self.is_inter_cropping:
+			# Ensure crop field is empty for inter-cropping
+			if self.crop:
+				frappe.throw("Crop field should be empty when inter-cropping is enabled")
+			
+			# Validate crops table
+			if not self.crops or len(self.crops) == 0:
+				frappe.throw("Please select at least one crop for inter-cropping")
+			
+			if len(self.crops) > 4:
+				frappe.throw("You can select a maximum of 4 crops for inter-cropping")
+		else:
+			# Ensure crop field is filled for single crop
+			if not self.crop:
+				frappe.throw("Please select a crop")
+			
+			# Clear crops table for single crop
+			self.crops = []
 	
 	def handle_inline_activities(self):
 		"""Create Farm Crop Activity Mapping records from inline activity data"""
@@ -67,15 +89,28 @@ def create_pop_with_activities(pop_data):
 			# Update only the main fields
 			pop_doc.pop_name = pop_data.get('pop_name', pop_doc.pop_name)
 			pop_doc.crop = pop_data.get('crop', pop_doc.crop)
+			pop_doc.is_inter_cropping = pop_data.get('is_inter_cropping', 0)
 			pop_doc.description = pop_data.get('description', pop_doc.description)
+			
+			# Handle crops for inter-cropping
+			pop_doc.crops = []
+			if pop_data.get('is_inter_cropping') and pop_data.get('crops'):
+				for crop_id in pop_data.get('crops', []):
+					pop_doc.append('crops', {'crop': crop_id})
 		else:
 			# Create new POP
 			pop_doc = frappe.get_doc({
 				'doctype': 'POP',
 				'pop_name': pop_data.get('pop_name'),
-				'crop': pop_data.get('crop'),
+				'crop': pop_data.get('crop', ''),
+				'is_inter_cropping': pop_data.get('is_inter_cropping', 0),
 				'description': pop_data.get('description', '')
 			})
+			
+			# Handle crops for inter-cropping
+			if pop_data.get('is_inter_cropping') and pop_data.get('crops'):
+				for crop_id in pop_data.get('crops', []):
+					pop_doc.append('crops', {'crop': crop_id})
 		
 		# Clear existing activities
 		pop_doc.activities = []
