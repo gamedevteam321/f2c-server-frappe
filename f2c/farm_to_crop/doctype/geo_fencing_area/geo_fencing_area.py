@@ -434,15 +434,15 @@ class GeoFencingArea(Document):
 	
 	def set_level_sequence(self):
 		"""Set level sequence based on the hierarchy:
-		Farm (1) -> Cluster (2) -> Field (3) -> Plot (4) -> Block (5) -> Row (6)
+		Farm (1) -> Cluster (2) -> Field (3) -> Block (4) -> Row (5)
 		"""
 		level_map = {
 			"Farm": 1,
 			"Cluster": 2,
 			"Field": 3,
-			"Plot": 4,
-			"Block": 5,
-			"Row": 6
+			"Block": 4,
+			"Row": 5,
+			"Plot": 99,  # Deprecated - not used in hierarchy
 		}
 		
 		if self.geo_fencing_type:

@@ -13,9 +13,9 @@ frappe.ui.form.on("Geo Fencing Area", {
                 "Farm": 1,
                 "Cluster": 2,
                 "Field": 3,
-                "Plot": 4,
-                "Block": 5,
-                "Row": 6
+                "Block": 4,
+                "Row": 5,
+                "Plot": 99  // Deprecated - not used in hierarchy
             };
             frm.set_value("level_sequence", level_map[frm.doc.geo_fencing_type] || 0);
             
