@@ -10,12 +10,18 @@
     "field_order": [
         "area_name",
         "geo_fencing_type",
+        "shape_type",
         "level_sequence",
         "column_break_1",
         "parent_area",
         "is_root",
         "section_break_2",
         "geo_fencing_coordinates",
+        "area",
+        "section_break_circle",
+        "center_latitude",
+        "center_longitude",
+        "radius",
         "section_break_3",
         "description"
     ],
@@ -43,11 +49,29 @@
             "options": "Geo Fencing Area"
         },
         {
+            "fetch_from": "geo_fencing_type.shape_type",
+            "fieldname": "shape_type",
+            "fieldtype": "Select",
+            "in_list_view": 1,
+            "in_standard_filter": 1,
+            "label": "Shape Type",
+            "options": "\nCircle\nPolygon",
+            "read_only": 1
+        },
+        {
             "fieldname": "geo_fencing_coordinates",
             "fieldtype": "Table",
             "label": "Geo Fencing Coordinates",
             "options": "Geo Fencing Coordinate",
-            "reqd": 1
+            "depends_on": "eval:doc.shape_type === 'Polygon'"
+        },
+        {
+            "fieldname": "area",
+            "fieldtype": "Float",
+            "label": "Area (sq meters)",
+            "precision": "2",
+            "read_only": 1,
+            "depends_on": "eval:doc.shape_type === 'Polygon'"
         },
         {
             "fieldname": "level_sequence",
@@ -64,7 +88,35 @@
         {
             "fieldname": "section_break_2",
             "fieldtype": "Section Break",
-            "label": "Coordinates"
+            "label": "Polygon Coordinates",
+            "depends_on": "eval:doc.shape_type === 'Polygon'"
+        },
+        {
+            "fieldname": "section_break_circle",
+            "fieldtype": "Section Break",
+            "label": "Circle Parameters",
+            "depends_on": "eval:doc.shape_type === 'Circle'"
+        },
+        {
+            "fieldname": "center_latitude",
+            "fieldtype": "Float",
+            "label": "Center Latitude",
+            "precision": "8",
+            "depends_on": "eval:doc.shape_type === 'Circle'"
+        },
+        {
+            "fieldname": "center_longitude",
+            "fieldtype": "Float",
+            "label": "Center Longitude",
+            "precision": "8",
+            "depends_on": "eval:doc.shape_type === 'Circle'"
+        },
+        {
+            "fieldname": "radius",
+            "fieldtype": "Float",
+            "label": "Radius (meters)",
+            "precision": "2",
+            "depends_on": "eval:doc.shape_type === 'Circle'"
         },
         {
             "fieldname": "section_break_3",

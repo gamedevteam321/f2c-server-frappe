@@ -9,7 +9,12 @@
     "engine": "InnoDB",
     "field_order": [
         "geo_fencing_type_name",
-        "color"
+        "shape_type",
+        "color",
+        "is_visible",
+        "auto_calculate_area_child",
+        "auto_calculate_center_by_child",
+        "auto_calculate_radius_by_child"
     ],
     "fields": [
         {
@@ -22,11 +27,44 @@
             "unique": 1
         },
         {
+            "fieldname": "shape_type",
+            "fieldtype": "Select",
+            "in_list_view": 1,
+            "in_standard_filter": 1,
+            "label": "Shape Type",
+            "options": "\nCircle\nPolygon",
+            "reqd": 1
+        },
+        {
             "fieldname": "color",
             "fieldtype": "Color",
             "in_list_view": 1,
             "label": "Color",
             "default": "#10b981"
+        },
+        {
+            "default": "1",
+            "fieldname": "is_visible",
+            "fieldtype": "Check",
+            "label": "Is Visible"
+        },
+        {
+            "default": "0",
+            "fieldname": "auto_calculate_area_child",
+            "fieldtype": "Check",
+            "label": "Auto Calculate Area by Child"
+        },
+        {
+            "default": "0",
+            "fieldname": "auto_calculate_center_by_child",
+            "fieldtype": "Check",
+            "label": "Auto Calculate Center by Child"
+        },
+        {
+            "default": "0",
+            "fieldname": "auto_calculate_radius_by_child",
+            "fieldtype": "Check",
+            "label": "Auto Calculate Radius by Child"
         }
     ],
     "index_web_pages_for_search": 1,

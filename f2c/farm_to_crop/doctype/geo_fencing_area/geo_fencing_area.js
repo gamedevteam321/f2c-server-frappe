@@ -7,7 +7,7 @@ frappe.ui.form.on("Geo Fencing Area", {
     },
 
     geo_fencing_type: function (frm) {
-        // Auto-set level sequence when type changes
+        // Auto-set level sequence and fetch shape type when type changes
         if (frm.doc.geo_fencing_type) {
             const level_map = {
                 "Farm": 1,
@@ -18,6 +18,13 @@ frappe.ui.form.on("Geo Fencing Area", {
                 "Row": 6
             };
             frm.set_value("level_sequence", level_map[frm.doc.geo_fencing_type] || 0);
+            
+            // Fetch shape type from linked Geo Fencing Type
+            frappe.db.get_value("Geo Fencing Type", frm.doc.geo_fencing_type, "shape_type", (r) => {
+                if (r && r.shape_type) {
+                    frm.set_value("shape_type", r.shape_type);
+                }
+            });
         }
     },
 
