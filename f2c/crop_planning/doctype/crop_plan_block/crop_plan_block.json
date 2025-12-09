@@ -1,44 +1,65 @@
 {
     "actions": [],
     "allow_rename": 1,
-    "creation": "2025-11-19 23:22:00.000000",
+    "creation": "2025-12-08 00:00:00.000000",
     "doctype": "DocType",
     "editable_grid": 1,
     "engine": "InnoDB",
     "field_order": [
-        "block_no",
+        "block",
+        "block_name",
         "block_area",
-        "block_area_unit",
-        "hybrid",
+        "crop",
+        "pop",
+        "pop_name",
         "spacing",
-        "no_of_seedlings",
-        "pop_code"
+        "no_of_seedlings"
     ],
     "fields": [
         {
-            "fieldname": "block_no",
+            "fieldname": "block",
+            "fieldtype": "Link",
+            "in_list_view": 1,
+            "label": "Block",
+            "options": "Geo Fencing Area",
+            "reqd": 1
+        },
+        {
+            "fieldname": "block_name",
             "fieldtype": "Data",
             "in_list_view": 1,
-            "label": "Block No"
+            "label": "Block Name",
+            "read_only": 1,
+            "fetch_from": "block.area_name"
         },
         {
             "fieldname": "block_area",
             "fieldtype": "Float",
             "in_list_view": 1,
-            "label": "Block Area"
+            "label": "Block Area (Acres)",
+            "read_only": 1,
+            "precision": "3"
         },
         {
-            "fieldname": "block_area_unit",
+            "fieldname": "crop",
             "fieldtype": "Link",
             "in_list_view": 1,
-            "label": "Unit",
-            "options": "UOM"
+            "label": "Crop",
+            "options": "Crop"
         },
         {
-            "fieldname": "hybrid",
-            "fieldtype": "Data",
+            "fieldname": "pop",
+            "fieldtype": "Link",
             "in_list_view": 1,
-            "label": "Hybrid"
+            "label": "POP",
+            "options": "POP"
+        },
+        {
+            "fieldname": "pop_name",
+            "fieldtype": "Data",
+            "label": "POP Name",
+            "read_only": 1,
+            "fetch_from": "pop.pop_name"
         },
         {
             "fieldname": "spacing",
@@ -51,23 +72,18 @@
             "fieldtype": "Int",
             "in_list_view": 1,
             "label": "No of Seedlings"
-        },
-        {
-            "fieldname": "pop_code",
-            "fieldtype": "Data",
-            "in_list_view": 1,
-            "label": "POP Code"
         }
     ],
     "istable": 1,
     "links": [],
-    "modified": "2025-11-19 23:22:00.000000",
+    "modified": "2025-12-08 00:00:00.000000",
     "modified_by": "Administrator",
     "module": "Crop Planning",
-    "name": "Field Crop Plan Item",
+    "name": "Crop Plan Block",
     "owner": "Administrator",
     "permissions": [],
     "sort_field": "modified",
     "sort_order": "DESC",
     "track_changes": 1
 }
+

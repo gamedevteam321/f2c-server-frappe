@@ -1,0 +1,109 @@
+{
+    "actions": [],
+    "allow_rename": 1,
+    "creation": "2025-12-08 00:00:00.000000",
+    "doctype": "DocType",
+    "editable_grid": 1,
+    "engine": "InnoDB",
+    "field_order": [
+        "block_reference",
+        "sequence",
+        "activity",
+        "activity_name",
+        "crop_stage",
+        "duration_after_stage",
+        "is_dat",
+        "dat",
+        "activity_group_type",
+        "remarks",
+        "section_break_inputs",
+        "approved_inputs"
+    ],
+    "fields": [
+        {
+            "fieldname": "block_reference",
+            "fieldtype": "Data",
+            "label": "Block Reference",
+            "description": "Reference to parent block row (idx)"
+        },
+        {
+            "fieldname": "sequence",
+            "fieldtype": "Int",
+            "in_list_view": 1,
+            "label": "Sequence",
+            "default": "0"
+        },
+        {
+            "fieldname": "activity",
+            "fieldtype": "Link",
+            "in_list_view": 1,
+            "label": "Activity",
+            "options": "Farm Activity"
+        },
+        {
+            "fieldname": "activity_name",
+            "fieldtype": "Data",
+            "in_list_view": 1,
+            "label": "Activity Name",
+            "read_only": 1,
+            "fetch_from": "activity.activity_name"
+        },
+        {
+            "fieldname": "crop_stage",
+            "fieldtype": "Link",
+            "label": "Crop Stage",
+            "options": "Crop Stage"
+        },
+        {
+            "fieldname": "duration_after_stage",
+            "fieldtype": "Int",
+            "label": "Duration After Stage (Days)"
+        },
+        {
+            "fieldname": "is_dat",
+            "fieldtype": "Check",
+            "label": "Is DAT (Days After Transplant)",
+            "default": "0"
+        },
+        {
+            "fieldname": "dat",
+            "fieldtype": "Int",
+            "label": "DAT",
+            "depends_on": "eval:doc.is_dat==1"
+        },
+        {
+            "fieldname": "activity_group_type",
+            "fieldtype": "Link",
+            "label": "Activity Group Type",
+            "options": "Activity Group Type"
+        },
+        {
+            "fieldname": "remarks",
+            "fieldtype": "Small Text",
+            "label": "Remarks"
+        },
+        {
+            "fieldname": "section_break_inputs",
+            "fieldtype": "Section Break",
+            "label": "Approved Inputs"
+        },
+        {
+            "fieldname": "approved_inputs",
+            "fieldtype": "Table",
+            "label": "Approved Inputs",
+            "options": "Crop Plan Activity Input"
+        }
+    ],
+    "istable": 1,
+    "links": [],
+    "modified": "2025-12-08 00:00:00.000000",
+    "modified_by": "Administrator",
+    "module": "Crop Planning",
+    "name": "Crop Plan Activity",
+    "owner": "Administrator",
+    "permissions": [],
+    "sort_field": "sequence",
+    "sort_order": "ASC",
+    "track_changes": 1
+}
+

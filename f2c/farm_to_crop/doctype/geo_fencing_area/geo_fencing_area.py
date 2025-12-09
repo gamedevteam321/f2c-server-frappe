@@ -6,17 +6,11 @@ from frappe.model.document import Document
 import math
 
 
-def recalculate_parent_circle(parent_name, depth=0, max_depth=10):
+def recalculate_parent_circle(parent_name):
 	"""
-	Standalone function to recalculate parent circle after child creation/update/deletion
+	Standalone function to recalculate parent circle after child deletion
 	Can be called from queue
-	Recursively updates parent's parent up to max_depth
 	"""
-	# Prevent infinite recursion
-	if depth >= max_depth:
-		frappe.log_error(f"Maximum recursion depth ({max_depth}) reached while recalculating parent circles", "Geo Fencing Area Recalculate Parent")
-		return
-	
 	try:
 		parent = frappe.get_doc("Geo Fencing Area", parent_name)
 		
@@ -135,14 +129,6 @@ def recalculate_parent_circle(parent_name, depth=0, max_depth=10):
 		parent.flags.ignore_validate = True
 		parent.flags.ignore_links = True
 		parent.save(ignore_permissions=True)
-		
-		# Recursively update parent's parent if it exists
-		if parent.parent_area:
-			try:
-				# Recursively call for parent's parent with increased depth
-				recalculate_parent_circle(parent.parent_area, depth=depth + 1, max_depth=max_depth)
-			except Exception as e:
-				frappe.log_error(f"Error recursively recalculating parent's parent for {parent.name}: {str(e)}", "Geo Fencing Area Recalculate Parent")
 		
 	except Exception as e:
 		frappe.log_error(f"Error recalculating parent circle {parent_name}: {str(e)}", "Geo Fencing Area Recalculate Parent")
@@ -347,20 +333,7 @@ def recalculate_circle_from_children(area_name):
 class GeoFencingArea(Document):
 	def after_insert(self):
 		"""Update parent circle if auto-calculate is enabled"""
-		# Use enqueue to ensure parent recalculation happens after transaction commits
-		# This ensures the new child is fully saved before parent recalculation
-		if self.parent_area:
-			try:
-				parent = frappe.get_doc("Geo Fencing Area", self.parent_area)
-				if parent.shape_type == "Circle":
-					frappe.enqueue(
-						"f2c.farm_to_crop.doctype.geo_fencing_area.geo_fencing_area.recalculate_parent_circle",
-						parent_name=parent.name,
-						queue="short",
-						now=False
-					)
-			except Exception as e:
-				frappe.log_error(f"Error scheduling parent recalculation on insert: {str(e)}", "Geo Fencing Area Insert")
+		self.update_parent_circle()
 	
 	def on_update(self):
 		"""Update parent circle if auto-calculate is enabled"""
@@ -380,20 +353,8 @@ class GeoFencingArea(Document):
 				except Exception:
 					pass  # Old parent might not exist anymore
 		
-		# Update new parent using enqueue to ensure it happens after transaction commits
-		# This also ensures recursive updates happen properly
-		if self.parent_area:
-			try:
-				parent = frappe.get_doc("Geo Fencing Area", self.parent_area)
-				if parent.shape_type == "Circle":
-					frappe.enqueue(
-						"f2c.farm_to_crop.doctype.geo_fencing_area.geo_fencing_area.recalculate_parent_circle",
-						parent_name=parent.name,
-						queue="short",
-						now=False
-					)
-			except Exception as e:
-				frappe.log_error(f"Error scheduling parent recalculation on update: {str(e)}", "Geo Fencing Area Update")
+		# Update new parent
+		self.update_parent_circle()
 	
 	def before_save(self):
 		"""Set level sequence based on geo fencing type"""
@@ -434,15 +395,15 @@ class GeoFencingArea(Document):
 	
 	def set_level_sequence(self):
 		"""Set level sequence based on the hierarchy:
-		Farm (1) -> Cluster (2) -> Field (3) -> Block (4) -> Row (5)
+		Farm (1) -> Cluster (2) -> Field (3) -> Plot (4) -> Block (5) -> Row (6)
 		"""
 		level_map = {
 			"Farm": 1,
 			"Cluster": 2,
 			"Field": 3,
-			"Block": 4,
-			"Row": 5,
-			"Plot": 99,  # Deprecated - not used in hierarchy
+			"Plot": 4,
+			"Block": 5,
+			"Row": 6
 		}
 		
 		if self.geo_fencing_type:
@@ -458,12 +419,10 @@ class GeoFencingArea(Document):
 			frappe.throw("Shape Type is required. Please ensure the selected Geo Fencing Type has a Shape Type defined.")
 		
 		if self.shape_type == "Circle":
-			# Center and radius are optional - can be set later or calculated from children
-			# Only validate if they are provided
-			if self.center_latitude is not None and self.center_longitude is not None:
-				# If center is provided, radius should be positive if provided
-				if self.radius is not None and self.radius <= 0:
-					frappe.throw("Radius must be greater than 0 for Circle shape")
+			if not self.center_latitude or not self.center_longitude:
+				frappe.throw("Center Latitude and Center Longitude are required for Circle shape")
+			if not self.radius or self.radius <= 0:
+				frappe.throw("Radius must be greater than 0 for Circle shape")
 		
 		elif self.shape_type == "Polygon":
 			if not self.geo_fencing_coordinates or len(self.geo_fencing_coordinates) < 3:
