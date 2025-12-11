@@ -9,6 +9,7 @@
     "engine": "InnoDB",
     "field_order": [
         "geo_fencing_type_name",
+        "level",
         "shape_type",
         "color",
         "is_visible",
@@ -19,12 +20,19 @@
     "fields": [
         {
             "fieldname": "geo_fencing_type_name",
-            "fieldtype": "Select",
+            "fieldtype": "Data",
             "in_list_view": 1,
             "label": "Geo Fencing Type",
-            "options": "Farm\nCluster\nField\nPlot\nBlock\nRow\nUnallocated",
             "reqd": 1,
             "unique": 1
+        },
+        {
+            "fieldname": "level",
+            "fieldtype": "Int",
+            "in_list_view": 1,
+            "in_standard_filter": 1,
+            "label": "Level",
+            "reqd": 1
         },
         {
             "fieldname": "shape_type",
