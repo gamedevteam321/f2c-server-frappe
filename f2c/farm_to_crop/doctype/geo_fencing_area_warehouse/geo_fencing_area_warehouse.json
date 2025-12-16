@@ -1,0 +1,58 @@
+{
+    "actions": [],
+    "creation": "2025-11-20 13:07:00.000000",
+    "doctype": "DocType",
+    "editable_grid": 1,
+    "engine": "InnoDB",
+    "field_order": [
+        "warehouse",
+        "center_latitude",
+        "center_longitude",
+        "radius"
+    ],
+    "fields": [
+        {
+            "fieldname": "warehouse",
+            "fieldtype": "Link",
+            "in_list_view": 1,
+            "label": "Warehouse",
+            "options": "Warehouse",
+            "reqd": 1
+        },
+        {
+            "fieldname": "center_latitude",
+            "fieldtype": "Float",
+            "in_list_view": 1,
+            "label": "Center Latitude",
+            "precision": "8"
+        },
+        {
+            "fieldname": "center_longitude",
+            "fieldtype": "Float",
+            "in_list_view": 1,
+            "label": "Center Longitude",
+            "precision": "8"
+        },
+        {
+            "fieldname": "radius",
+            "fieldtype": "Float",
+            "in_list_view": 1,
+            "label": "Radius (meters)",
+            "precision": "2"
+        }
+    ],
+    "index_web_pages_for_search": 1,
+    "istable": 1,
+    "links": [],
+    "modified": "2025-11-20 13:07:00.000000",
+    "modified_by": "Administrator",
+    "module": "Farm To Crop",
+    "name": "Geo Fencing Area Warehouse",
+    "owner": "Administrator",
+    "permissions": [],
+    "sort_field": "modified",
+    "sort_order": "DESC",
+    "states": [],
+    "track_changes": 1
+}
+

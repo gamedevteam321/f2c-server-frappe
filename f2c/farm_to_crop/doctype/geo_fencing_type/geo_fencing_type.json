@@ -15,7 +15,8 @@
         "is_visible",
         "auto_calculate_area_child",
         "auto_calculate_center_by_child",
-        "auto_calculate_radius_by_child"
+        "auto_calculate_radius_by_child",
+        "has_warehouse"
     ],
     "fields": [
         {
@@ -73,6 +74,12 @@
             "fieldname": "auto_calculate_radius_by_child",
             "fieldtype": "Check",
             "label": "Auto Calculate Radius by Child"
+        },
+        {
+            "default": "0",
+            "fieldname": "has_warehouse",
+            "fieldtype": "Check",
+            "label": "Has Warehouse"
         }
     ],
     "index_web_pages_for_search": 1,
