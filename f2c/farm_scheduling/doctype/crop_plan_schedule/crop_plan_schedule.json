@@ -1,0 +1,356 @@
+{
+  "doctype": "DocType",
+  "name": "Crop Plan Schedule",
+  "module": "Farm Scheduling",
+  "document_type": "Document",
+  "autoname": "format:CPS-{####}",
+  "allow_rename": 1,
+  "track_changes": 1,
+  "index_web_pages_for_search": 1,
+  "field_order": [
+    "crop_plan",
+    "field",
+    "field_name",
+    "column_break_1",
+    "status",
+    "planned_start",
+    "planned_end",
+    "section_break_blocks",
+    "block",
+    "block_name",
+    "column_break_block",
+    "block_area_acres",
+    "no_of_seedlings",
+    "section_break_activity",
+    "crop_plan_activity",
+    "sequence",
+    "column_break_act",
+    "farm_activity",
+    "activity_name",
+    "is_spray",
+    "section_break_water",
+    "total_acres",
+    "total_seedlings",
+    "column_break_water_1",
+    "water_requirement_basis",
+    "water_rate",
+    "water_to_be_used_liters",
+    "estimated_irrigation_water_liters",
+    "section_break_requirements",
+    "approved_input_mix",
+    "approved_input_mix_name",
+    "inputs",
+    "section_break_equipment",
+    "equipment",
+    "section_break_labour",
+    "male_count",
+    "female_count",
+    "total_labour_count",
+    "section_break_cancel",
+    "cancel_reason",
+    "reschedule_reason",
+    "rescheduled_from",
+    "execution_ref"
+  ],
+  "fields": [
+    {
+      "fieldname": "crop_plan",
+      "fieldtype": "Link",
+      "label": "Crop Plan",
+      "options": "Crop Plan",
+      "reqd": 1,
+      "in_standard_filter": 1
+    },
+    {
+      "fieldname": "field",
+      "fieldtype": "Link",
+      "label": "Field (ID)",
+      "options": "Geo Fencing Area",
+      "fetch_from": "crop_plan.field",
+      "read_only": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "field_name",
+      "fieldtype": "Data",
+      "label": "Field Name",
+      "fetch_from": "field.area_name",
+      "read_only": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "column_break_1",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "status",
+      "fieldtype": "Select",
+      "label": "Status",
+      "options": "Draft\nScheduled\nCancelled",
+      "default": "Draft",
+      "in_list_view": 1,
+      "in_standard_filter": 1
+    },
+    {
+      "fieldname": "planned_start",
+      "fieldtype": "Datetime",
+      "label": "Planned Start",
+      "reqd": 1
+    },
+    {
+      "fieldname": "planned_end",
+      "fieldtype": "Datetime",
+      "label": "Planned End",
+      "reqd": 1
+    },
+    {
+      "fieldname": "section_break_blocks",
+      "fieldtype": "Section Break",
+      "label": "Blocks"
+    },
+    {
+      "fieldname": "block",
+      "fieldtype": "Link",
+      "label": "Block (ID)",
+      "options": "Geo Fencing Area",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "block_name",
+      "fieldtype": "Data",
+      "label": "Block Name",
+      "read_only": 1
+    },
+    {
+      "fieldname": "column_break_block",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "block_area_acres",
+      "fieldtype": "Float",
+      "label": "Block Area (Acres)",
+      "read_only": 1,
+      "precision": "3"
+    },
+    {
+      "fieldname": "no_of_seedlings",
+      "fieldtype": "Int",
+      "label": "No of Seedlings",
+      "read_only": 1
+    },
+    {
+      "fieldname": "section_break_activity",
+      "fieldtype": "Section Break",
+      "label": "Activity"
+    },
+    {
+      "fieldname": "crop_plan_activity",
+      "fieldtype": "Link",
+      "label": "Crop Plan Activity",
+      "options": "Crop Plan Activity",
+      "description": "Select a Crop Plan activity for the selected block."
+    },
+    {
+      "fieldname": "sequence",
+      "fieldtype": "Int",
+      "label": "Sequence",
+      "read_only": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "column_break_act",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "farm_activity",
+      "fieldtype": "Link",
+      "label": "Farm Activity",
+      "options": "Farm Activity",
+      "read_only": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "activity_name",
+      "fieldtype": "Data",
+      "label": "Activity Name",
+      "read_only": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "is_spray",
+      "fieldtype": "Check",
+      "label": "Is Spray",
+      "default": 0,
+      "description": "If enabled, water planning is mandatory and tank mix quantities are calculated based on water."
+    },
+    {
+      "fieldname": "section_break_water",
+      "fieldtype": "Section Break",
+      "label": "Water Planning"
+    },
+    {
+      "fieldname": "total_acres",
+      "fieldtype": "Float",
+      "label": "Total Acres",
+      "read_only": 1,
+      "precision": "3"
+    },
+    {
+      "fieldname": "total_seedlings",
+      "fieldtype": "Int",
+      "label": "Total Seedlings",
+      "read_only": 1
+    },
+    {
+      "fieldname": "column_break_water_1",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "water_requirement_basis",
+      "fieldtype": "Select",
+      "label": "Water Requirement",
+      "options": "Per Acre\nPer Plant"
+    },
+    {
+      "fieldname": "water_rate",
+      "fieldtype": "Float",
+      "label": "Water Quantity",
+      "description": "Enter liters per acre or liters per plant depending on Water Requirement.",
+      "precision": "3"
+    },
+    {
+      "fieldname": "water_to_be_used_liters",
+      "fieldtype": "Float",
+      "label": "Water to be Used (Liters)",
+      "read_only": 1,
+      "precision": "3"
+    },
+    {
+      "fieldname": "estimated_irrigation_water_liters",
+      "fieldtype": "Float",
+      "label": "Estimated Irrigation Water (Liters)",
+      "description": "Optional estimate (not used for tank mix calculation).",
+      "precision": "3"
+    },
+    {
+      "fieldname": "section_break_requirements",
+      "fieldtype": "Section Break",
+      "label": "Requirements"
+    },
+    {
+      "fieldname": "approved_input_mix",
+      "fieldtype": "Link",
+      "label": "Approved Input Mix",
+      "options": "Farm Tasks"
+    },
+    {
+      "fieldname": "approved_input_mix_name",
+      "fieldtype": "Data",
+      "label": "Approved Input Mix Name",
+      "read_only": 1,
+      "fetch_from": "approved_input_mix.task_name"
+    },
+    {
+      "fieldname": "inputs",
+      "fieldtype": "Table",
+      "label": "Approved Inputs",
+      "options": "Crop Plan Schedule Input"
+    },
+    {
+      "fieldname": "section_break_equipment",
+      "fieldtype": "Section Break",
+      "label": "Equipment"
+    },
+    {
+      "fieldname": "equipment",
+      "fieldtype": "Table",
+      "label": "Equipment",
+      "options": "Crop Plan Schedule Equipment"
+    },
+    {
+      "fieldname": "section_break_labour",
+      "fieldtype": "Section Break",
+      "label": "Labour"
+    },
+    {
+      "fieldname": "male_count",
+      "fieldtype": "Int",
+      "label": "Male",
+      "default": 0
+    },
+    {
+      "fieldname": "female_count",
+      "fieldtype": "Int",
+      "label": "Female",
+      "default": 0
+    },
+    {
+      "fieldname": "total_labour_count",
+      "fieldtype": "Int",
+      "label": "Total Labour",
+      "read_only": 1
+    },
+    {
+      "fieldname": "section_break_cancel",
+      "fieldtype": "Section Break",
+      "label": "Cancel / Handoff"
+    },
+    {
+      "fieldname": "cancel_reason",
+      "fieldtype": "Small Text",
+      "label": "Cancel Reason",
+      "depends_on": "eval:doc.status=='Cancelled'"
+    },
+    {
+      "fieldname": "reschedule_reason",
+      "fieldtype": "Small Text",
+      "label": "Reschedule Reason"
+    },
+    {
+      "fieldname": "rescheduled_from",
+      "fieldtype": "Link",
+      "label": "Rescheduled From",
+      "options": "Crop Plan Schedule",
+      "read_only": 1
+    },
+    {
+      "fieldname": "execution_ref",
+      "fieldtype": "Link",
+      "label": "Execution",
+      "options": "Farm Task Execution",
+      "read_only": 1
+    }
+  ],
+  "permissions": [
+    {
+      "role": "System Manager",
+      "read": 1,
+      "write": 1,
+      "create": 1,
+      "delete": 1,
+      "submit": 0,
+      "cancel": 0,
+      "report": 1,
+      "export": 1,
+      "print": 1,
+      "email": 1,
+      "share": 1
+    },
+    {
+      "role": "All",
+      "read": 1,
+      "write": 1,
+      "create": 1,
+      "report": 1,
+      "export": 1,
+      "print": 1,
+      "email": 1,
+      "share": 1
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC"
+}
+
+

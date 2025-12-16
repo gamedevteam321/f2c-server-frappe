@@ -76,7 +76,7 @@
             "fieldname": "soil_type",
             "fieldtype": "Select",
             "label": "Soil Type",
-            "options": "Clay\nSandy\nLoamy\nOther"
+            "options": "Clay\nSilty Clay\nSandy Clay\nClay Loam\nSilty Clay Loam\nSandy Clay Loam\nLoam\nSilt Loam\nSandy Loam\nLoamy Sand\nSand\nSilt\nOther"
         },
         {
             "fieldname": "section_break_blocks",

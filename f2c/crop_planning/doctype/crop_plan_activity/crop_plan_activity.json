@@ -5,6 +5,7 @@
     "doctype": "DocType",
     "editable_grid": 1,
     "engine": "InnoDB",
+    "show_title_field_in_link": 1,
     "field_order": [
         "block_reference",
         "sequence",
@@ -102,8 +103,10 @@
     "name": "Crop Plan Activity",
     "owner": "Administrator",
     "permissions": [],
+    "search_fields": "activity_name,activity",
     "sort_field": "sequence",
     "sort_order": "ASC",
+    "title_field": "activity_name",
     "track_changes": 1
 }
 
