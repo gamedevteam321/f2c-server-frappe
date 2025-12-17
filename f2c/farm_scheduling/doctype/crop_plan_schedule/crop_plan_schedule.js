@@ -29,6 +29,39 @@ frappe.ui.form.on('Crop Plan Schedule', {
 				}
 			};
 		});
+
+		// Filter assets by category for each equipment section
+		frm.set_query('asset', 'machinery', function() {
+			return {
+				filters: {
+					asset_category: ['like', '%Machinery%']
+				}
+			};
+		});
+
+		frm.set_query('asset', 'implements', function() {
+			return {
+				filters: {
+					asset_category: ['like', '%Implement%']
+				}
+			};
+		});
+
+		frm.set_query('asset', 'hand_tools', function() {
+			return {
+				filters: {
+					asset_category: ['like', '%Hand Tool%']
+				}
+			};
+		});
+
+		frm.set_query('asset', 'other_tools', function() {
+			return {
+				filters: {
+					asset_category: ['like', '%Other Tool%']
+				}
+			};
+		});
 	},
 
 	refresh(frm) {
@@ -264,6 +297,7 @@ frappe.ui.form.on('Crop Plan Schedule', {
 				frappe.model.set_value(row.doctype, row.name, 'quantity_to_use_display', '');
 			}
 		});
-	}
+	},
+
 });
 

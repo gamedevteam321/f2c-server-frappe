@@ -596,14 +596,48 @@ def create_reschedule(schedule_name: str, reschedule_reason: str | None = None) 
 			},
 		)
 
-	for eq in src.get("equipment") or []:
+	# Copy machinery
+	for m in src.get("machinery") or []:
 		new_doc.append(
-			"equipment",
+			"machinery",
 			{
-				"asset": eq.asset,
-				"asset_name": eq.asset_name,
-				"planned_hours": eq.planned_hours,
-				"remarks": eq.remarks,
+				"asset": m.asset,
+				"asset_name": m.asset_name,
+				"planned_hours": m.planned_hours,
+				"remarks": m.remarks,
+			},
+		)
+	# Copy implements
+	for imp in src.get("implements") or []:
+		new_doc.append(
+			"implements",
+			{
+				"asset": imp.asset,
+				"asset_name": imp.asset_name,
+				"planned_hours": imp.planned_hours,
+				"remarks": imp.remarks,
+			},
+		)
+	# Copy hand tools
+	for ht in src.get("hand_tools") or []:
+		new_doc.append(
+			"hand_tools",
+			{
+				"asset": ht.asset,
+				"asset_name": ht.asset_name,
+				"planned_hours": ht.planned_hours,
+				"remarks": ht.remarks,
+			},
+		)
+	# Copy other tools
+	for ot in src.get("other_tools") or []:
+		new_doc.append(
+			"other_tools",
+			{
+				"asset": ot.asset,
+				"asset_name": ot.asset_name,
+				"planned_hours": ot.planned_hours,
+				"remarks": ot.remarks,
 			},
 		)
 
