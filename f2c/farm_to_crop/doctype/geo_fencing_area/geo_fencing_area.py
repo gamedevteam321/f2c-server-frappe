@@ -225,6 +225,211 @@ def get_google_maps_api_key():
 	return frappe.conf.get('google_maps_api_key') or ''
 
 @frappe.whitelist()
+def validate_warehouse_location(area_name, latitude, longitude):
+	"""
+	Validate if a warehouse location is inside the current area's geo fencing and parent area's geo fencing
+	
+	Args:
+		area_name: Name of the Geo Fencing Area where warehouse is being added
+		latitude: Latitude of the warehouse location
+		longitude: Longitude of the warehouse location
+	
+	Returns:
+		dict: {
+			"valid": bool,
+			"message": str,
+			"parent_area_name": str or None,
+			"parent_area_display_name": str or None
+		}
+	"""
+	try:
+		# Convert inputs to float
+		latitude = float(latitude)
+		longitude = float(longitude)
+		
+		# Get the area document
+		area_doc = frappe.get_doc("Geo Fencing Area", area_name)
+		area_display_name = area_doc.area_name or area_doc.name
+		
+		# First, validate against the current area's geo-fencing
+		if area_doc.shape_type == "Circle":
+			if area_doc.center_latitude and area_doc.center_longitude and area_doc.radius:
+				distance = _calculate_distance_static(
+					area_doc.center_latitude,
+					area_doc.center_longitude,
+					latitude,
+					longitude
+				)
+				
+				if distance > area_doc.radius:
+					return {
+						"valid": False,
+						"message": f"Location is outside the current area '{area_display_name}' geo fencing. Distance: {distance:.2f}m, Radius: {area_doc.radius:.2f}m",
+						"parent_area_name": None,
+						"parent_area_display_name": None
+					}
+		elif area_doc.shape_type == "Polygon":
+			if area_doc.geo_fencing_coordinates and len(area_doc.geo_fencing_coordinates) >= 3:
+				coords = sorted(area_doc.geo_fencing_coordinates, key=lambda x: x.sequence or 0)
+				polygon = [(float(coord.latitude), float(coord.longitude)) for coord in coords]
+				is_inside = _is_point_in_polygon(latitude, longitude, polygon)
+				
+				if not is_inside:
+					return {
+						"valid": False,
+						"message": f"Location is outside the current area '{area_display_name}' geo fencing.",
+						"parent_area_name": None,
+						"parent_area_display_name": None
+					}
+		
+		# If current area validation passed, check parent area (if exists)
+		if not area_doc.parent_area:
+			return {
+				"valid": True,
+				"message": f"Location is inside area '{area_display_name}'.",
+				"parent_area_name": None,
+				"parent_area_display_name": None
+			}
+		
+		# Get parent area document
+		parent_area_doc = frappe.get_doc("Geo Fencing Area", area_doc.parent_area)
+		parent_area_name = parent_area_doc.area_name or parent_area_doc.name
+		
+		# Validate based on parent area's shape type
+		if parent_area_doc.shape_type == "Circle":
+			# Check if location is inside circle
+			if not parent_area_doc.center_latitude or not parent_area_doc.center_longitude or not parent_area_doc.radius:
+				return {
+					"valid": True,
+					"message": "Parent area circle data incomplete. Validation skipped.",
+					"parent_area_name": parent_area_doc.name,
+					"parent_area_display_name": parent_area_name
+				}
+			
+			# Calculate distance from circle center to warehouse location
+			distance = _calculate_distance_static(
+				parent_area_doc.center_latitude,
+				parent_area_doc.center_longitude,
+				latitude,
+				longitude
+			)
+			
+			if distance <= parent_area_doc.radius:
+				return {
+					"valid": True,
+					"message": f"Location is inside area '{area_display_name}' and parent area '{parent_area_name}'.",
+					"parent_area_name": parent_area_doc.name,
+					"parent_area_display_name": parent_area_name
+				}
+			else:
+				return {
+					"valid": False,
+					"message": f"Location is outside parent area '{parent_area_name}' geo fencing. Distance: {distance:.2f}m, Radius: {parent_area_doc.radius:.2f}m",
+					"parent_area_name": parent_area_doc.name,
+					"parent_area_display_name": parent_area_name
+				}
+		
+		elif parent_area_doc.shape_type == "Polygon":
+			# Check if location is inside polygon
+			if not parent_area_doc.geo_fencing_coordinates or len(parent_area_doc.geo_fencing_coordinates) < 3:
+				return {
+					"valid": True,
+					"message": "Parent area polygon data incomplete. Validation skipped.",
+					"parent_area_name": parent_area_doc.name,
+					"parent_area_display_name": parent_area_name
+				}
+			
+			# Get polygon coordinates
+			coords = sorted(parent_area_doc.geo_fencing_coordinates, key=lambda x: x.sequence or 0)
+			polygon = [(float(coord.latitude), float(coord.longitude)) for coord in coords]
+			
+			# Check if point is inside polygon using ray-casting algorithm
+			is_inside = _is_point_in_polygon(latitude, longitude, polygon)
+			
+			if is_inside:
+				return {
+					"valid": True,
+					"message": f"Location is inside area '{area_display_name}' and parent area '{parent_area_name}'.",
+					"parent_area_name": parent_area_doc.name,
+					"parent_area_display_name": parent_area_name
+				}
+			else:
+				return {
+					"valid": False,
+					"message": f"Location is outside parent area '{parent_area_name}' geo fencing.",
+					"parent_area_name": parent_area_doc.name,
+					"parent_area_display_name": parent_area_name
+				}
+		
+		else:
+			# Unknown shape type
+			return {
+				"valid": True,
+				"message": f"Parent area has unknown shape type '{parent_area_doc.shape_type}'. Validation skipped.",
+				"parent_area_name": parent_area_doc.name,
+				"parent_area_display_name": parent_area_name
+			}
+	
+	except frappe.DoesNotExistError:
+		return {
+			"valid": False,
+			"message": f"Area '{area_name}' not found.",
+			"parent_area_name": None,
+			"parent_area_display_name": None
+		}
+	except ValueError as e:
+		return {
+			"valid": False,
+			"message": f"Invalid coordinates: {str(e)}",
+			"parent_area_name": None,
+			"parent_area_display_name": None
+		}
+	except Exception as e:
+		frappe.log_error(f"Error validating warehouse location: {str(e)}", "Warehouse Location Validation")
+		return {
+			"valid": False,
+			"message": f"Error validating location: {str(e)}",
+			"parent_area_name": None,
+			"parent_area_display_name": None
+		}
+
+
+def _is_point_in_polygon(lat, lon, polygon):
+	"""
+	Check if a point is inside a polygon using ray-casting algorithm
+	
+	Args:
+		lat: Latitude of the point
+		lon: Longitude of the point
+		polygon: List of (latitude, longitude) tuples forming the polygon
+	
+	Returns:
+		bool: True if point is inside polygon, False otherwise
+	"""
+	if not polygon or len(polygon) < 3:
+		return False
+	
+	# For ray-casting, we use longitude as x and latitude as y
+	x, y = lon, lat
+	inside = False
+	
+	# Ray-casting algorithm
+	j = len(polygon) - 1
+	for i in range(len(polygon)):
+		# polygon[i] is (lat, lon), so polygon[i][1] is lon (x) and polygon[i][0] is lat (y)
+		xi, yi = polygon[i][1], polygon[i][0]
+		xj, yj = polygon[j][1], polygon[j][0]
+		
+		# Check if ray intersects with edge
+		intersect = ((yi > y) != (yj > y)) and (x < (xj - xi) * (y - yi) / (yj - yi) + xi)
+		if intersect:
+			inside = not inside
+		
+		j = i
+	
+	return inside
+
+@frappe.whitelist()
 def recalculate_circle_from_children(area_name):
 	"""
 	Recalculate circle center and radius from its children
