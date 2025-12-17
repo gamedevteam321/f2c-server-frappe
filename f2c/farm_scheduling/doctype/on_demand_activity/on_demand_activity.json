@@ -1,0 +1,370 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:ODA-{####}",
+ "creation": "2025-12-18 00:00:00.000000",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "engine": "InnoDB",
+ "field_order": [
+  "field",
+  "field_name",
+  "column_break_1",
+  "status",
+  "planned_start",
+  "planned_end",
+  "section_break_reason",
+  "reason",
+  "section_break_blocks",
+  "blocks",
+  "section_break_activity",
+  "activity_group_type",
+  "activity",
+  "activity_name",
+  "is_spray",
+  "section_break_water",
+  "total_acres",
+  "total_seedlings",
+  "column_break_water_1",
+  "water_requirement_basis",
+  "water_rate",
+  "water_to_be_used_liters",
+  "estimated_irrigation_water_liters",
+  "section_break_requirements",
+  "approved_input_mix",
+  "approved_input_mix_name",
+  "inputs",
+  "section_break_machinery",
+  "machinery",
+  "section_break_implements",
+  "implements",
+  "section_break_hand_tools",
+  "hand_tools",
+  "section_break_other_tools",
+  "other_tools",
+  "section_break_labour",
+  "male_count",
+  "female_count",
+  "total_labour_count",
+  "section_break_cancel",
+  "cancel_reason",
+  "reschedule_reason",
+  "rescheduled_from",
+  "execution_ref"
+ ],
+ "fields": [
+  {
+   "fieldname": "field",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Field",
+   "options": "Geo Fencing Area",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "field.area_name",
+   "fieldname": "field_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Field Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Draft",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Draft\nScheduled\nCancelled"
+  },
+  {
+   "fieldname": "planned_start",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Planned Start",
+   "reqd": 1
+  },
+  {
+   "fieldname": "planned_end",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Planned End",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_break_reason",
+   "fieldtype": "Section Break",
+   "label": "Activity Reason"
+  },
+  {
+   "fieldname": "reason",
+   "fieldtype": "Small Text",
+   "label": "Reason",
+   "reqd": 1,
+   "description": "Reason for this on-demand activity"
+  },
+  {
+   "fieldname": "section_break_blocks",
+   "fieldtype": "Section Break",
+   "label": "Blocks"
+  },
+  {
+   "fieldname": "blocks",
+   "fieldtype": "Table",
+   "label": "Blocks",
+   "options": "On Demand Activity Block",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_break_activity",
+   "fieldtype": "Section Break",
+   "label": "Activity"
+  },
+  {
+   "fieldname": "activity_group_type",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Activity Group Type",
+   "options": "Activity Group Type",
+   "reqd": 1
+  },
+  {
+   "fieldname": "activity",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Activity",
+   "options": "Farm Activity",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "activity.activity_name",
+   "fieldname": "activity_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Activity Name",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "If enabled, water planning is mandatory and tank mix quantities are calculated based on water.",
+   "fieldname": "is_spray",
+   "fieldtype": "Check",
+   "label": "Is Spray"
+  },
+  {
+   "fieldname": "section_break_water",
+   "fieldtype": "Section Break",
+   "label": "Water Planning"
+  },
+  {
+   "fieldname": "total_acres",
+   "fieldtype": "Float",
+   "label": "Total Acres",
+   "precision": "3",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_seedlings",
+   "fieldtype": "Int",
+   "label": "Total Seedlings",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_water_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "water_requirement_basis",
+   "fieldtype": "Select",
+   "label": "Water Requirement",
+   "options": "Per Acre\nPer Plant"
+  },
+  {
+   "description": "Enter liters per acre or liters per plant depending on Water Requirement.",
+   "fieldname": "water_rate",
+   "fieldtype": "Float",
+   "label": "Water Quantity",
+   "precision": "3"
+  },
+  {
+   "fieldname": "water_to_be_used_liters",
+   "fieldtype": "Float",
+   "label": "Water to be Used (Liters)",
+   "precision": "3",
+   "read_only": 1
+  },
+  {
+   "description": "Optional estimate (not used for tank mix calculation).",
+   "fieldname": "estimated_irrigation_water_liters",
+   "fieldtype": "Float",
+   "label": "Estimated Irrigation Water (Liters)",
+   "precision": "3"
+  },
+  {
+   "fieldname": "section_break_requirements",
+   "fieldtype": "Section Break",
+   "label": "Requirements"
+  },
+  {
+   "fieldname": "approved_input_mix",
+   "fieldtype": "Link",
+   "label": "Approved Input Mix",
+   "options": "Farm Tasks"
+  },
+  {
+   "fetch_from": "approved_input_mix.task_name",
+   "fieldname": "approved_input_mix_name",
+   "fieldtype": "Data",
+   "label": "Approved Input Mix Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "inputs",
+   "fieldtype": "Table",
+   "label": "Approved Inputs",
+   "options": "On Demand Activity Input"
+  },
+  {
+   "fieldname": "section_break_machinery",
+   "fieldtype": "Section Break",
+   "label": "Machinery"
+  },
+  {
+   "fieldname": "machinery",
+   "fieldtype": "Table",
+   "label": "Machinery",
+   "options": "On Demand Activity Machinery"
+  },
+  {
+   "fieldname": "section_break_implements",
+   "fieldtype": "Section Break",
+   "label": "Implements"
+  },
+  {
+   "fieldname": "implements",
+   "fieldtype": "Table",
+   "label": "Implements",
+   "options": "On Demand Activity Implement"
+  },
+  {
+   "fieldname": "section_break_hand_tools",
+   "fieldtype": "Section Break",
+   "label": "Hand Tools"
+  },
+  {
+   "fieldname": "hand_tools",
+   "fieldtype": "Table",
+   "label": "Hand Tools",
+   "options": "On Demand Activity Hand Tool"
+  },
+  {
+   "fieldname": "section_break_other_tools",
+   "fieldtype": "Section Break",
+   "label": "Other Tools"
+  },
+  {
+   "fieldname": "other_tools",
+   "fieldtype": "Table",
+   "label": "Other Tools",
+   "options": "On Demand Activity Other Tool"
+  },
+  {
+   "fieldname": "section_break_labour",
+   "fieldtype": "Section Break",
+   "label": "Labour"
+  },
+  {
+   "default": "0",
+   "fieldname": "male_count",
+   "fieldtype": "Int",
+   "label": "Male"
+  },
+  {
+   "default": "0",
+   "fieldname": "female_count",
+   "fieldtype": "Int",
+   "label": "Female"
+  },
+  {
+   "fieldname": "total_labour_count",
+   "fieldtype": "Int",
+   "label": "Total Labour",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_cancel",
+   "fieldtype": "Section Break",
+   "label": "Cancel / Handoff"
+  },
+  {
+   "depends_on": "eval:doc.status=='Cancelled'",
+   "fieldname": "cancel_reason",
+   "fieldtype": "Small Text",
+   "label": "Cancel Reason"
+  },
+  {
+   "fieldname": "reschedule_reason",
+   "fieldtype": "Small Text",
+   "label": "Reschedule Reason"
+  },
+  {
+   "fieldname": "rescheduled_from",
+   "fieldtype": "Link",
+   "label": "Rescheduled From",
+   "options": "On Demand Activity",
+   "read_only": 1
+  },
+  {
+   "fieldname": "execution_ref",
+   "fieldtype": "Link",
+   "label": "Execution",
+   "options": "Farm Task Execution",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-12-18 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Farm Scheduling",
+ "name": "On Demand Activity",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "All",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
+

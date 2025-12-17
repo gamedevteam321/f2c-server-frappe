@@ -1,0 +1,50 @@
+{
+  "doctype": "DocType",
+  "name": "On Demand Activity Hand Tool",
+  "module": "Farm Scheduling",
+  "document_type": "Document",
+  "istable": 1,
+  "editable_grid": 1,
+  "allow_rename": 1,
+  "track_changes": 1,
+  "field_order": [
+    "asset",
+    "asset_name",
+    "planned_hours",
+    "remarks"
+  ],
+  "fields": [
+    {
+      "fieldname": "asset",
+      "fieldtype": "Link",
+      "label": "Asset",
+      "options": "Asset",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "asset_name",
+      "fieldtype": "Data",
+      "label": "Asset Name",
+      "fetch_from": "asset.asset_name",
+      "read_only": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "planned_hours",
+      "fieldtype": "Float",
+      "label": "Planned Hours",
+      "precision": "2",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "remarks",
+      "fieldtype": "Small Text",
+      "label": "Remarks"
+    }
+  ],
+  "permissions": [],
+  "sort_field": "modified",
+  "sort_order": "DESC"
+}
+
