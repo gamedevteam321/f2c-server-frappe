@@ -67,7 +67,7 @@ frappe.ui.form.on('Crop Plan Schedule', {
 	refresh(frm) {
 		frm.trigger('refresh_activity_options');
 
-		if (!frm.is_new() && frm.doc.status !== 'Cancelled') {
+		if (!frm.is_new() && frm.doc.status !== 'Aborted') {
 			if (!frm.doc.execution_ref) {
 				frm.add_custom_button(__('Create Execution'), function() {
 					frappe.call({

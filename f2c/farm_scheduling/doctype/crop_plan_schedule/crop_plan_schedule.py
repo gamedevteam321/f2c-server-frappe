@@ -27,8 +27,8 @@ class CropPlanSchedule(Document):
 		self._recompute_input_totals_if_needed()
 
 	def _validate_status_cancel_reason(self):
-		if self.status == "Cancelled" and not (self.cancel_reason or "").strip():
-			frappe.throw("Cancel Reason is required when Status is Cancelled.")
+		if self.status == "Aborted" and not (self.cancel_reason or "").strip():
+			frappe.throw("Cancel Reason is required when Status is Aborted.")
 
 	def _validate_block_belongs_to_crop_plan(self):
 		if not self.crop_plan or not self.block:
