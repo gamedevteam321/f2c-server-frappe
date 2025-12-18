@@ -49,6 +49,8 @@ def create_from_schedule(schedule_name: str) -> str:
 
 	exec_doc = frappe.get_doc({"doctype": "Farm Task Execution"})
 	exec_doc.schedule_ref = schedule.name
+	exec_doc.status = "In Progress"
+	exec_doc.actual_start = now_datetime()
 
 	# Snapshot planned context
 	exec_doc.farm_activity = schedule.farm_activity

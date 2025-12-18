@@ -94,7 +94,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Status",
-   "options": "Draft\nScheduled\nAborted"
+   "options": "Draft\nScheduled\nRescheduled\nAborted\nCompleted"
   },
   {
    "fieldname": "planned_start",

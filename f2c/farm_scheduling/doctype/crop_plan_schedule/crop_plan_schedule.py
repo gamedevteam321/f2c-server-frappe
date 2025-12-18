@@ -16,6 +16,7 @@ SQ_METERS_TO_ACRES = 0.000247105
 class CropPlanSchedule(Document):
 	def validate(self):
 		self._validate_status_cancel_reason()
+		self._validate_rescheduled_readonly()
 		self._validate_block_belongs_to_crop_plan()
 		self._validate_activity_matches_block()
 		self._autofill_activity_fields()
@@ -29,6 +30,17 @@ class CropPlanSchedule(Document):
 	def _validate_status_cancel_reason(self):
 		if self.status == "Aborted" and not (self.cancel_reason or "").strip():
 			frappe.throw("Cancel Reason is required when Status is Aborted.")
+
+	def _validate_rescheduled_readonly(self):
+		"""Prevent editing schedules with Rescheduled status (historical record)."""
+		if self.status == "Rescheduled" and not self.is_new():
+			# Allow status change (e.g., if manually changing status)
+			if self.has_value_changed("status"):
+				return
+			# Check if any other fields have changed
+			changed_fields = [field for field in self.as_dict() if self.has_value_changed(field)]
+			if changed_fields:
+				frappe.throw("Cannot edit a schedule with Rescheduled status. It is a historical record.")
 
 	def _validate_block_belongs_to_crop_plan(self):
 		if not self.crop_plan or not self.block:
@@ -542,18 +554,31 @@ def crop_plan_activity_query(doctype, txt, searchfield, start, page_len, filters
 
 
 @frappe.whitelist()
-def create_reschedule(schedule_name: str, reschedule_reason: str | None = None) -> str:
+def create_reschedule(
+	schedule_name: str,
+	reschedule_reason: str | None = None,
+	planned_start: str | None = None,
+	planned_end: str | None = None,
+) -> str:
 	"""
 	Create a new Crop Plan Schedule by copying the given schedule.
 	The new document is saved as Draft and points back via rescheduled_from.
+	The original schedule is marked as "Rescheduled".
+	
+	Args:
+		schedule_name: Name of the schedule to reschedule
+		reschedule_reason: Optional reason for rescheduling
+		planned_start: Optional new planned start datetime (if not provided, copies from original)
+		planned_end: Optional new planned end datetime (if not provided, copies from original)
+	
+	Returns:
+		Name of the newly created schedule document
 	"""
 	src = frappe.get_doc("Crop Plan Schedule", schedule_name)
 
 	new_doc = frappe.get_doc({"doctype": "Crop Plan Schedule"})
 	for field in [
 		"crop_plan",
-		"planned_start",
-		"planned_end",
 		"crop_plan_activity",
 		"sequence",
 		"farm_activity",
@@ -565,10 +590,19 @@ def create_reschedule(schedule_name: str, reschedule_reason: str | None = None) 
 		"approved_input_mix",
 		"male_count",
 		"female_count",
+		"field",
+		"block",
+		"block_area_acres",
+		"no_of_seedlings",
 	]:
 		new_doc.set(field, src.get(field))
 
-	new_doc.status = "Draft"
+	# Use new dates if provided, otherwise copy from original
+	new_doc.planned_start = planned_start or src.planned_start
+	new_doc.planned_end = planned_end or src.planned_end
+
+	# Set status to Scheduled since user has provided new dates
+	new_doc.status = "Scheduled"
 	new_doc.rescheduled_from = src.name
 	new_doc.reschedule_reason = reschedule_reason or src.reschedule_reason
 
@@ -642,6 +676,12 @@ def create_reschedule(schedule_name: str, reschedule_reason: str | None = None) 
 		)
 
 	new_doc.insert(ignore_permissions=True)
+	
+	# Mark original schedule as "Rescheduled"
+	src.reload()
+	src.db_set("status", "Rescheduled", update_modified=False)
+	frappe.db.commit()
+	
 	return new_doc.name
 
 
