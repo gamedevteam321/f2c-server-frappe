@@ -8,7 +8,8 @@
         "warehouse",
         "center_latitude",
         "center_longitude",
-        "radius"
+        "radius",
+        "images"
     ],
     "fields": [
         {
@@ -39,6 +40,13 @@
             "in_list_view": 1,
             "label": "Radius (meters)",
             "precision": "2"
+        },
+        {
+            "fieldname": "images",
+            "fieldtype": "Small Text",
+            "label": "Images",
+            "description": "Comma-separated list of image file URLs",
+            "in_list_view": 1
         }
     ],
     "index_web_pages_for_search": 1,

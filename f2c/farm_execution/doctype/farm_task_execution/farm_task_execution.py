@@ -13,8 +13,87 @@ from f2c.farm_scheduling.doctype.crop_plan_schedule.crop_plan_schedule import co
 
 class FarmTaskExecution(Document):
 	def validate(self):
+		self._validate_reference()
 		self._validate_status_rules()
 		self._compute_consumed_qty()
+
+	def on_trash(self):
+		"""Prevent deletion if linked to schedule or on-demand activity."""
+		self._check_linked_schedule()
+		self._check_linked_on_demand_activity()
+
+	def on_cancel(self):
+		"""Prevent cancellation if linked to schedule or on-demand activity."""
+		self._check_linked_schedule()
+		self._check_linked_on_demand_activity()
+
+	def _check_linked_schedule(self):
+		"""Check if this execution is linked to a Crop Plan Schedule."""
+		if self.schedule_ref:
+			schedule_name = self.schedule_ref
+			# Check if schedule exists and get its status
+			schedule_status = frappe.db.get_value("Crop Plan Schedule", schedule_name, "status")
+			if schedule_status:
+				# If schedule is not in a terminal state, prevent deletion/cancellation
+				if schedule_status not in ("Aborted", "Completed", "Rescheduled"):
+					frappe.throw(
+						f"Cannot delete or cancel because Farm Task Execution <b>{self.name}</b> is linked with Crop Plan Schedule <b>{schedule_name}</b> which is {schedule_status}. Please abort or complete the schedule first."
+					)
+				# If schedule is in terminal state, allow deletion/cancellation
+				# but clear the bidirectional link to maintain data integrity
+				if schedule_status in ("Aborted", "Completed", "Rescheduled"):
+					# Clear execution_ref on the schedule to break the link
+					frappe.db.set_value("Crop Plan Schedule", schedule_name, "execution_ref", None, update_modified=False)
+					# Clear schedule_ref on this execution (will be cleared on deletion anyway, but good for cancellation)
+					self.schedule_ref = None
+
+	def _check_linked_on_demand_activity(self):
+		"""Check if this execution is linked to an On Demand Activity."""
+		if self.on_demand_activity_ref:
+			activity_name = self.on_demand_activity_ref
+			# Check if activity exists and get its status
+			activity_status = frappe.db.get_value("On Demand Activity", activity_name, "status")
+			if activity_status:
+				# If activity is not in a terminal state, prevent deletion/cancellation
+				if activity_status not in ("Aborted", "Completed"):
+					frappe.throw(
+						f"Cannot delete or cancel because Farm Task Execution <b>{self.name}</b> is linked with On Demand Activity <b>{activity_name}</b> which is {activity_status}. Please abort or complete the activity first."
+					)
+				# If activity is in terminal state, allow deletion/cancellation
+				# but clear the bidirectional link to maintain data integrity
+				if activity_status in ("Aborted", "Completed"):
+					# Clear execution_ref on the activity to break the link
+					frappe.db.set_value("On Demand Activity", activity_name, "execution_ref", None, update_modified=False)
+					# Clear on_demand_activity_ref on this execution (will be cleared on deletion anyway, but good for cancellation)
+					self.on_demand_activity_ref = None
+
+	def _validate_reference(self):
+		"""Ensure either schedule_ref or on_demand_activity_ref is provided, but not both."""
+		if not self.schedule_ref and not self.on_demand_activity_ref:
+			frappe.throw("Either Schedule or On Demand Activity must be provided.")
+		if self.schedule_ref and self.on_demand_activity_ref:
+			frappe.throw("Cannot have both Schedule and On Demand Activity. Please provide only one.")
+		
+		# Auto-populate field, crop_plan, and is_spray based on reference
+		if self.schedule_ref:
+			schedule = frappe.get_doc("Crop Plan Schedule", self.schedule_ref)
+			if not self.field:
+				self.field = schedule.field
+			if not self.crop_plan:
+				self.crop_plan = schedule.crop_plan
+			if not hasattr(self, 'is_spray') or self.is_spray is None:
+				self.is_spray = schedule.is_spray or 0
+			if not self.planned_spray_water_liters:
+				self.planned_spray_water_liters = flt(schedule.water_to_be_used_liters or 0, 3)
+		elif self.on_demand_activity_ref:
+			activity = frappe.get_doc("On Demand Activity", self.on_demand_activity_ref)
+			if not self.field:
+				self.field = activity.field
+			# On-demand activities don't have crop_plan, so leave it blank
+			if not hasattr(self, 'is_spray') or self.is_spray is None:
+				self.is_spray = activity.is_spray or 0
+			if not self.planned_spray_water_liters:
+				self.planned_spray_water_liters = flt(activity.water_to_be_used_liters or 0, 3)
 
 	def _validate_status_rules(self):
 		if self.status == "Started" and not self.actual_start:
@@ -108,6 +187,109 @@ def create_from_schedule(schedule_name: str) -> str:
 	exec_doc.insert(ignore_permissions=True)
 
 	schedule.db_set("execution_ref", exec_doc.name, update_modified=False)
+	return exec_doc.name
+
+
+@frappe.whitelist()
+def create_from_on_demand_activity(on_demand_activity_name: str) -> str:
+	"""
+	Create a Farm Task Execution document from an On Demand Activity.
+	Also writes back execution_ref on the on-demand activity.
+	"""
+	activity = frappe.get_doc("On Demand Activity", on_demand_activity_name)
+
+	if activity.execution_ref:
+		return activity.execution_ref
+
+	exec_doc = frappe.get_doc({"doctype": "Farm Task Execution"})
+	exec_doc.on_demand_activity_ref = activity.name
+	exec_doc.status = "In Progress"
+	exec_doc.actual_start = now_datetime()
+
+	# Snapshot planned context
+	exec_doc.farm_activity = activity.activity
+	exec_doc.activity_name = activity.activity_name
+	exec_doc.approved_input_mix = activity.approved_input_mix
+	exec_doc.planned_male_count = int(activity.male_count or 0)
+	exec_doc.planned_female_count = int(activity.female_count or 0)
+	exec_doc.field = activity.field
+	exec_doc.is_spray = activity.is_spray or 0
+	exec_doc.planned_spray_water_liters = flt(activity.water_to_be_used_liters or 0, 3)
+
+	# Copy blocks
+	for block_row in activity.get("blocks") or []:
+		exec_doc.append(
+			"blocks",
+			{
+				"block": block_row.block,
+				"block_name": block_row.block_name,
+				"block_area_acres": block_row.block_area_acres,
+				"no_of_seedlings": block_row.no_of_seedlings,
+			},
+		)
+
+	# Copy equipment (planned) - combine all equipment types
+	for eq in activity.get("machinery") or []:
+		exec_doc.append(
+			"equipment",
+			{
+				"asset": eq.asset,
+				"asset_name": eq.asset_name,
+				"planned_hours": eq.planned_hours,
+			},
+		)
+	for eq in activity.get("implements") or []:
+		exec_doc.append(
+			"equipment",
+			{
+				"asset": eq.asset,
+				"asset_name": eq.asset_name,
+				"planned_hours": eq.planned_hours,
+			},
+		)
+	for eq in activity.get("hand_tools") or []:
+		exec_doc.append(
+			"equipment",
+			{
+				"asset": eq.asset,
+				"asset_name": eq.asset_name,
+				"planned_hours": eq.planned_hours,
+			},
+		)
+	for eq in activity.get("other_tools") or []:
+		exec_doc.append(
+			"equipment",
+			{
+				"asset": eq.asset,
+				"asset_name": eq.asset_name,
+				"planned_hours": eq.planned_hours,
+			},
+		)
+
+	# Copy inputs (planned)
+	for it in activity.get("inputs") or []:
+		rate_qty = it.rate_quantity
+		unit = it.unit
+		# Use total_quantity_to_use if available (for spray activities), otherwise use rate_quantity
+		planned_qty = flt(it.total_quantity_to_use or 0, 3) if (activity.is_spray and it.total_quantity_to_use) else flt(it.rate_quantity or 0, 3)
+		exec_doc.append(
+			"inputs",
+			{
+				"item": it.item,
+				"item_name": it.item_name,
+				"uom": unit,
+				"rate_qty": rate_qty,
+				"planned_qty": planned_qty,
+				"qty_to_issue": planned_qty,
+				"qty_to_return": 0,
+				"issued_qty": 0,
+				"returned_qty": 0,
+			},
+		)
+
+	exec_doc.insert(ignore_permissions=True)
+
+	activity.db_set("execution_ref", exec_doc.name, update_modified=False)
 	return exec_doc.name
 
 

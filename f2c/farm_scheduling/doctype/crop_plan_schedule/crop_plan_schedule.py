@@ -27,6 +27,50 @@ class CropPlanSchedule(Document):
 		self._validate_spray_requirements()
 		self._recompute_input_totals_if_needed()
 
+	def on_trash(self):
+		"""Prevent deletion if linked to execution or if it's a rescheduled source."""
+		self._check_linked_execution()
+		self._check_rescheduled_references()
+
+	def on_cancel(self):
+		"""Prevent cancellation if linked to execution or if it's a rescheduled source."""
+		self._check_linked_execution()
+		self._check_rescheduled_references()
+
+	def _check_linked_execution(self):
+		"""Check if this schedule is linked to a Farm Task Execution and handle the link appropriately."""
+		if self.execution_ref:
+			exec_name = self.execution_ref
+			# Check if execution exists and get its status
+			exec_status = frappe.db.get_value("Farm Task Execution", exec_name, "status")
+			if exec_status:
+				# If execution is in progress, prevent deletion/cancellation
+				if exec_status == "In Progress":
+					frappe.throw(
+						f"Cannot delete or cancel because Crop Plan Schedule <b>{self.name}</b> is linked with Farm Task Execution <b>{exec_name}</b> which is In Progress. Please complete or abort the execution first."
+					)
+				# If execution is in terminal state (Completed/Aborted), allow deletion/cancellation
+				# but clear the bidirectional link to maintain data integrity
+				if exec_status in ("Completed", "Aborted"):
+					# Clear schedule_ref on the execution to break the link
+					frappe.db.set_value("Farm Task Execution", exec_name, "schedule_ref", None, update_modified=False)
+					# Clear execution_ref on this schedule (will be cleared on deletion anyway, but good for cancellation)
+					self.execution_ref = None
+
+	def _check_rescheduled_references(self):
+		"""Check if this schedule is referenced by other schedules as rescheduled_from."""
+		referencing_schedules = frappe.get_all(
+			"Crop Plan Schedule",
+			filters={"rescheduled_from": self.name},
+			fields=["name"],
+			limit=1
+		)
+		if referencing_schedules:
+			ref_name = referencing_schedules[0].name
+			frappe.throw(
+				f"Cannot delete or cancel because Crop Plan Schedule <b>{self.name}</b> is linked with Crop Plan Schedule <b>{ref_name}</b>"
+			)
+
 	def _validate_status_cancel_reason(self):
 		if self.status == "Aborted" and not (self.cancel_reason or "").strip():
 			frappe.throw("Cancel Reason is required when Status is Aborted.")

@@ -81,7 +81,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Status",
-   "options": "Draft\nScheduled\nCancelled"
+   "options": "Draft\nScheduled\nAborted\nCompleted"
   },
   {
    "fieldname": "planned_start",
@@ -304,7 +304,7 @@
    "label": "Cancel / Handoff"
   },
   {
-   "depends_on": "eval:doc.status=='Cancelled'",
+   "depends_on": "eval:doc.status=='Aborted'",
    "fieldname": "cancel_reason",
    "fieldtype": "Small Text",
    "label": "Cancel Reason"

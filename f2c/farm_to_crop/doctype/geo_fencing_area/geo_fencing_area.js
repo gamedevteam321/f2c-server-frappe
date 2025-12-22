@@ -22,6 +22,11 @@ frappe.ui.form.on("Geo Fencing Area", {
                 setup_warehouse_map_buttons(frm);
             }, 500);
         }
+        
+        // Setup image formatter for warehouses grid
+        if (frm.fields_dict.warehouses && frm.fields_dict.warehouses.grid) {
+            setup_warehouse_images_formatter(frm);
+        }
     },
     
     warehouses: function(frm) {
@@ -238,12 +243,87 @@ frappe.ui.form.on("Geo Fencing Area Warehouse", {
                 }
             }
         }, 150);
+        
+        // Setup image display for images field
+        setup_images_display(frm, cdt, cdn);
     },
     warehouses_add: function(frm, cdt, cdn) {
         // Don't setup buttons here to avoid duplicates
         // The main button in grid footer will handle all rows
+    },
+    images: function(frm, cdt, cdn) {
+        // Refresh image display when images field changes
+        setup_images_display(frm, cdt, cdn);
     }
 });
+
+// Function to setup image display for warehouse images field
+function setup_images_display(frm, cdt, cdn) {
+    setTimeout(() => {
+        let row = locals[cdt][cdn];
+        if (!row || !row.images) {
+            return;
+        }
+        
+        // Find the images field wrapper
+        let field_wrapper = $(`[data-fieldname="images"][data-doctype="${cdt}"][data-name="${cdn}"]`);
+        if (!field_wrapper.length) {
+            // Try alternative selector
+            field_wrapper = $(`[data-fieldname="images"]`).filter(function() {
+                return $(this).closest('[data-doctype]').attr('data-doctype') === cdt &&
+                       $(this).closest('[data-name]').attr('data-name') === cdn;
+            });
+        }
+        
+        if (!field_wrapper.length) {
+            return;
+        }
+        
+        // Remove existing image display if any
+        field_wrapper.find('.warehouse-images-gallery').remove();
+        
+        // Parse comma-separated image URLs
+        let image_urls = row.images.split(',').map(url => url.trim()).filter(url => url);
+        
+        if (image_urls.length === 0) {
+            return;
+        }
+        
+        // Create image gallery
+        let gallery_html = '<div class="warehouse-images-gallery" style="margin-top: 10px; display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px;">';
+        
+        image_urls.forEach((url, index) => {
+            // Construct full URL if needed
+            let full_url = url;
+            if (!url.startsWith('http') && !url.startsWith('/')) {
+                full_url = '/' + url;
+            } else if (url.startsWith('/files/')) {
+                // Already a valid path
+            }
+            
+            gallery_html += `
+                <div style="position: relative; width: 100%; padding-top: 100%; background: #f0f0f0; border-radius: 4px; overflow: hidden; border: 1px solid #ddd; cursor: pointer;" 
+                     onclick="window.open('${full_url}', '_blank')"
+                     title="Click to view full size">
+                    <img src="${full_url}" 
+                         alt="Warehouse image ${index + 1}"
+                         style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover;"
+                         onerror="this.style.display='none'; this.parentElement.innerHTML='<div style=\\'position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #999; font-size: 12px;\\'>Image not found</div>';">
+                </div>
+            `;
+        });
+        
+        gallery_html += '</div>';
+        
+        // Insert gallery after the input field
+        let input_field = field_wrapper.find('input, textarea');
+        if (input_field.length) {
+            input_field.after(gallery_html);
+        } else {
+            field_wrapper.append(gallery_html);
+        }
+    }, 200);
+}
 
 // Function to add map button to a grid row
 function add_map_button_to_row(grid_row, frm) {
@@ -316,6 +396,52 @@ function add_map_button_to_row(grid_row, frm) {
             });
         }
     }, 200);
+}
+
+// Function to setup image formatter for warehouses grid
+function setup_warehouse_images_formatter(frm) {
+    if (!frm.fields_dict.warehouses || !frm.fields_dict.warehouses.grid) {
+        return;
+    }
+    
+    let grid = frm.fields_dict.warehouses.grid;
+    
+    // Add custom formatter for images field in grid
+    if (grid.meta && grid.meta.fields) {
+        let images_field = grid.meta.fields.find(f => f.fieldname === 'images');
+        if (images_field) {
+            images_field.formatter = function(value, row, column, data, default_formatter) {
+                if (!value) {
+                    return '<span style="color: #999;">-</span>';
+                }
+                
+                let image_urls = value.split(',').map(url => url.trim()).filter(url => url);
+                if (image_urls.length === 0) {
+                    return '<span style="color: #999;">-</span>';
+                }
+                
+                // Show first image as thumbnail with count badge
+                let first_url = image_urls[0];
+                if (!first_url.startsWith('http') && !first_url.startsWith('/')) {
+                    first_url = '/' + first_url;
+                }
+                
+                let badge_html = image_urls.length > 1 
+                    ? `<span style="position: absolute; top: -5px; right: -5px; background: #2ecc71; color: white; border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold;">+${image_urls.length - 1}</span>`
+                    : '';
+                
+                return `
+                    <div style="position: relative; display: inline-block; width: 50px; height: 50px; border-radius: 4px; overflow: hidden; border: 1px solid #ddd;">
+                        <img src="${first_url}" 
+                             alt="Warehouse images"
+                             style="width: 100%; height: 100%; object-fit: cover;"
+                             onerror="this.style.display='none'; this.parentElement.innerHTML='<div style=\\'width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: #f0f0f0; color: #999; font-size: 10px;\\'>${image_urls.length} image(s)</div>';">
+                        ${badge_html}
+                    </div>
+                `;
+            };
+        }
+    }
 }
 
 // Function to load Google Maps script dynamically

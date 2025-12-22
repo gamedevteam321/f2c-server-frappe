@@ -9,6 +9,7 @@
   "index_web_pages_for_search": 1,
   "field_order": [
     "schedule_ref",
+    "on_demand_activity_ref",
     "crop_plan",
     "field",
     "column_break_1",
@@ -54,7 +55,13 @@
       "fieldtype": "Link",
       "label": "Schedule",
       "options": "Crop Plan Schedule",
-      "reqd": 1,
+      "in_standard_filter": 1
+    },
+    {
+      "fieldname": "on_demand_activity_ref",
+      "fieldtype": "Link",
+      "label": "On Demand Activity",
+      "options": "On Demand Activity",
       "in_standard_filter": 1
     },
     {
@@ -62,7 +69,6 @@
       "fieldtype": "Link",
       "label": "Crop Plan",
       "options": "Crop Plan",
-      "fetch_from": "schedule_ref.crop_plan",
       "read_only": 1,
       "in_list_view": 1
     },
@@ -71,7 +77,6 @@
       "fieldtype": "Link",
       "label": "Field",
       "options": "Geo Fencing Area",
-      "fetch_from": "schedule_ref.field",
       "read_only": 1,
       "in_list_view": 1
     },
@@ -151,14 +156,12 @@
       "fieldname": "is_spray",
       "fieldtype": "Check",
       "label": "Is Spray",
-      "fetch_from": "schedule_ref.is_spray",
       "read_only": 1
     },
     {
       "fieldname": "planned_spray_water_liters",
       "fieldtype": "Float",
       "label": "Planned Spray Water (Liters)",
-      "fetch_from": "schedule_ref.water_to_be_used_liters",
       "read_only": 1,
       "precision": "3"
     },
