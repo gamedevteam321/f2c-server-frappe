@@ -15,7 +15,6 @@
         "field_area_acres",
         "total_blocks",
         "section_break_field_details",
-        "irrigation_type",
         "soil_type",
         "section_break_blocks",
         "blocks",
@@ -65,12 +64,6 @@
             "fieldname": "section_break_field_details",
             "fieldtype": "Section Break",
             "label": "Field Details"
-        },
-        {
-            "fieldname": "irrigation_type",
-            "fieldtype": "Select",
-            "label": "Irrigation Type",
-            "options": "Drip\nSprinkler\nFlood\nOther"
         },
         {
             "fieldname": "soil_type",

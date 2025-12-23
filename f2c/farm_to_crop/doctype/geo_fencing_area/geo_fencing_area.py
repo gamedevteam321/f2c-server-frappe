@@ -6,6 +6,76 @@ from frappe.model.document import Document
 import math
 
 
+def recalculate_parent_area(parent_name, depth=0, max_depth=10):
+	"""
+	Standalone function to recalculate parent area as sum of children's areas
+	For Cluster: sums all child Fields' areas
+	For Farm: sums all child Clusters' areas
+	Can be called from queue
+	Recursively updates parent's parent up to max_depth
+	"""
+	# Prevent infinite recursion
+	if depth >= max_depth:
+		frappe.log_error(f"Maximum recursion depth ({max_depth}) reached while recalculating parent areas", "Geo Fencing Area Recalculate Parent Area")
+		return
+	
+	try:
+		parent = frappe.get_doc("Geo Fencing Area", parent_name)
+		
+		if not parent.geo_fencing_type:
+			return
+		
+		# Only recalculate for Cluster and Farm
+		if parent.geo_fencing_type not in ["Cluster", "Farm"]:
+			return
+		
+		# Get all children based on parent type
+		if parent.geo_fencing_type == "Cluster":
+			# Sum all child Fields' areas
+			children = frappe.get_all(
+				"Geo Fencing Area",
+				filters={"parent_area": parent.name, "geo_fencing_type": "Field"},
+				fields=["name", "area"]
+			)
+		elif parent.geo_fencing_type == "Farm":
+			# Sum all child Clusters' areas
+			children = frappe.get_all(
+				"Geo Fencing Area",
+				filters={"parent_area": parent.name, "geo_fencing_type": "Cluster"},
+				fields=["name", "area"]
+			)
+		else:
+			return
+		
+		# Calculate total area from children
+		total_area = 0
+		for child in children:
+			child_area = child.get("area")
+			if child_area is not None:
+				try:
+					total_area += float(child_area)
+				except (ValueError, TypeError):
+					# Skip invalid area values
+					continue
+		
+		# Update parent area
+		parent.area = total_area
+		parent.flags.ignore_validate = True
+		parent.flags.ignore_links = True
+		parent.save(ignore_permissions=True)
+		
+		# Recursively update parent's parent if it exists
+		# If this is a Cluster, update its parent Farm
+		if parent.parent_area and parent.geo_fencing_type == "Cluster":
+			try:
+				recalculate_parent_area(parent.parent_area, depth=depth + 1, max_depth=max_depth)
+			except Exception as e:
+				frappe.log_error(f"Error recursively recalculating parent's parent for {parent.name}: {str(e)}", "Geo Fencing Area Recalculate Parent Area")
+		
+	except Exception as e:
+		frappe.log_error(f"Error recalculating parent area {parent_name}: {str(e)}", "Geo Fencing Area Recalculate Parent Area")
+
+
 def recalculate_parent_circle(parent_name, depth=0, max_depth=10):
 	"""
 	Standalone function to recalculate parent circle after child creation/update/deletion
@@ -565,9 +635,18 @@ class GeoFencingArea(Document):
 		if self.parent_area:
 			try:
 				parent = frappe.get_doc("Geo Fencing Area", self.parent_area)
+				# Update parent circle if it's a circle
 				if parent.shape_type == "Circle":
 					frappe.enqueue(
 						"f2c.farm_to_crop.doctype.geo_fencing_area.geo_fencing_area.recalculate_parent_circle",
+						parent_name=parent.name,
+						queue="short",
+						now=False
+					)
+				# Update parent area if it's a Cluster or Farm
+				if parent.geo_fencing_type in ["Cluster", "Farm"]:
+					frappe.enqueue(
+						"f2c.farm_to_crop.doctype.geo_fencing_area.geo_fencing_area.recalculate_parent_area",
 						parent_name=parent.name,
 						queue="short",
 						now=False
@@ -613,16 +692,25 @@ class GeoFencingArea(Document):
 			frappe.log_error(f"Error creating warehouse for {self.name}: {str(e)}", "Geo Fencing Area Create Warehouse")
 	
 	def on_update(self):
-		"""Update parent circle if auto-calculate is enabled"""
+		"""Update parent circle if auto-calculate is enabled, and update parent area if hierarchical calculation is needed"""
 		# Check if parent_area changed
 		if hasattr(self, '_old_parent_area') and self._old_parent_area != self.parent_area:
-			# Update old parent if it exists and was a circle
+			# Update old parent if it exists
 			if self._old_parent_area:
 				try:
 					old_parent = frappe.get_doc("Geo Fencing Area", self._old_parent_area)
+					# Update old parent circle if it's a circle
 					if old_parent.shape_type == "Circle":
 						frappe.enqueue(
 							"f2c.farm_to_crop.doctype.geo_fencing_area.geo_fencing_area.recalculate_parent_circle",
+							parent_name=old_parent.name,
+							queue="short",
+							now=False
+						)
+					# Update old parent area if it's a Cluster or Farm
+					if old_parent.geo_fencing_type in ["Cluster", "Farm"]:
+						frappe.enqueue(
+							"f2c.farm_to_crop.doctype.geo_fencing_area.geo_fencing_area.recalculate_parent_area",
 							parent_name=old_parent.name,
 							queue="short",
 							now=False
@@ -635,6 +723,7 @@ class GeoFencingArea(Document):
 		if self.parent_area:
 			try:
 				parent = frappe.get_doc("Geo Fencing Area", self.parent_area)
+				# Update parent circle if it's a circle
 				if parent.shape_type == "Circle":
 					frappe.enqueue(
 						"f2c.farm_to_crop.doctype.geo_fencing_area.geo_fencing_area.recalculate_parent_circle",
@@ -642,8 +731,31 @@ class GeoFencingArea(Document):
 						queue="short",
 						now=False
 					)
+				# Update parent area if it's a Cluster or Farm
+				if parent.geo_fencing_type in ["Cluster", "Farm"]:
+					frappe.enqueue(
+						"f2c.farm_to_crop.doctype.geo_fencing_area.geo_fencing_area.recalculate_parent_area",
+						parent_name=parent.name,
+						queue="short",
+						now=False
+					)
 			except Exception as e:
 				frappe.log_error(f"Error scheduling parent recalculation on update: {str(e)}", "Geo Fencing Area Update")
+		
+		# If this is a Field or Cluster and its area changed, trigger parent area recalculation
+		# This handles the case where area is recalculated in before_save
+		if self.geo_fencing_type in ["Field", "Cluster"] and self.parent_area:
+			try:
+				parent = frappe.get_doc("Geo Fencing Area", self.parent_area)
+				if parent.geo_fencing_type in ["Cluster", "Farm"]:
+					frappe.enqueue(
+						"f2c.farm_to_crop.doctype.geo_fencing_area.geo_fencing_area.recalculate_parent_area",
+						parent_name=parent.name,
+						queue="short",
+						now=False
+					)
+			except Exception as e:
+				frappe.log_error(f"Error scheduling parent area recalculation on update: {str(e)}", "Geo Fencing Area Update")
 	
 	def before_save(self):
 		"""Set level sequence based on geo fencing type"""
@@ -671,15 +783,23 @@ class GeoFencingArea(Document):
 				frappe.log_error(f"Error setting has_warehouse from type: {str(e)}", "Geo Fencing Area")
 	
 	def on_trash(self):
-		"""Update parent circle when child is deleted"""
+		"""Update parent circle and area when child is deleted"""
 		if self.parent_area:
 			try:
 				parent = frappe.get_doc("Geo Fencing Area", self.parent_area)
+				# Recalculate parent circle after this child is deleted
 				if parent.shape_type == "Circle":
-					# Recalculate parent after this child is deleted
 					# Use enqueue to avoid issues during delete transaction
 					frappe.enqueue(
 						"f2c.farm_to_crop.doctype.geo_fencing_area.geo_fencing_area.recalculate_parent_circle",
+						parent_name=parent.name,
+						queue="short",
+						now=False
+					)
+				# Recalculate parent area after this child is deleted
+				if parent.geo_fencing_type in ["Cluster", "Farm"]:
+					frappe.enqueue(
+						"f2c.farm_to_crop.doctype.geo_fencing_area.geo_fencing_area.recalculate_parent_area",
 						parent_name=parent.name,
 						queue="short",
 						now=False
@@ -734,7 +854,47 @@ class GeoFencingArea(Document):
 			self.calculate_area()
 	
 	def calculate_area(self):
-		"""Calculate area based on shape type"""
+		"""Calculate area based on shape type and geo_fencing_type"""
+		# For Cluster and Farm, calculate area as sum of children
+		if self.geo_fencing_type == "Cluster":
+			# Sum all child Fields' areas
+			children = frappe.get_all(
+				"Geo Fencing Area",
+				filters={"parent_area": self.name, "geo_fencing_type": "Field"},
+				fields=["name", "area"]
+			)
+			total_area = 0
+			for child in children:
+				child_area = child.get("area")
+				if child_area is not None:
+					try:
+						total_area += float(child_area)
+					except (ValueError, TypeError):
+						# Skip invalid area values
+						continue
+			self.area = total_area
+			return
+		
+		elif self.geo_fencing_type == "Farm":
+			# Sum all child Clusters' areas
+			children = frappe.get_all(
+				"Geo Fencing Area",
+				filters={"parent_area": self.name, "geo_fencing_type": "Cluster"},
+				fields=["name", "area"]
+			)
+			total_area = 0
+			for child in children:
+				child_area = child.get("area")
+				if child_area is not None:
+					try:
+						total_area += float(child_area)
+					except (ValueError, TypeError):
+						# Skip invalid area values
+						continue
+			self.area = total_area
+			return
+		
+		# For Field and other types, calculate from shape (existing logic)
 		if self.shape_type == "Polygon" and self.geo_fencing_coordinates:
 			# Sort coordinates by sequence if sequence is provided
 			coords = sorted(self.geo_fencing_coordinates, key=lambda x: x.sequence or 0)

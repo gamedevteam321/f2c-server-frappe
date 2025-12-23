@@ -43,8 +43,18 @@ class CropPlan(Document):
 				self.field_area_acres = field_doc.area * SQ_METERS_TO_ACRES
 	
 	def calculate_total_blocks(self):
-		"""Calculate total number of blocks"""
-		self.total_blocks = len(self.blocks) if self.blocks else 0
+		"""Calculate total number of unique blocks (not crop rows)"""
+		if not self.blocks:
+			self.total_blocks = 0
+			return
+		
+		# Count unique blocks by block reference
+		unique_blocks = set()
+		for block_row in self.blocks:
+			if block_row.block:
+				unique_blocks.add(block_row.block)
+		
+		self.total_blocks = len(unique_blocks)
 	
 	def validate_blocks_belong_to_field(self):
 		"""Validate that all selected blocks belong to the selected field"""
@@ -316,6 +326,46 @@ def get_crop_plan_with_activities(crop_plan_name):
 	crop_plan_dict['activities'] = activities_list
 	crop_plan_dict['approved_input_mixes'] = approved_input_mixes_list
 	
+	# Process blocks: group by block reference to support multiple crops per block
+	# Backend stores multiple block rows (one per crop), frontend expects blocks with crop_configs array
+	blocks_dict = {}  # Key: block reference (block field), Value: list of block rows
+	
+	for block_row in crop_plan_doc.blocks:
+		block_ref = block_row.block
+		if block_ref not in blocks_dict:
+			blocks_dict[block_ref] = {
+				'block': block_row.block,
+				'block_name': block_row.block_name,
+				'block_area': block_row.block_area,
+				'name': block_row.name if hasattr(block_row, 'name') else None,
+				'crop_configs': []
+			}
+		
+		# Add this crop as a crop_config
+		if block_row.crop:  # Only add if crop is set
+			blocks_dict[block_ref]['crop_configs'].append({
+				'crop': block_row.crop,
+				'pop': block_row.pop or '',
+				'pop_name': block_row.pop_name or '',
+				'spacing': block_row.spacing or '',
+				'no_of_seedlings': block_row.no_of_seedlings or 0,
+				'irrigation_type': block_row.irrigation_type or ''
+			})
+	
+	# Convert to list and preserve order
+	processed_blocks = []
+	# Use original order from crop_plan_doc.blocks to maintain order
+	seen_blocks = set()
+	for block_row in crop_plan_doc.blocks:
+		block_ref = block_row.block
+		if block_ref not in seen_blocks:
+			seen_blocks.add(block_ref)
+			if block_ref in blocks_dict:
+				processed_blocks.append(blocks_dict[block_ref])
+	
+	crop_plan_dict['blocks'] = processed_blocks
+	crop_plan_dict['total_blocks'] = len(processed_blocks)  # Count unique blocks, not crop rows
+	
 	return crop_plan_dict
 
 @frappe.whitelist()
@@ -386,9 +436,28 @@ def create_or_update_crop_plan_with_activities(crop_plan_data):
 		
 		# Process blocks first
 		for block_data in blocks_data:
+			# Create a clean copy of block_data
+			block_data_clean = block_data.copy()
+			
+			# Remove 'name' field for new blocks (when updating, we want to create new rows)
+			# This prevents issues with stale references
+			block_data_clean.pop('name', None)
+			block_data_clean.pop('parent', None)
+			block_data_clean.pop('parentfield', None)
+			block_data_clean.pop('parenttype', None)
+			block_data_clean.pop('owner', None)
+			block_data_clean.pop('creation', None)
+			block_data_clean.pop('modified', None)
+			block_data_clean.pop('modified_by', None)
+			block_data_clean.pop('docstatus', None)
+			block_data_clean.pop('idx', None)
+			
 			# Explicitly set doctype for block
-			block_data['doctype'] = 'Crop Plan Block'
-			crop_plan_doc.append('blocks', block_data)
+			block_data_clean['doctype'] = 'Crop Plan Block'
+			crop_plan_doc.append('blocks', block_data_clean)
+		
+		# Recalculate total_blocks after adding blocks
+		crop_plan_doc.calculate_total_blocks()
 		
 		# Process activities (without approved_inputs - they'll be in approved_input_mixes)
 		for idx, activity_data in enumerate(activities_data):
@@ -587,9 +656,13 @@ def create_or_update_crop_plan_with_activities(crop_plan_data):
 			except Exception as e:
 				frappe.log_error(f"Error verifying approved_inputs for mix {mix.name}: {str(e)}", "Crop Plan Error")
 		
+		# Final save to ensure all changes are committed
+		crop_plan_doc.save()
+		frappe.db.commit()
+		
 		# Log for debugging
 		frappe.log_error(
-			f"After save: {len(activities_data)} activities, {total_mixes_saved} approved_input_mixes with {total_inputs_saved} approved_inputs appended, verified: {verified_mixes} mixes with {verified_inputs} inputs in DB",
+			f"After save: {len(activities_data)} activities, {total_mixes_saved} approved_input_mixes with {total_inputs_saved} approved_inputs appended, verified: {verified_mixes} mixes with {verified_inputs} inputs in DB, total_blocks: {crop_plan_doc.total_blocks}",
 			"Crop Plan Save"
 		)
 		

@@ -3,8 +3,15 @@
 
 frappe.ui.form.on('Crop Plan', {
 	refresh: function(frm) {
-		// Set up custom rendering for blocks table
-		setup_blocks_table(frm);
+		// Clean up any existing buttons first
+		if (frm.fields_dict.blocks && frm.fields_dict.blocks.grid && frm.fields_dict.blocks.grid.wrapper) {
+			frm.fields_dict.blocks.grid.wrapper.find('.activities-btn-wrapper').remove();
+		}
+		
+		// Set up custom rendering for blocks table (with delay to ensure grid is ready)
+		setTimeout(function() {
+			setup_blocks_table(frm);
+		}, 300);
 		
 		// Add button to auto-populate blocks
 		if (frm.doc.field && !frm.is_new()) {
@@ -41,7 +48,15 @@ frappe.ui.form.on('Crop Plan', {
 	},
 	
 	blocks_on_form_rendered: function(frm) {
-		setup_blocks_table(frm);
+		// Clean up any existing buttons first
+		if (frm.fields_dict.blocks && frm.fields_dict.blocks.grid && frm.fields_dict.blocks.grid.wrapper) {
+			frm.fields_dict.blocks.grid.wrapper.find('.activities-btn-wrapper').remove();
+		}
+		
+		// Delay to ensure grid is fully rendered
+		setTimeout(function() {
+			setup_blocks_table(frm);
+		}, 200);
 	}
 });
 
@@ -85,13 +100,33 @@ frappe.ui.form.on('Crop Plan Block', {
 	},
 	
 	blocks_add: function(frm, cdt, cdn) {
-		// Update total blocks count
-		frm.set_value('total_blocks', frm.doc.blocks ? frm.doc.blocks.length : 0);
+		// Update total blocks count - count unique blocks, not total rows
+		if (frm.doc.blocks) {
+			let unique_blocks = new Set();
+			frm.doc.blocks.forEach(function(block) {
+				if (block.block) {
+					unique_blocks.add(block.block);
+				}
+			});
+			frm.set_value('total_blocks', unique_blocks.size);
+		} else {
+			frm.set_value('total_blocks', 0);
+		}
 	},
 	
 	blocks_remove: function(frm, cdt, cdn) {
-		// Update total blocks count
-		frm.set_value('total_blocks', frm.doc.blocks ? frm.doc.blocks.length : 0);
+		// Update total blocks count - count unique blocks, not total rows
+		if (frm.doc.blocks) {
+			let unique_blocks = new Set();
+			frm.doc.blocks.forEach(function(block) {
+				if (block.block) {
+					unique_blocks.add(block.block);
+				}
+			});
+			frm.set_value('total_blocks', unique_blocks.size);
+		} else {
+			frm.set_value('total_blocks', 0);
+		}
 	}
 });
 
@@ -149,46 +184,126 @@ frappe.ui.form.on('Crop Plan Block', {
 });
 
 // Set up blocks table with custom buttons and expandable activities
+// Use debounce to prevent multiple simultaneous executions
+let setup_blocks_table_timeout = null;
+
 function setup_blocks_table(frm) {
 	if (!frm.doc.blocks || frm.doc.blocks.length === 0) {
 		return;
 	}
 	
-	// Add custom buttons to each block row
-	frm.fields_dict.blocks.grid.wrapper.find('.grid-body .grid-row').each(function(i) {
-		let $row = $(this);
-		let row_index = i + 1;  // 1-based index
-		let block_data = frm.doc.blocks[i];
+	// Clear any pending timeout
+	if (setup_blocks_table_timeout) {
+		clearTimeout(setup_blocks_table_timeout);
+	}
+	
+	// Wait for grid to be fully rendered (debounced)
+	setup_blocks_table_timeout = setTimeout(function() {
+		setup_blocks_table_timeout = null;
 		
-		// Remove existing custom buttons to avoid duplicates
-		$row.find('.activities-btn-wrapper').remove();
-		
-		if (block_data && block_data.pop) {
-			// Create button wrapper
-			let $btn_wrapper = $('<div class="activities-btn-wrapper" style="padding: 5px;"></div>');
-			
-			// Load Activities button
-			let $load_btn = $('<button class="btn btn-xs btn-default" style="margin-right: 5px;">')
-				.text(__('Load Activities'))
-				.on('click', function(e) {
-					e.preventDefault();
-					e.stopPropagation();
-					load_activities_from_pop(frm, row_index, block_data.pop);
-				});
-			
-			// View/Edit Activities button
-			let $view_btn = $('<button class="btn btn-xs btn-primary">')
-				.text(__('View/Edit Activities'))
-				.on('click', function(e) {
-					e.preventDefault();
-					e.stopPropagation();
-					toggle_activities_view(frm, row_index, $row);
-				});
-			
-			$btn_wrapper.append($load_btn).append($view_btn);
-			$row.find('.grid-static-col').first().append($btn_wrapper);
+		if (!frm.fields_dict.blocks || !frm.fields_dict.blocks.grid || !frm.fields_dict.blocks.grid.wrapper) {
+			return;
 		}
-	});
+		
+		// Remove ALL existing button wrappers first to prevent duplicates (globally)
+		// Use multiple selectors to ensure we get all instances
+		frm.fields_dict.blocks.grid.wrapper.find('.activities-btn-wrapper').remove();
+		frm.fields_dict.blocks.grid.wrapper.find('[data-block-id]').filter('.activities-btn-wrapper').remove();
+		// Also remove any orphaned buttons
+		frm.fields_dict.blocks.grid.wrapper.find('button').filter(function() {
+			return $(this).text().trim() === __('Load Activities') || $(this).text().trim() === __('View/Edit Activities');
+		}).closest('.activities-btn-wrapper').remove();
+		
+		// Group blocks by block reference for better visual organization
+		let block_groups = {};
+		frm.doc.blocks.forEach(function(block, idx) {
+			if (block.block) {
+				if (!block_groups[block.block]) {
+					block_groups[block.block] = [];
+				}
+				block_groups[block.block].push({block: block, index: idx});
+			}
+		});
+		
+		// Track which blocks we've already added buttons to (by block reference)
+		let blocks_with_buttons = new Set();
+		
+		// Add visual grouping and custom buttons to each block row
+		frm.fields_dict.blocks.grid.wrapper.find('.grid-body .grid-row').each(function(i) {
+			let $row = $(this);
+			let row_index = i + 1;  // 1-based index
+			let block_data = frm.doc.blocks[i];
+			
+			// Double check - remove any existing buttons in this row
+			$row.find('.activities-btn-wrapper').remove();
+			
+			// Add visual indicator for grouped blocks (same block reference)
+			if (block_data && block_data.block) {
+				let group = block_groups[block_data.block];
+				let is_first_in_group = group && group[0].index === i;
+				
+				if (group && group.length > 1) {
+					// This block has multiple crops - add visual indicator
+					if (is_first_in_group) {
+						$row.css('border-top', '2px solid #2ecc71');
+					} else {
+						$row.css('background-color', '#f9fafb');
+						$row.css('border-left', '3px solid #2ecc71');
+					}
+				}
+				
+				// Only add buttons once per unique block (first row of each block group, or single row)
+				let should_add_buttons = false;
+				if (group && group.length > 1) {
+					// Multiple crops - only add to first row
+					should_add_buttons = is_first_in_group && !blocks_with_buttons.has(block_data.block);
+				} else {
+					// Single crop - add buttons if not already added
+					should_add_buttons = !blocks_with_buttons.has(block_data.block);
+				}
+				
+				if (should_add_buttons && block_data.pop) {
+					blocks_with_buttons.add(block_data.block);
+					
+					// Check if buttons already exist in this row (extra safety check)
+					if ($row.find('.activities-btn-wrapper[data-block-id="' + block_data.block + '"]').length > 0) {
+						return; // Skip if buttons already exist
+					}
+					
+					// Create button wrapper with data attribute for easy identification
+					let $btn_wrapper = $('<div class="activities-btn-wrapper" data-block-id="' + block_data.block + '" style="padding: 5px;"></div>');
+					
+					// Load Activities button
+					let $load_btn = $('<button class="btn btn-xs btn-default" style="margin-right: 5px;">')
+						.text(__('Load Activities'))
+						.on('click', function(e) {
+							e.preventDefault();
+							e.stopPropagation();
+							load_activities_from_pop(frm, row_index, block_data.pop);
+						});
+					
+					// View/Edit Activities button
+					let $view_btn = $('<button class="btn btn-xs btn-primary">')
+						.text(__('View/Edit Activities'))
+						.on('click', function(e) {
+							e.preventDefault();
+							e.stopPropagation();
+							toggle_activities_view(frm, row_index, $row);
+						});
+					
+					$btn_wrapper.append($load_btn).append($view_btn);
+					
+					// Find the first static column and append buttons there
+					let $staticCol = $row.find('.grid-static-col').first();
+					if ($staticCol.length === 0) {
+						// Fallback: try to find any suitable container in the row
+						$staticCol = $row.find('td').first();
+					}
+					$staticCol.append($btn_wrapper);
+				}
+			}
+		});
+	}, 300);
 }
 
 // Load activities from POP

@@ -13,7 +13,8 @@
         "pop",
         "pop_name",
         "spacing",
-        "no_of_seedlings"
+        "no_of_seedlings",
+        "irrigation_type"
     ],
     "fields": [
         {
@@ -72,6 +73,13 @@
             "fieldtype": "Int",
             "in_list_view": 1,
             "label": "No of Seedlings"
+        },
+        {
+            "fieldname": "irrigation_type",
+            "fieldtype": "Select",
+            "in_list_view": 1,
+            "label": "Irrigation Type",
+            "options": "Drip\nSprinkler\nFlood\nOther"
         }
     ],
     "istable": 1,
