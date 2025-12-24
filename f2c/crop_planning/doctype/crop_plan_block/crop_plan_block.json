@@ -64,9 +64,10 @@
         },
         {
             "fieldname": "spacing",
-            "fieldtype": "Data",
+            "fieldtype": "Link",
             "in_list_view": 1,
-            "label": "Spacing"
+            "label": "Spacing",
+            "options": "Spacing"
         },
         {
             "fieldname": "no_of_seedlings",
