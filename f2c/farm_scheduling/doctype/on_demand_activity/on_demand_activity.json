@@ -7,12 +7,19 @@
  "document_type": "Document",
  "engine": "InnoDB",
  "field_order": [
+  "activity_type",
   "field",
   "field_name",
   "column_break_1",
   "status",
   "planned_start",
   "planned_end",
+  "section_break_campaign",
+  "campaign_name",
+  "campaign_parent",
+  "campaign_level",
+  "campaign_areas",
+  "campaign_activities",
   "section_break_reason",
   "reason",
   "section_break_blocks",
@@ -54,13 +61,24 @@
  ],
  "fields": [
   {
+   "default": "Land",
+   "fieldname": "activity_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Activity Type",
+   "options": "Campaign\nLand",
+   "reqd": 1
+  },
+  {
+   "depends_on": "eval:doc.activity_type=='Land'",
    "fieldname": "field",
    "fieldtype": "Link",
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Field",
    "options": "Geo Fencing Area",
-   "reqd": 1
+   "reqd": 0
   },
   {
    "fetch_from": "field.area_name",
@@ -81,21 +99,23 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Status",
-   "options": "Draft\nScheduled\nAborted\nCompleted"
+   "options": "Draft\nScheduled\nRescheduled\nAborted\nCompleted"
   },
   {
+   "depends_on": "eval:doc.status=='Scheduled' || doc.activity_type=='Land'",
    "fieldname": "planned_start",
    "fieldtype": "Datetime",
    "in_list_view": 1,
    "label": "Planned Start",
-   "reqd": 1
+   "reqd": 0
   },
   {
+   "depends_on": "eval:doc.status=='Scheduled' || doc.activity_type=='Land'",
    "fieldname": "planned_end",
    "fieldtype": "Datetime",
    "in_list_view": 1,
    "label": "Planned End",
-   "reqd": 1
+   "reqd": 0
   },
   {
    "fieldname": "section_break_reason",
@@ -110,16 +130,18 @@
    "description": "Reason for this on-demand activity"
   },
   {
+   "depends_on": "eval:doc.activity_type=='Land'",
    "fieldname": "section_break_blocks",
    "fieldtype": "Section Break",
    "label": "Blocks"
   },
   {
+   "depends_on": "eval:doc.activity_type=='Land'",
    "fieldname": "blocks",
    "fieldtype": "Table",
    "label": "Blocks",
    "options": "On Demand Activity Block",
-   "reqd": 1
+   "reqd": 0
   },
   {
    "fieldname": "section_break_activity",
@@ -133,7 +155,7 @@
    "in_standard_filter": 1,
    "label": "Activity Group Type",
    "options": "Activity Group Type",
-   "reqd": 1
+   "reqd": 0
   },
   {
    "fieldname": "activity",
@@ -141,7 +163,7 @@
    "in_list_view": 1,
    "label": "Activity",
    "options": "Farm Activity",
-   "reqd": 1
+   "reqd": 0
   },
   {
    "fetch_from": "activity.activity_name",
@@ -327,6 +349,50 @@
    "label": "Execution",
    "options": "Farm Task Execution",
    "read_only": 1
+  },
+  {
+   "fieldname": "section_break_campaign",
+   "fieldtype": "Section Break",
+   "label": "Campaign Details",
+   "depends_on": "eval:doc.activity_type=='Campaign'"
+  },
+  {
+   "depends_on": "eval:doc.activity_type=='Campaign'",
+   "fieldname": "campaign_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Campaign Name",
+   "reqd": 1
+  },
+  {
+   "depends_on": "eval:doc.activity_type=='Campaign'",
+   "fieldname": "campaign_parent",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Parent Campaign",
+   "options": "On Demand Activity",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.activity_type=='Campaign' && doc.status=='Draft'",
+   "fieldname": "campaign_level",
+   "fieldtype": "Select",
+   "label": "Campaign Level",
+   "options": "Farm\nCluster\nField"
+  },
+  {
+   "depends_on": "eval:doc.activity_type=='Campaign' && doc.status=='Draft'",
+   "fieldname": "campaign_areas",
+   "fieldtype": "Table",
+   "label": "Campaign Areas",
+   "options": "Campaign Activity Area"
+  },
+  {
+   "depends_on": "eval:doc.activity_type=='Campaign'",
+   "fieldname": "campaign_activities",
+   "fieldtype": "Table",
+   "label": "Campaign Activities",
+   "options": "Campaign Activity"
   }
  ],
  "index_web_pages_for_search": 1,
