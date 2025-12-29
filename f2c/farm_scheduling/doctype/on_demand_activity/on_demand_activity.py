@@ -490,6 +490,7 @@ def schedule_campaign(
 				"doctype": "On Demand Activity",
 				"activity_type": "Campaign",
 				"campaign_parent": campaign_name,
+				"campaign_name": parent_campaign.campaign_name or campaign_name,
 				"field": block_info["field"],
 				"activity": campaign_activity["activity"],
 				"activity_group_type": campaign_activity["activity_group_type"],
@@ -504,6 +505,7 @@ def schedule_campaign(
 				"approved_input_mix": parent_campaign.approved_input_mix or "",
 				"male_count": parent_campaign.male_count or 0,
 				"female_count": parent_campaign.female_count or 0,
+				"estimated_irrigation_water_liters": parent_campaign.estimated_irrigation_water_liters or 0,
 			})
 			
 			# Add block
@@ -552,7 +554,7 @@ def schedule_campaign(
 			created_entries.append(child_activity.name)
 	
 	# Update parent campaign status and store campaign areas
-	parent_campaign.status = "Scheduled"
+	parent_campaign.status = "Archived"
 	parent_campaign.planned_start = planned_start
 	parent_campaign.planned_end = planned_end
 	parent_campaign.campaign_level = campaign_level
