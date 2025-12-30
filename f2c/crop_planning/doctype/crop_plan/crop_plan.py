@@ -71,7 +71,7 @@ class CropPlan(Document):
 					)
 	
 	def calculate_block_areas(self):
-		"""Calculate block areas in acres from square meters"""
+		"""Calculate block areas in acres from square meters and set field"""
 		if not self.blocks:
 			return
 		
@@ -81,6 +81,15 @@ class CropPlan(Document):
 				if block_doc.area:
 					# Convert square meters to acres
 					block_row.block_area = block_doc.area * SQ_METERS_TO_ACRES
+				# Set field from block's parent_area if not already set
+				if block_doc.parent_area and not block_row.field:
+					block_row.field = block_doc.parent_area
+					# Get field name
+					try:
+						field_doc = frappe.get_doc("Geo Fencing Area", block_doc.parent_area)
+						block_row.field_name = field_doc.area_name or block_doc.parent_area
+					except:
+						block_row.field_name = block_doc.parent_area
 
 @frappe.whitelist()
 def load_pop_activities(crop_plan_name, block_idx, pop_name):
@@ -167,6 +176,19 @@ def get_blocks_for_field(field_name):
 	Returns:
 		List of blocks with their details
 	"""
+	if not field_name:
+		frappe.throw("Field name is required")
+	
+	# Verify the field exists and is of type Field
+	try:
+		field_doc = frappe.get_doc("Geo Fencing Area", field_name)
+		if field_doc.geo_fencing_type != "Field":
+			frappe.throw(f"Selected area '{field_name}' is not a Field. It is of type '{field_doc.geo_fencing_type}'")
+	except frappe.DoesNotExistError:
+		frappe.throw(f"Field '{field_name}' does not exist")
+	except Exception as e:
+		frappe.throw(f"Error validating field: {str(e)}")
+	
 	blocks = frappe.get_all(
 		"Geo Fencing Area",
 		filters={
@@ -177,12 +199,22 @@ def get_blocks_for_field(field_name):
 		order_by="area_name asc"
 	)
 	
-	# Convert area to acres
+	# Get field information
+	field_area = getattr(field_doc, 'area', None)
+	field_area_acres = 0
+	if field_area and field_area > 0:
+		field_area_acres = field_area * SQ_METERS_TO_ACRES
+	
+	# Convert area to acres and add field information
 	for block in blocks:
 		if block.get('area'):
 			block['area_acres'] = block['area'] * SQ_METERS_TO_ACRES
 		else:
 			block['area_acres'] = 0
+		# Add field information
+		block['field'] = field_name
+		block['field_name'] = getattr(field_doc, 'area_name', None) or field_name
+		block['field_area'] = field_area_acres
 	
 	return blocks
 
@@ -214,10 +246,23 @@ def auto_populate_blocks(crop_plan_name):
 	
 	# Add all blocks to the table
 	for block in blocks:
+		# Get field from block's parent_area
+		block_doc = frappe.get_doc("Geo Fencing Area", block['name'])
+		field_name = block_doc.parent_area if block_doc.parent_area else crop_plan_doc.field
+		field_display_name = ''
+		if field_name:
+			try:
+				field_doc = frappe.get_doc("Geo Fencing Area", field_name)
+				field_display_name = field_doc.area_name or field_name
+			except:
+				field_display_name = field_name
+		
 		crop_plan_doc.append("blocks", {
 			"block": block['name'],
 			"block_name": block['area_name'],
-			"block_area": block['area_acres']
+			"block_area": block['area_acres'],
+			"field": field_name,
+			"field_name": field_display_name
 		})
 	
 	# Save the document
@@ -333,10 +378,27 @@ def get_crop_plan_with_activities(crop_plan_name):
 	for block_row in crop_plan_doc.blocks:
 		block_ref = block_row.block
 		if block_ref not in blocks_dict:
+			# Get field area if field is set
+			field_area = 0
+			field_name = getattr(block_row, 'field_name', None) or ''
+			field_id = getattr(block_row, 'field', None) or ''
+			if field_id:
+				try:
+					field_doc = frappe.get_doc("Geo Fencing Area", field_id)
+					if field_doc.area:
+						field_area = field_doc.area * SQ_METERS_TO_ACRES
+					if not field_name:
+						field_name = field_doc.area_name or field_id
+				except:
+					pass
+			
 			blocks_dict[block_ref] = {
 				'block': block_row.block,
 				'block_name': block_row.block_name,
 				'block_area': block_row.block_area,
+				'field': field_id,
+				'field_name': field_name,
+				'field_area': field_area,
 				'name': block_row.name if hasattr(block_row, 'name') else None,
 				'crop_configs': []
 			}

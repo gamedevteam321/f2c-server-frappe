@@ -62,16 +62,26 @@ frappe.ui.form.on('Crop Plan', {
 
 frappe.ui.form.on('Crop Plan Block', {
 	block: function(frm, cdt, cdn) {
-		// Auto-fetch block name and area when block is selected (converted to acres)
+		// Auto-fetch block name, area, and field when block is selected (converted to acres)
 		let row = locals[cdt][cdn];
 		if (row.block) {
-			frappe.db.get_value('Geo Fencing Area', row.block, ['area_name', 'area'], (r) => {
+			frappe.db.get_value('Geo Fencing Area', row.block, ['area_name', 'area', 'parent_area'], (r) => {
 				if (r) {
 					frappe.model.set_value(cdt, cdn, 'block_name', r.area_name);
 					// Convert square meters to acres
 					if (r.area) {
 						let area_acres = r.area * 0.000247105;
 						frappe.model.set_value(cdt, cdn, 'block_area', area_acres);
+					}
+					// Set field from block's parent_area
+					if (r.parent_area) {
+						frappe.model.set_value(cdt, cdn, 'field', r.parent_area);
+						// Fetch field name
+						frappe.db.get_value('Geo Fencing Area', r.parent_area, 'area_name', (field_r) => {
+							if (field_r && field_r.area_name) {
+								frappe.model.set_value(cdt, cdn, 'field_name', field_r.area_name);
+							}
+						});
 					}
 				}
 			});
@@ -160,6 +170,15 @@ frappe.ui.form.on('Crop Plan Block', {
 				filters: {
 					'geo_fencing_type': 'Block',
 					'parent_area': doc.field
+				}
+			};
+		});
+		
+		// Filter field to show only Geo Fencing Areas of type "Field"
+		frm.set_query('field', 'blocks', function(doc, cdt, cdn) {
+			return {
+				filters: {
+					'geo_fencing_type': 'Field'
 				}
 			};
 		});

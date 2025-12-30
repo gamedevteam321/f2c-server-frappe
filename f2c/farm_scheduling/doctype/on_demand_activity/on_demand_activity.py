@@ -45,6 +45,10 @@ class OnDemandActivity(Document):
 			self._autofill_activity_fields()
 			self._validate_approved_input_mix_required()
 		
+		# Populate inputs from approved_input_mix if set
+		if self.approved_input_mix:
+			self._populate_inputs_from_approved_mix()
+		
 		# Only compute totals if blocks exist
 		if self.get("blocks") and len(self.get("blocks", [])) > 0:
 			self._compute_totals()
@@ -66,6 +70,10 @@ class OnDemandActivity(Document):
 	
 	def _validate_campaign_structure(self):
 		"""Validate campaign structure - for Draft campaigns, only need reason and activities."""
+		# Campaign name is required for Campaign type activities
+		if not self.campaign_name or not self.campaign_name.strip():
+			frappe.throw("Campaign Name is required for Campaign type activities.")
+		
 		if self.status == "Draft":
 			# Check if campaign_activities table has entries
 			has_campaign_activities = self.get("campaign_activities") and len(self.campaign_activities) > 0
@@ -184,6 +192,56 @@ class OnDemandActivity(Document):
 		
 		if has_farm_tasks and not self.approved_input_mix:
 			frappe.throw("Approved Input Mix is required because the selected activity has inputs (farm tasks).")
+	
+	def _populate_inputs_from_approved_mix(self):
+		"""Populate inputs table from approved_input_mix (Farm Tasks).
+		Only populates if inputs are not already provided (to preserve user edits).
+		If approved_input_mix changed, repopulate from the new mix."""
+		if not self.approved_input_mix:
+			# Clear inputs if approved_input_mix is removed
+			if self.get("inputs"):
+				self.set("inputs", [])
+			return
+		
+		# Check if approved_input_mix has changed (for existing documents)
+		approved_input_mix_changed = False
+		if not self.is_new():
+			# Get the previous value from the database
+			try:
+				prev_doc = frappe.get_doc(self.doctype, self.name)
+				if prev_doc.approved_input_mix != self.approved_input_mix:
+					approved_input_mix_changed = True
+			except (frappe.DoesNotExistError, frappe.DocumentNotFoundError):
+				# Document doesn't exist yet, treat as new
+				pass
+		
+		# If inputs are already provided and approved_input_mix hasn't changed, preserve them
+		# This allows users to edit quantities without them being overwritten
+		existing_inputs = self.get("inputs") or []
+		if existing_inputs and len(existing_inputs) > 0 and not approved_input_mix_changed:
+			# Inputs exist and approved_input_mix hasn't changed - preserve user edits
+			return
+		
+		try:
+			farm_task_doc = frappe.get_doc("Farm Tasks", self.approved_input_mix)
+			
+			# Clear existing inputs and populate from Farm Tasks
+			self.set("inputs", [])
+			
+			for item_row in farm_task_doc.get("items") or []:
+				self.append("inputs", {
+					"item": item_row.item,
+					"item_name": item_row.item_name,
+					"rate_quantity": flt(item_row.quantity, 3),
+					"unit": item_row.unit or "ml/L"
+				})
+		except frappe.DoesNotExistError:
+			# Farm Task doesn't exist, clear inputs
+			frappe.log_error(f"Farm Task '{self.approved_input_mix}' not found when populating inputs", "On Demand Activity Warning")
+			self.set("inputs", [])
+		except Exception as e:
+			frappe.log_error(f"Error populating inputs from approved_input_mix: {str(e)}", "On Demand Activity Error")
+			# Don't throw - allow document to save even if inputs can't be populated
 
 	def _compute_totals(self):
 		# Sum all blocks (only for Land or Campaign child entries)
@@ -213,7 +271,12 @@ class OnDemandActivity(Document):
 
 	def _validate_spray_requirements(self):
 		# Spray requires water planning; irrigation estimate remains optional
+		# Skip validation for Draft campaigns - water fields will be set during scheduling
+		# Also skip for child campaign entries - they inherit from parent and parent may not have water settings if Draft
 		if not self.is_spray:
+			return
+		
+		if self.activity_type == "Campaign" and (self.status == "Draft" or self.campaign_parent):
 			return
 
 		if not self.water_requirement_basis:
@@ -348,7 +411,8 @@ def schedule_campaign(
 	planned_start: str,
 	planned_end: str,
 	campaign_level: str,
-	selected_areas: List[str]
+	selected_areas: List[str],
+	selected_blocks: List[str] = None
 ) -> Dict[str, Any]:
 	"""
 	Schedule a campaign by creating block-level On Demand Activity entries.
@@ -359,6 +423,7 @@ def schedule_campaign(
 		planned_end: End datetime for the campaign
 		campaign_level: Level of campaign (Farm/Cluster/Field)
 		selected_areas: List of area names at the selected level
+		selected_blocks: Optional list of specific block names to include (filters blocks if provided)
 		
 	Returns:
 		Dictionary with created_entries count and list of created entry names
@@ -464,6 +529,11 @@ def schedule_campaign(
 					"field_name": frappe.get_value("Geo Fencing Area", field_name, "area_name")
 				})
 	
+	# Filter blocks if specific blocks are selected
+	if selected_blocks and len(selected_blocks) > 0:
+		selected_blocks_set = set(selected_blocks)
+		all_blocks = [b for b in all_blocks if b["block"] in selected_blocks_set]
+	
 	if not all_blocks:
 		frappe.throw(f"No blocks found for the selected {campaign_level.lower()}(s).")
 	
@@ -554,7 +624,7 @@ def schedule_campaign(
 			created_entries.append(child_activity.name)
 	
 	# Update parent campaign status and store campaign areas
-	parent_campaign.status = "Archived"
+	# Keep status as Draft (do not move to Archived)
 	parent_campaign.planned_start = planned_start
 	parent_campaign.planned_end = planned_end
 	parent_campaign.campaign_level = campaign_level
