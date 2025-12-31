@@ -22,9 +22,11 @@ def run_ocr(front_path, back_path=None):
         from PIL import Image, ImageOps
 
         # Initialize PaddleOCR
+        # Disable textline orientation for faster processing in subprocess (images are already preprocessed)
         ocr = PaddleOCR(
-            use_angle_cls=True,
-            lang='en'
+            use_textline_orientation=False,  # Disabled for speed - images are preprocessed (replaces use_angle_cls)
+            lang='en',
+            use_gpu=False  # Ensure CPU mode for consistency
         )
 
         def process_single_image(img_path):
@@ -32,32 +34,24 @@ def run_ocr(front_path, back_path=None):
                 return [], f"Image path does not exist: {img_path}"
             
             try:
-                # Load and preprocess
+                # Load image (already preprocessed in main process)
                 img = Image.open(img_path).convert('RGB')
-                
-                # Resize if small (same logic as before)
-                w, h = img.size
-                if w < 300:
-                    scale = 300 / w
-                    img = img.resize((300, int(h * scale)), Image.Resampling.LANCZOS)
-                
-                # Apply auto contrast for better OCR
-                img_gray = img.convert('L')
-                img_gray = ImageOps.autocontrast(img_gray, cutoff=2)
-                img = img_gray.convert('RGB')
-                
                 img_array = np.array(img)
                 
-                # Perform OCR - try with numpy array first, fallback to image path
+                # Perform OCR - use predict() method (new API), fallback to ocr() if needed
                 try:
-                    ocr_res = ocr.ocr(img_array)
+                    ocr_res = ocr.predict(img_array)
                 except Exception as e1:
-                    # If numpy array fails, try with image path directly
+                    # Fallback to old API with numpy array
                     try:
-                        ocr_res = ocr.ocr(img_path)
+                        ocr_res = ocr.ocr(img_array)
                     except Exception as e2:
-                        # If both fail, raise the first error
-                        raise Exception(f"OCR failed with numpy array: {str(e1)}. Also failed with image path: {str(e2)}")
+                        # If numpy array fails, try with image path directly
+                        try:
+                            ocr_res = ocr.ocr(img_path)
+                        except Exception as e3:
+                            # If all fail, raise the first error
+                            raise Exception(f"OCR failed with predict(): {str(e1)}. Also failed with ocr() numpy: {str(e2)}. Also failed with ocr() path: {str(e3)}")
                 
                 # DEBUG: Log OCR result structure
                 debug_info = {
@@ -173,7 +167,7 @@ def run_ocr(front_path, back_path=None):
             result["error"] = f"Failed to process front image: {front_error}"
             result["front_debug"] = front_error  # Include debug info
         
-        # Process Back
+        # Process Back (if provided)
         if back_path:
             back_texts, back_error = process_single_image(back_path)
             result["back_text"] = back_texts
@@ -183,6 +177,9 @@ def run_ocr(front_path, back_path=None):
                 else:
                     result["error"] = f"Failed to process back image: {back_error}"
                 result["back_debug"] = back_error  # Include debug info
+        else:
+            # If only front image provided (parallel processing mode)
+            result["back_text"] = []
         
         # Set success to True even if no text found (as long as no errors occurred)
         # This allows the main script to handle empty results gracefully
