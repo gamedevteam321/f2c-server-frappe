@@ -470,6 +470,58 @@ def get_farm_task_items(farm_task: str) -> List[Dict[str, Any]]:
 
 
 @frappe.whitelist()
+def get_crop_plan_approved_input_items(crop_plan: str, crop_plan_activity: str) -> List[Dict[str, Any]]:
+	"""
+	Return approved input mix items from Crop Plan's approved input mix (with updated quantities).
+	Falls back to Farm Tasks template if Crop Plan mix not found or has no items.
+	"""
+	if not crop_plan or not crop_plan_activity:
+		return []
+	
+	# Ensure user can read the crop plan
+	if not frappe.has_permission("Crop Plan", "read", crop_plan):
+		frappe.throw("Not permitted", frappe.PermissionError)
+	
+	# Find the approved input mix for this activity (get both name and farm_task)
+	mix_info = frappe.db.get_value(
+		"Crop Plan Approved Input Mix",
+		{
+			"parent": crop_plan,
+			"parenttype": "Crop Plan",
+			"parentfield": "approved_input_mixes",
+			"activity_reference": crop_plan_activity,
+		},
+		["name", "farm_task"],
+		as_dict=True,
+	)
+	
+	items: List[Dict[str, Any]] = []
+	
+	if mix_info and mix_info.name:
+		# Fetch items from Crop Plan's approved input mix (has updated quantities)
+		try:
+			mix = frappe.get_doc("Crop Plan Approved Input Mix", mix_info.name)
+			for row in mix.approved_inputs or []:
+				items.append(
+					{
+						"item": row.item,
+						"item_name": row.item_name,
+						"rate_quantity": flt(row.quantity, 3),
+						"unit": row.unit or "ml/L",
+					}
+				)
+		except Exception as e:
+			frappe.log_error(f"Error fetching approved inputs from Crop Plan mix {mix_info.name}: {str(e)}", "Crop Plan Schedule Error")
+	
+	# If no items found in Crop Plan mix, fall back to Farm Tasks template
+	if not items and mix_info and mix_info.farm_task:
+		# Fall back to template
+		return get_farm_task_items(mix_info.farm_task)
+	
+	return items
+
+
+@frappe.whitelist()
 def get_common_approved_input_mix(
 	crop_plan: str,
 	blocks_json: str,

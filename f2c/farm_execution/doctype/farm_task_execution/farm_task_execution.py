@@ -11,6 +11,30 @@ from frappe.utils import flt, now_datetime
 from f2c.farm_scheduling.doctype.crop_plan_schedule.crop_plan_schedule import compute_total_qty
 
 
+def _insert_with_retry(exec_doc, max_retries=3):
+	"""
+	Insert document with retry logic to handle naming series deadlock.
+	"""
+	import time
+	for attempt in range(max_retries):
+		try:
+			# Commit any pending transactions to ensure clean state
+			frappe.db.commit()
+			exec_doc.insert(ignore_permissions=True)
+			return exec_doc.name
+		except frappe.QueryDeadlockError:
+			if attempt < max_retries - 1:
+				frappe.db.rollback()
+				time.sleep(0.1 * (attempt + 1))  # Exponential backoff
+				# Clear the name so it can be regenerated on retry
+				if hasattr(exec_doc, 'name'):
+					exec_doc.name = None
+			else:
+				frappe.db.rollback()
+				raise
+	return exec_doc.name
+
+
 class FarmTaskExecution(Document):
 	def validate(self):
 		self._validate_reference()
@@ -26,6 +50,15 @@ class FarmTaskExecution(Document):
 		"""Prevent cancellation if linked to schedule or on-demand activity."""
 		self._check_linked_schedule()
 		self._check_linked_on_demand_activity()
+
+	def on_update(self):
+		"""Update linked Crop Plan Schedule status when execution is completed."""
+		if self.status == "Completed" and self.schedule_ref and self.has_value_changed("status"):
+			# Update the linked Crop Plan Schedule status to Completed
+			schedule_status = frappe.db.get_value("Crop Plan Schedule", self.schedule_ref, "status")
+			# Only update if schedule is not already in a terminal state
+			if schedule_status and schedule_status not in ("Aborted", "Completed", "Rescheduled"):
+				frappe.db.set_value("Crop Plan Schedule", self.schedule_ref, "status", "Completed", update_modified=False)
 
 	def _check_linked_schedule(self):
 		"""Check if this execution is linked to a Crop Plan Schedule."""
@@ -120,74 +153,132 @@ def create_from_schedule(schedule_name: str) -> str:
 	"""
 	Create a Farm Task Execution document from a Crop Plan Schedule.
 	Also writes back execution_ref on the schedule.
+	Uses database-level checks and transactions to prevent duplicate creation.
 	"""
-	schedule = frappe.get_doc("Crop Plan Schedule", schedule_name)
+	# First, check if execution already exists (fast path)
+	existing_execution = frappe.db.get_value(
+		"Farm Task Execution",
+		{"schedule_ref": schedule_name},
+		"name"
+	)
+	if existing_execution:
+		# Update schedule with execution_ref if not already set
+		frappe.db.set_value("Crop Plan Schedule", schedule_name, "execution_ref", existing_execution, update_modified=False)
+		frappe.db.commit()
+		return existing_execution
 
+	# Reload schedule to get latest execution_ref
+	schedule = frappe.get_doc("Crop Plan Schedule", schedule_name)
+	schedule.reload()
+	
 	if schedule.execution_ref:
 		return schedule.execution_ref
 
-	exec_doc = frappe.get_doc({"doctype": "Farm Task Execution"})
-	exec_doc.schedule_ref = schedule.name
-	exec_doc.status = "In Progress"
-	exec_doc.actual_start = now_datetime()
-
-	# Snapshot planned context
-	exec_doc.farm_activity = schedule.farm_activity
-	exec_doc.activity_name = schedule.activity_name
-	exec_doc.sequence = schedule.sequence
-	exec_doc.approved_input_mix = schedule.approved_input_mix
-	exec_doc.planned_male_count = int(schedule.male_count or 0)
-	exec_doc.planned_female_count = int(schedule.female_count or 0)
-
-	# Warehouses selected later by user; keep blank for now
-
-	# Copy blocks
-	if schedule.block:
-		exec_doc.append(
-			"blocks",
-			{
-				"block": schedule.block,
-				"block_name": schedule.block_name,
-				"block_area_acres": schedule.block_area_acres,
-				"no_of_seedlings": schedule.no_of_seedlings,
-			},
+	# Use SQL with FOR UPDATE to lock the schedule row and prevent concurrent creation
+	# This ensures only one process can create an execution for this schedule at a time
+	frappe.db.begin()
+	try:
+		# Lock the schedule row using SQL FOR UPDATE
+		locked_schedule = frappe.db.sql("""
+			SELECT execution_ref 
+			FROM `tabCrop Plan Schedule` 
+			WHERE name = %s 
+			FOR UPDATE
+		""", (schedule_name,), as_dict=True)
+		
+		if locked_schedule and locked_schedule[0].get("execution_ref"):
+			frappe.db.commit()
+			return locked_schedule[0].get("execution_ref")
+		
+		# Double-check execution doesn't exist (another process might have created it)
+		existing_execution = frappe.db.get_value(
+			"Farm Task Execution",
+			{"schedule_ref": schedule_name},
+			"name"
 		)
+		if existing_execution:
+			frappe.db.set_value("Crop Plan Schedule", schedule_name, "execution_ref", existing_execution, update_modified=False)
+			frappe.db.commit()
+			return existing_execution
 
-	# Copy equipment (planned)
-	for eq in schedule.get("equipment") or []:
-		exec_doc.append(
-			"equipment",
-			{
-				"asset": eq.asset,
-				"asset_name": eq.asset_name,
-				"planned_hours": eq.planned_hours,
-			},
+		exec_doc = frappe.get_doc({"doctype": "Farm Task Execution"})
+		exec_doc.schedule_ref = schedule.name
+		exec_doc.status = "Started"
+		exec_doc.actual_start = now_datetime()
+
+		# Snapshot planned context
+		exec_doc.farm_activity = schedule.farm_activity
+		exec_doc.activity_name = schedule.activity_name
+		exec_doc.sequence = schedule.sequence
+		exec_doc.approved_input_mix = schedule.approved_input_mix
+		exec_doc.planned_male_count = int(schedule.male_count or 0)
+		exec_doc.planned_female_count = int(schedule.female_count or 0)
+
+		# Warehouses selected later by user; keep blank for now
+
+		# Copy blocks
+		if schedule.block:
+			exec_doc.append(
+				"blocks",
+				{
+					"block": schedule.block,
+					"block_name": schedule.block_name,
+					"block_area_acres": schedule.block_area_acres,
+					"no_of_seedlings": schedule.no_of_seedlings,
+				},
+			)
+
+		# Copy equipment (planned)
+		for eq in schedule.get("equipment") or []:
+			exec_doc.append(
+				"equipment",
+				{
+					"asset": eq.asset,
+					"asset_name": eq.asset_name,
+					"planned_hours": eq.planned_hours,
+				},
+			)
+
+		# Copy inputs (planned)
+		for it in schedule.get("inputs") or []:
+			rate_qty = it.rate_quantity
+			unit = it.unit
+			planned_qty = it.total_quantity_to_use if schedule.is_spray else it.rate_quantity
+			exec_doc.append(
+				"inputs",
+				{
+					"item": it.item,
+					"item_name": it.item_name,
+					"uom": unit,
+					"rate_qty": rate_qty,
+					"planned_qty": planned_qty,
+					"qty_to_issue": planned_qty,
+					"qty_to_return": 0,
+					"issued_qty": 0,
+					"returned_qty": 0,
+				},
+			)
+
+		_insert_with_retry(exec_doc)
+
+		# Set execution_ref on schedule atomically
+		frappe.db.set_value("Crop Plan Schedule", schedule_name, "execution_ref", exec_doc.name, update_modified=False)
+		frappe.db.commit()
+		
+		return exec_doc.name
+	except Exception as e:
+		frappe.db.rollback()
+		# If we get a duplicate key error or similar, check if execution was created
+		existing_execution = frappe.db.get_value(
+			"Farm Task Execution",
+			{"schedule_ref": schedule_name},
+			"name"
 		)
-
-	# Copy inputs (planned)
-	for it in schedule.get("inputs") or []:
-		rate_qty = it.rate_quantity
-		unit = it.unit
-		planned_qty = it.total_quantity_to_use if schedule.is_spray else it.rate_quantity
-		exec_doc.append(
-			"inputs",
-			{
-				"item": it.item,
-				"item_name": it.item_name,
-				"uom": unit,
-				"rate_qty": rate_qty,
-				"planned_qty": planned_qty,
-				"qty_to_issue": planned_qty,
-				"qty_to_return": 0,
-				"issued_qty": 0,
-				"returned_qty": 0,
-			},
-		)
-
-	exec_doc.insert(ignore_permissions=True)
-
-	schedule.db_set("execution_ref", exec_doc.name, update_modified=False)
-	return exec_doc.name
+		if existing_execution:
+			frappe.db.set_value("Crop Plan Schedule", schedule_name, "execution_ref", existing_execution, update_modified=False)
+			frappe.db.commit()
+			return existing_execution
+		raise
 
 
 @frappe.whitelist()
@@ -203,7 +294,7 @@ def create_from_on_demand_activity(on_demand_activity_name: str) -> str:
 
 	exec_doc = frappe.get_doc({"doctype": "Farm Task Execution"})
 	exec_doc.on_demand_activity_ref = activity.name
-	exec_doc.status = "In Progress"
+	exec_doc.status = "Started"
 	exec_doc.actual_start = now_datetime()
 
 	# Snapshot planned context
@@ -287,10 +378,46 @@ def create_from_on_demand_activity(on_demand_activity_name: str) -> str:
 			},
 		)
 
-	exec_doc.insert(ignore_permissions=True)
+	_insert_with_retry(exec_doc)
 
 	activity.db_set("execution_ref", exec_doc.name, update_modified=False)
 	return exec_doc.name
+
+
+@frappe.whitelist()
+def start_execution(execution_name: str) -> str:
+	"""
+	Transition execution status from Started to In Progress.
+	Uses row locking to prevent concurrent modification errors.
+	"""
+	import time
+	max_retries = 3
+	
+	for attempt in range(max_retries):
+		try:
+			# Begin transaction and lock the row to prevent concurrent modifications
+			frappe.db.begin()
+			doc = frappe.get_doc("Farm Task Execution", execution_name, for_update=True)
+			
+			if doc.status != "Started":
+				frappe.db.rollback()
+				frappe.throw(f"Cannot start execution. Current status is {doc.status}. Only 'Started' executions can be moved to 'In Progress'.")
+			
+			doc.status = "In Progress"
+			doc.save(ignore_permissions=True)
+			frappe.db.commit()
+			return doc.name
+		except frappe.QueryDeadlockError:
+			frappe.db.rollback()
+			if attempt < max_retries - 1:
+				time.sleep(0.1 * (attempt + 1))  # Exponential backoff
+			else:
+				raise
+		except Exception:
+			frappe.db.rollback()
+			raise
+	
+	return execution_name
 
 
 @frappe.whitelist()
