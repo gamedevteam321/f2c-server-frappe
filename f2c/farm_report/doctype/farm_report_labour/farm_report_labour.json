@@ -1,0 +1,36 @@
+{
+  "doctype": "DocType",
+  "name": "Farm Report Labour",
+  "module": "Farm Report",
+  "document_type": "Document",
+  "istable": 1,
+  "editable_grid": 1,
+  "allow_rename": 1,
+  "track_changes": 1,
+  "field_order": [
+    "farm_worker",
+    "worker_name"
+  ],
+  "fields": [
+    {
+      "fieldname": "farm_worker",
+      "fieldtype": "Link",
+      "label": "Farm Worker",
+      "options": "Farm Worker Details",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "worker_name",
+      "fieldtype": "Data",
+      "label": "Worker Name",
+      "fetch_from": "farm_worker.worker_name",
+      "read_only": 1,
+      "in_list_view": 1
+    }
+  ],
+  "permissions": [],
+  "sort_field": "modified",
+  "sort_order": "DESC"
+}
+
