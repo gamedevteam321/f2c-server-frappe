@@ -199,7 +199,7 @@ def _process_single_image(file_path, photo_type):
         print(f"\n📸 {photo_type.upper()} Image OCR Results:")
         print(f"   - Name: '{extracted.get('labour_name', '')}'")
         print(f"   - DOB: '{extracted.get('dob', '')}'")
-        print(f"   - Aadhaar: '{extracted.get('adhaar_number', '')}'")
+        print(f"   - Aadhaar: '{extracted.get('aadhaar_number', '')}'")
         print(f"   - Gender: '{extracted.get('gender', '')}'")
         print(f"   - Address: '{extracted.get('address', '')[:50]}...' (truncated)" if extracted.get('address') else "   - Address: ''")
         print(f"   - Total lines extracted: {len(clean_lines)}")
@@ -291,7 +291,7 @@ def extract_text_from_images(file_url_front, file_url_back=None):
             "dob": "",
             "address": "",
             "gender": "",
-            "adhaar_number": ""
+            "aadhaar_number": ""
         }
 
         # Get extracted data from results, handling both success and error cases
@@ -305,7 +305,7 @@ def extract_text_from_images(file_url_front, file_url_back=None):
         # Prefer front for name, DOB, Aadhaar (usually more accurate)
         merged_data["labour_name"] = (front_data.get("labour_name", "") or back_data.get("labour_name", "") or "").strip()
         merged_data["dob"] = (front_data.get("dob", "") or back_data.get("dob", "") or "").strip()
-        merged_data["adhaar_number"] = (front_data.get("adhaar_number", "") or back_data.get("adhaar_number", "") or "").strip()
+        merged_data["aadhaar_number"] = (front_data.get("aadhaar_number", "") or back_data.get("aadhaar_number", "") or "").strip()
         merged_data["gender"] = (front_data.get("gender", "") or back_data.get("gender", "") or "").strip()
 
         # Prefer back for address (usually more complete)
@@ -315,7 +315,7 @@ def extract_text_from_images(file_url_front, file_url_back=None):
         print(f"\n🔄 MERGED RESULTS:")
         print(f"   - Name: '{merged_data['labour_name']}' (front: '{front_data.get('labour_name', '')}', back: '{back_data.get('labour_name', '')}')")
         print(f"   - DOB: '{merged_data['dob']}' (front: '{front_data.get('dob', '')}', back: '{back_data.get('dob', '')}')")
-        print(f"   - Aadhaar: '{merged_data['adhaar_number']}' (front: '{front_data.get('adhaar_number', '')}', back: '{back_data.get('adhaar_number', '')}')")
+        print(f"   - Aadhaar: '{merged_data['aadhaar_number']}' (front: '{front_data.get('aadhaar_number', '')}', back: '{back_data.get('aadhaar_number', '')}')")
         print(f"   - Gender: '{merged_data['gender']}' (front: '{front_data.get('gender', '')}', back: '{back_data.get('gender', '')}')")
         print(f"   - Address: '{merged_data['address'][:80]}...' (front: {bool(front_data.get('address'))}, back: {bool(back_data.get('address'))})")
 
@@ -364,7 +364,7 @@ def parse_ocr_text(lines, scores, photo_type="front"):
         "dob": "",
         "address": "",
         "gender": "",
-        "adhaar_number": ""
+        "aadhaar_number": ""
     }
 
     # join for regex-based fields like Aadhaar/DOB
@@ -374,7 +374,7 @@ def parse_ocr_text(lines, scores, photo_type="front"):
     # ---------------- Aadhaar ----------------
     m = re.search(r"\b(\d{4}\s?\d{4}\s?\d{4})\b", full_text)
     if m:
-        extracted["adhaar_number"] = re.sub(r"\s+", "", m.group(1))
+        extracted["aadhaar_number"] = re.sub(r"\s+", "", m.group(1))
 
     # ---------------- DOB ----------------
     # handle OCR confusion: DOB / D0B / D0 / DATE OF BIRTH:

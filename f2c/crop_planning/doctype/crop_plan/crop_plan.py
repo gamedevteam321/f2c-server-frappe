@@ -655,6 +655,10 @@ def create_or_update_crop_plan_with_activities(crop_plan_data):
 						# Get fresh document reference for the mix
 						mix_doc = frappe.get_doc("Crop Plan Approved Input Mix", mix_doc_name)
 						
+						# Clear existing approved_inputs to avoid duplicates when updating
+						# This ensures we replace all rows with the new data
+						mix_doc.approved_inputs = []
+						
 						for input_data in approved_inputs_data:
 							try:
 								# Create clean input data

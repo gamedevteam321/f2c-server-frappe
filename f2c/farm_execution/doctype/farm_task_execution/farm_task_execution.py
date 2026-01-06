@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import frappe
 from frappe.model.document import Document
@@ -149,11 +149,15 @@ class FarmTaskExecution(Document):
 
 
 @frappe.whitelist()
-def create_from_schedule(schedule_name: str) -> str:
+def create_from_schedule(schedule_name: str, labour_list: str = None) -> str:
 	"""
 	Create a Farm Task Execution document from a Crop Plan Schedule.
 	Also writes back execution_ref on the schedule.
 	Uses database-level checks and transactions to prevent duplicate creation.
+	
+	Args:
+		schedule_name: Name of the Crop Plan Schedule
+		labour_list: JSON string of list of farm worker names (from Farm Worker Details) to add to labour_attendance
 	"""
 	# First, check if execution already exists (fast path)
 	existing_execution = frappe.db.get_value(
@@ -261,6 +265,23 @@ def create_from_schedule(schedule_name: str) -> str:
 
 		_insert_with_retry(exec_doc)
 
+		# Add labour to labour_attendance if provided
+		if labour_list:
+			import json
+			try:
+				labour_names = json.loads(labour_list) if isinstance(labour_list, str) else labour_list
+				if isinstance(labour_names, list):
+					for labour_name in labour_names:
+						if labour_name:
+							exec_doc.append("labour_attendance", {
+								"labour": labour_name,
+								"role": ""
+							})
+					exec_doc.save(ignore_permissions=True)
+			except (json.JSONDecodeError, TypeError):
+				# If labour_list is invalid, continue without adding labour
+				pass
+
 		# Set execution_ref on schedule atomically
 		frappe.db.set_value("Crop Plan Schedule", schedule_name, "execution_ref", exec_doc.name, update_modified=False)
 		frappe.db.commit()
@@ -282,10 +303,14 @@ def create_from_schedule(schedule_name: str) -> str:
 
 
 @frappe.whitelist()
-def create_from_on_demand_activity(on_demand_activity_name: str) -> str:
+def create_from_on_demand_activity(on_demand_activity_name: str, labour_list: str = None) -> str:
 	"""
 	Create a Farm Task Execution document from an On Demand Activity.
 	Also writes back execution_ref on the on-demand activity.
+	
+	Args:
+		on_demand_activity_name: Name of the On Demand Activity
+		labour_list: JSON string of list of farm worker names (from Farm Worker Details) to add to labour_attendance
 	"""
 	activity = frappe.get_doc("On Demand Activity", on_demand_activity_name)
 
@@ -379,6 +404,23 @@ def create_from_on_demand_activity(on_demand_activity_name: str) -> str:
 		)
 
 	_insert_with_retry(exec_doc)
+
+	# Add labour to labour_attendance if provided
+	if labour_list:
+		import json
+		try:
+			labour_names = json.loads(labour_list) if isinstance(labour_list, str) else labour_list
+			if isinstance(labour_names, list):
+				for labour_name in labour_names:
+					if labour_name:
+						exec_doc.append("labour_attendance", {
+							"labour": labour_name,
+							"role": ""
+						})
+				exec_doc.save(ignore_permissions=True)
+		except (json.JSONDecodeError, TypeError):
+			# If labour_list is invalid, continue without adding labour
+			pass
 
 	activity.db_set("execution_ref", exec_doc.name, update_modified=False)
 	return exec_doc.name
@@ -601,37 +643,27 @@ def _clone_attachment_to_checkin(*, execution_doc: Document, checkin_name: str, 
 @frappe.whitelist()
 def mark_checkin_in(execution_name: str) -> str:
 	"""
-	Create Employee Checkin (IN) records for employees in labour_attendance.
+	Create Employee Checkin (IN) records for labour in labour_attendance.
 	Attaches execution checkin_in_photo (if any) to each created checkin.
+	
+	NOTE: This function currently uses Employee Checkin which requires an Employee.
+	Since we're now using Labour Details, this may need to be updated to use
+	a Labour Checkin doctype or link Labour to Employee.
 	"""
 	doc = frappe.get_doc("Farm Task Execution", execution_name)
 	if not doc.get("labour_attendance"):
-		frappe.throw("Please add employees in Labour Attendance first.")
+		frappe.throw("Please add labour in Labour Attendance first.")
 
 	photo_url = doc.checkin_in_photo
 	for row in doc.labour_attendance:
-		if not row.employee or row.checkin_in:
+		# TODO: Employee Checkin requires an Employee field, but we're using Labour Details now
+		# This needs to be addressed - either create Labour Checkin or link Labour to Employee
+		if not row.labour or row.checkin_in:
 			continue
 
-		chk = frappe.get_doc(
-			{
-				"doctype": "Employee Checkin",
-				"employee": row.employee,
-				"time": now_datetime(),
-				"log_type": "IN",
-			}
-		)
-		chk.insert(ignore_permissions=True)
-		row.checkin_in = chk.name
-
-		if photo_url:
-			_clone_attachment_to_checkin(execution_doc=doc, checkin_name=chk.name, file_url=photo_url)
-
-	# Optionally move status to Started
-	if doc.status == "Draft":
-		doc.status = "Started"
-		if not doc.actual_start:
-			doc.actual_start = now_datetime()
+		# For now, skip checkin creation since Employee Checkin requires Employee
+		# This functionality needs to be re-implemented for Labour Details
+		frappe.throw("Check-in functionality for Labour Details is not yet implemented. Please use Employee Checkin separately if needed.")
 
 	doc.save(ignore_permissions=True)
 	return doc.name
@@ -640,31 +672,27 @@ def mark_checkin_in(execution_name: str) -> str:
 @frappe.whitelist()
 def mark_checkin_out(execution_name: str) -> str:
 	"""
-	Create Employee Checkin (OUT) records for employees in labour_attendance.
+	Create Employee Checkin (OUT) records for labour in labour_attendance.
 	Attaches execution checkin_out_photo (if any) to each created checkin.
+	
+	NOTE: This function currently uses Employee Checkin which requires an Employee.
+	Since we're now using Labour Details, this may need to be updated to use
+	a Labour Checkin doctype or link Labour to Employee.
 	"""
 	doc = frappe.get_doc("Farm Task Execution", execution_name)
 	if not doc.get("labour_attendance"):
-		frappe.throw("Please add employees in Labour Attendance first.")
+		frappe.throw("Please add labour in Labour Attendance first.")
 
 	photo_url = doc.checkin_out_photo
 	for row in doc.labour_attendance:
-		if not row.employee or row.checkin_out:
+		# TODO: Employee Checkin requires an Employee field, but we're using Labour Details now
+		# This needs to be addressed - either create Labour Checkin or link Labour to Employee
+		if not row.labour or row.checkin_out:
 			continue
 
-		chk = frappe.get_doc(
-			{
-				"doctype": "Employee Checkin",
-				"employee": row.employee,
-				"time": now_datetime(),
-				"log_type": "OUT",
-			}
-		)
-		chk.insert(ignore_permissions=True)
-		row.checkin_out = chk.name
-
-		if photo_url:
-			_clone_attachment_to_checkin(execution_doc=doc, checkin_name=chk.name, file_url=photo_url)
+		# For now, skip checkin creation since Employee Checkin requires Employee
+		# This functionality needs to be re-implemented for Labour Details
+		frappe.throw("Check-out functionality for Labour Details is not yet implemented. Please use Employee Checkin separately if needed.")
 
 	# Set end time if moving to completed later; do not force status here
 	if not doc.actual_end and doc.status in ("Completed", "Aborted"):
@@ -672,5 +700,371 @@ def mark_checkin_out(execution_name: str) -> str:
 
 	doc.save(ignore_permissions=True)
 	return doc.name
+
+
+@frappe.whitelist()
+def get_recent_error_logs(limit: int = 10) -> List[Dict]:
+	"""
+	Get recent error logs related to get_available_labour for debugging.
+	"""
+	try:
+		error_logs = frappe.get_all(
+			"Error Log",
+			filters={
+				"method": ["like", "%Get Available Labour%"]
+			},
+			fields=["name", "method", "error", "creation", "modified"],
+			order_by="modified desc",
+			limit=limit
+		)
+		return error_logs or []
+	except Exception as e:
+		return [{"error": str(e)}]
+
+
+@frappe.whitelist()
+def get_available_labour(attendance_date: str = None, debug: bool = False) -> List[Dict]:
+	"""
+	Get list of Farm Worker Details with Present attendance for given date.
+	
+	Args:
+		attendance_date: Date string in YYYY-MM-DD format. Defaults to today.
+		Note: For attendance checking, we use today's date since attendance is typically set for today.
+	
+	Returns:
+		List of dictionaries with farm worker details (name, worker_name, aadhaar_number, dob, address, gender)
+	"""
+	from frappe.utils import today, getdate
+	
+	# Log function entry
+	print(f"[get_available_labour] FUNCTION CALLED with attendance_date={attendance_date}, debug={debug}")
+	frappe.log_error(f"get_available_labour called with attendance_date={attendance_date}", "Get Available Labour Entry")
+	
+	# First, let's directly query the database to see what Present records exist for today
+	today_str = today()
+	try:
+		direct_check = frappe.db.sql("""
+			SELECT name, farm_worker, worker_name, attendance_date, status
+			FROM `tabFarm Worker Attendance`
+			WHERE attendance_date = %s AND status = 'Present'
+			ORDER BY worker_name
+		""", (today_str,), as_dict=True)
+		print(f"[get_available_labour] DIRECT QUERY for {today_str}: Found {len(direct_check) if direct_check else 0} Present records")
+		if direct_check:
+			for rec in direct_check:
+				print(f"[get_available_labour]   - {rec.name}: {rec.farm_worker} ({rec.worker_name}), Date: {rec.attendance_date}")
+	except Exception as e:
+		print(f"[get_available_labour] ERROR in direct query: {str(e)}")
+		frappe.log_error(f"Direct query error: {str(e)}", "Get Available Labour Error")
+	
+	# Default to today if no date provided, but use the provided date if available
+	# This allows checking attendance for the task's planned date
+	if not attendance_date:
+		attendance_date = today()
+	
+	# Extract ONLY the date part from datetime string (YYYY-MM-DD)
+	# Handle both date strings (YYYY-MM-DD) and datetime strings (YYYY-MM-DD HH:MM:SS or YYYY-MM-DD+HH:MM:SS)
+	date_str = str(attendance_date).strip()
+	
+	# Remove time part if present - extract just YYYY-MM-DD
+	if ' ' in date_str:
+		# Format: "2026-01-05 15:01:00"
+		date_str = date_str.split()[0]
+	elif 'T' in date_str:
+		# Format: "2026-01-05T15:01:00"
+		date_str = date_str.split('T')[0]
+	elif '+' in date_str:
+		# Format: "2026-01-05+15:01:00"
+		date_str = date_str.split('+')[0]
+	
+	# Now date_str should be in YYYY-MM-DD format
+	print(f"[get_available_labour] Extracted date from '{attendance_date}' -> '{date_str}'")
+	frappe.log_error(f"Extracted date from '{attendance_date}' -> '{date_str}'", "Get Available Labour Debug")
+	
+	# Convert to date object for comparison
+	try:
+		attendance_date_obj = getdate(date_str)
+	except Exception as e:
+		frappe.log_error(f"Invalid date format: {date_str} (from {attendance_date}). Error: {str(e)}", "Get Available Labour Date Error")
+		# Fallback to today if date parsing fails
+		attendance_date_obj = getdate(today())
+		date_str = str(attendance_date_obj)
+	
+	# Step 1: Get all Farm Worker Attendance records with "Present" status
+	# Use the extracted date string (YYYY-MM-DD format) for queries
+	today_date_str = today_str  # Use the one we already got
+	today_date_obj = getdate(today_date_str)
+	
+	# ALWAYS check today's date first (attendance is typically set for today)
+	# Then check the provided date if it's different
+	dates_to_try = [(today_date_str, today_date_obj)]
+	
+	# If the provided date is not today, also try the provided date
+	if date_str != today_date_str:
+		dates_to_try.append((date_str, attendance_date_obj))
+		print(f"[get_available_labour] Will check both today ({today_date_str}) and provided date ({date_str})")
+	else:
+		print(f"[get_available_labour] Checking today's date: {today_date_str}")
+	
+	present_attendance = []
+	
+	# First, get ALL Present records to see what we have
+	try:
+		all_present_records = frappe.get_all(
+			"Farm Worker Attendance",
+			filters={"status": "Present"},
+			fields=["name", "farm_worker", "worker_name", "attendance_date", "status"],
+			order_by="attendance_date desc",
+			limit=50
+		)
+		print(f"[get_available_labour] Total Present records in database: {len(all_present_records) if all_present_records else 0}")
+		if all_present_records:
+			print(f"[get_available_labour] Sample Present records (last 10):")
+			for att in all_present_records[:10]:
+				print(f"  - {att.get('name')}: Farm Worker {att.get('farm_worker')}, Date: {att.get('attendance_date')} (type: {type(att.get('attendance_date'))})")
+	except Exception as e:
+		frappe.log_error(f"Error fetching all Present records: {str(e)}", "Get Available Labour Error")
+	
+	# Now try to get records for the specific dates
+	# Use date string (YYYY-MM-DD) for all queries
+	for date_str_check, date_obj_check in dates_to_try:
+		try:
+			print(f"[get_available_labour] Querying Farm Worker Attendance for date: {date_str_check} (YYYY-MM-DD format)")
+			
+			# Try direct SQL query first with date string
+			sql_results = None
+			try:
+				sql_results = frappe.db.sql("""
+					SELECT name, farm_worker, worker_name, attendance_date, status
+					FROM `tabFarm Worker Attendance`
+					WHERE attendance_date = %s AND status = 'Present'
+					ORDER BY worker_name
+				""", (date_str_check,), as_dict=True)
+				print(f"[get_available_labour] SQL query found {len(sql_results) if sql_results else 0} Present records for {date_str_check}")
+				if sql_results:
+					for att in sql_results:
+						print(f"  SQL - {att.get('name')}: Farm Worker {att.get('farm_worker')}, Date: {att.get('attendance_date')}, Status: {att.get('status')}")
+			except Exception as sql_err:
+				print(f"[get_available_labour] SQL query error: {str(sql_err)}")
+				frappe.log_error(f"SQL query error: {str(sql_err)}", "Get Available Labour Error")
+			
+			# Get Present records using get_all with date string
+			# Get farm_worker and worker_name directly from Farm Worker Attendance
+			attendance_for_date = frappe.get_all(
+				"Farm Worker Attendance",
+				filters={
+					"attendance_date": date_str_check,  # Use date string, not date object
+					"status": "Present"
+				},
+				fields=["name", "farm_worker", "worker_name", "attendance_date"],
+				order_by="worker_name"
+			)
+			
+			print(f"[get_available_labour] get_all() with date string '{date_str_check}' found {len(attendance_for_date) if attendance_for_date else 0} Present attendance records")
+			
+			# If no results with date string, try with date object
+			if (not attendance_for_date or len(attendance_for_date) == 0):
+				print(f"[get_available_labour] Trying get_all() with date object for {date_str_check}")
+				try:
+					attendance_for_date = frappe.get_all(
+						"Farm Worker Attendance",
+						filters={
+							"attendance_date": date_obj_check,  # Try with date object
+							"status": "Present"
+						},
+						fields=["name", "farm_worker", "worker_name", "attendance_date"],
+						order_by="worker_name"
+					)
+					print(f"[get_available_labour] get_all() with date object found {len(attendance_for_date) if attendance_for_date else 0} Present attendance records")
+				except Exception as date_obj_err:
+					print(f"[get_available_labour] Error with date object query: {str(date_obj_err)}")
+					frappe.log_error(f"Error with date object query: {str(date_obj_err)}", "Get Available Labour Error")
+			
+			# If get_all didn't work but SQL did, use SQL results
+			# ALWAYS prefer SQL results if they exist, as they're more reliable
+			if sql_results and len(sql_results) > 0:
+				if not attendance_for_date or len(attendance_for_date) == 0:
+					print(f"[get_available_labour] Using SQL results since get_all() returned no results")
+				else:
+					print(f"[get_available_labour] SQL found {len(sql_results)} records, get_all() found {len(attendance_for_date)} - using SQL results")
+				# Convert SQL results to same format as get_all results
+				attendance_for_date = [
+					{
+						"name": r.get("name", ""),
+						"farm_worker": r.farm_worker,
+						"worker_name": r.worker_name,
+						"attendance_date": r.attendance_date
+					}
+					for r in sql_results
+				]
+				print(f"[get_available_labour] Using {len(attendance_for_date)} SQL results")
+			
+			# If still no results, try getting all Present records and filter by date in Python
+			if (not attendance_for_date or len(attendance_for_date) == 0):
+				print(f"[get_available_labour] Trying fallback: Get all Present records and filter by date {date_str_check}")
+				try:
+					all_present = frappe.get_all(
+						"Farm Worker Attendance",
+						filters={"status": "Present"},
+						fields=["name", "farm_worker", "worker_name", "attendance_date"],
+						order_by="worker_name"
+					)
+					if all_present:
+						# Filter by date in Python
+						matching_records = []
+						for rec in all_present:
+							# Convert rec.attendance_date to string format YYYY-MM-DD for comparison
+							rec_date = rec.attendance_date
+							if rec_date:
+								# Handle both date objects and date strings
+								if hasattr(rec_date, 'strftime'):
+									# It's a date/datetime object
+									rec_date_str = rec_date.strftime('%Y-%m-%d')
+								else:
+									# It's already a string, extract date part
+									rec_date_str = str(rec_date).split()[0].split('T')[0].split('+')[0]
+								
+								if rec_date_str == date_str_check:
+									matching_records.append({
+										"name": rec.get("name", ""),
+										"farm_worker": rec.farm_worker,
+										"worker_name": rec.worker_name,
+										"attendance_date": rec.attendance_date
+									})
+						if matching_records:
+							print(f"[get_available_labour] Fallback found {len(matching_records)} records for {date_str_check}")
+							attendance_for_date = matching_records
+				except Exception as fallback_err:
+					print(f"[get_available_labour] Fallback query error: {str(fallback_err)}")
+					frappe.log_error(f"Fallback query error: {str(fallback_err)}", "Get Available Labour Error")
+			
+			if attendance_for_date and len(attendance_for_date) > 0:
+				present_attendance = attendance_for_date
+				# Debug: Log the workers found
+				print(f"[get_available_labour] ✓ Found {len(present_attendance)} Present attendance records for {date_str_check}")
+				for att in present_attendance:
+					print(f"  - Farm Worker: {att.get('farm_worker')}, Name: {att.get('worker_name')}, Date: {att.get('attendance_date')}")
+				break  # Use the first date that has results
+			else:
+				print(f"[get_available_labour] ✗ No Present attendance records found for {date_str_check}")
+		
+		except Exception as e:
+			error_msg = f"Error fetching Farm Worker Attendance for {date_str_check}: {str(e)}"
+			print(f"[get_available_labour] ERROR: {error_msg}")
+			frappe.log_error(error_msg, "Get Available Labour Error")
+			# Continue to next date
+			continue
+	
+	if not present_attendance or len(present_attendance) == 0:
+		print(f"[get_available_labour] No Present attendance records found for any checked date")
+		
+		# Debug: Let's also check all Present records regardless of date to see if there are any
+		try:
+			all_present = frappe.get_all(
+				"Farm Worker Attendance",
+				filters={"status": "Present"},
+				fields=["name", "farm_worker", "worker_name", "attendance_date", "status"],
+				order_by="attendance_date desc",
+				limit=10
+			)
+			print(f"[get_available_labour] Debug: Found {len(all_present) if all_present else 0} total Present records (showing last 20)")
+			if all_present:
+				print(f"[get_available_labour] Available Present attendance dates:")
+				for att in all_present:
+					att_date_str = str(att.get("attendance_date")).split()[0] if att.get("attendance_date") else "None"
+					print(f"  - {att.get('name')}: Farm Worker {att.get('farm_worker')} ({att.get('worker_name')}), Date: {att_date_str}, Status: {att.get('status')}")
+					
+				# Check if any match today or the requested date
+				today_str = str(today())
+				print(f"[get_available_labour] Today's date: {today_str}, Requested date: {date_str}")
+				print(f"[get_available_labour] NOTE: If attendance is set for a different date, workers won't appear. Set attendance for {today_str} to see workers.")
+		except Exception as e:
+			print(f"[get_available_labour] Error checking all Present records: {str(e)}")
+			frappe.log_error(f"Error checking all Present records: {str(e)}", "Get Available Labour Error")
+		
+		# Return empty list - this is expected if no workers have Present attendance
+		return []
+	
+	# Step 2: Get Farm Worker Details for each Present attendance record
+	available_labour = []
+	
+	# Get Farm Worker Details for all present workers in one query
+	if present_attendance:
+		# present_attendance is a list of dictionaries, so use dictionary access
+		farm_worker_names = [att.get("farm_worker") for att in present_attendance if att.get("farm_worker")]
+		print(f"[get_available_labour] Processing {len(farm_worker_names)} workers with Present attendance: {farm_worker_names}")
+		
+		if not farm_worker_names:
+			print(f"[get_available_labour] WARNING: No farm_worker names extracted from attendance records")
+			return []
+		
+		# Get Farm Worker Details with all needed fields
+		farm_workers_data = frappe.get_all(
+			"Farm Worker Details",
+			filters={"name": ["in", farm_worker_names]},
+			fields=["name", "worker_name", "aadhaar_number", "dob", "address", "gender"],
+			order_by="worker_name"
+		)
+		
+		print(f"[get_available_labour] Found {len(farm_workers_data)} Farm Worker Details records for {len(farm_worker_names)} attendance records")
+		
+		if len(farm_workers_data) != len(farm_worker_names):
+			missing = set(farm_worker_names) - {fw.get("name") for fw in farm_workers_data}
+			print(f"[get_available_labour] WARNING: Missing Farm Worker Details for: {missing}")
+		
+		# Return Farm Worker Details directly (no Labour Details needed)
+		for farm_worker in farm_workers_data:
+			available_labour.append({
+				"name": farm_worker.get("name"),
+				"worker_name": farm_worker.get("worker_name"),
+				"labour_name": farm_worker.get("worker_name"),  # Keep for backward compatibility with frontend
+				"aadhaar_number": farm_worker.get("aadhaar_number"),
+				"dob": farm_worker.get("dob"),
+				"address": farm_worker.get("address"),
+				"gender": farm_worker.get("gender")
+			})
+	
+	# Sort by worker name
+	available_labour.sort(key=lambda x: x.get("worker_name", ""))
+	
+	print(f"[get_available_labour] === SUMMARY ===")
+	print(f"[get_available_labour] Date checked: {date_str}")
+	print(f"[get_available_labour] Present attendance records found: {len(present_attendance) if present_attendance else 0}")
+	print(f"[get_available_labour] Available labour returned: {len(available_labour)}")
+	print(f"[get_available_labour] Returning {len(available_labour)} labour with Present attendance for date {date_str}")
+	
+	# Debug: Log what we're returning
+	if available_labour:
+		for labour in available_labour:
+			print(f"[get_available_labour]   - Farm Worker: {labour.get('name')}, Name: {labour.get('worker_name')}, Aadhaar: {labour.get('aadhaar_number')}")
+	else:
+		print(f"[get_available_labour] WARNING: No labour returned! present_attendance count: {len(present_attendance) if present_attendance else 0}")
+		if present_attendance:
+			print(f"[get_available_labour] DEBUG: present_attendance contains {len(present_attendance)} records but no Farm Worker Details were found")
+			print(f"[get_available_labour] DEBUG: First few attendance records: {present_attendance[:3]}")
+	
+	# Also log to error log for visibility - this will show in Frappe Error Log
+	frappe.log_error(
+		f"get_available_labour summary: Date={date_str}, Present records={len(present_attendance) if present_attendance else 0}, Farm Workers returned={len(available_labour)}.",
+		"Get Available Labour Summary"
+	)
+	
+	# If debug mode, add diagnostic info
+	if debug:
+		debug_info = {
+		"input_date": attendance_date,
+		"extracted_date": date_str,
+		"parsed_date": str(attendance_date_obj),
+		"today_date": today_date_str,
+		"dates_checked": [d[0] for d in dates_to_try],  # Just the date strings
+			"present_attendance_count": len(present_attendance) if present_attendance else 0,
+			"available_labour_count": len(available_labour)
+		}
+		return {
+			"labour": available_labour,
+			"debug": debug_info
+		}
+	
+	return available_labour
 
 

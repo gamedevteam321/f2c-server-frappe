@@ -8,26 +8,26 @@
   "allow_rename": 1,
   "track_changes": 1,
   "field_order": [
-    "employee",
-    "employee_name",
+    "labour",
+    "labour_name",
     "role",
     "checkin_in",
     "checkin_out"
   ],
   "fields": [
     {
-      "fieldname": "employee",
+      "fieldname": "labour",
       "fieldtype": "Link",
-      "label": "Employee",
-      "options": "Employee",
+      "label": "Labour",
+      "options": "Farm Worker Details",
       "reqd": 1,
       "in_list_view": 1
     },
     {
-      "fieldname": "employee_name",
+      "fieldname": "labour_name",
       "fieldtype": "Data",
-      "label": "Employee Name",
-      "fetch_from": "employee.employee_name",
+      "label": "Labour Name",
+      "fetch_from": "labour.worker_name",
       "read_only": 1,
       "in_list_view": 1
     },

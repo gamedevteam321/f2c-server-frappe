@@ -10,11 +10,12 @@
  "field_order": [
   "labour_name",
   "dob",
+  "column_break_1",
+  "aadhaar_number",
+  "gender",
   "section_break_1",
   "address",
   "section_break_2",
-  "adhaar_number",
-  "section_break_3",
   "photo_front",
   "photo_back"
  ],
@@ -30,7 +31,28 @@
    "fieldname": "dob",
    "fieldtype": "Date",
    "in_list_view": 1,
-   "label": "DOB",
+   "label": "Date of Birth",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "aadhaar_number",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Aadhaar Number",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "gender",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Gender",
+   "options": "Male\nFemale\nOther",
    "reqd": 1
   },
   {
@@ -45,18 +67,6 @@
   },
   {
    "fieldname": "section_break_2",
-   "fieldtype": "Section Break",
-   "label": "Identity Details"
-  },
-  {
-   "fieldname": "adhaar_number",
-   "fieldtype": "Data",
-   "in_list_view": 1,
-   "label": "Adhaar Number",
-   "unique": 1
-  },
-  {
-   "fieldname": "section_break_3",
    "fieldtype": "Section Break",
    "label": "Photo"
   },
