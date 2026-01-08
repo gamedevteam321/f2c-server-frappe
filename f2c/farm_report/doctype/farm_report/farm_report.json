@@ -8,6 +8,9 @@
   "document_type": "Document",
   "engine": "InnoDB",
   "field_order": [
+    "execution_ref",
+    "schedule_ref",
+    "on_demand_activity_ref",
     "block",
     "block_name",
     "column_break_1",
@@ -29,6 +32,27 @@
     "image_upload"
   ],
   "fields": [
+    {
+      "fieldname": "execution_ref",
+      "fieldtype": "Link",
+      "label": "Execution",
+      "options": "Farm Task Execution",
+      "read_only": 1
+    },
+    {
+      "fieldname": "schedule_ref",
+      "fieldtype": "Link",
+      "label": "Schedule",
+      "options": "Crop Plan Schedule",
+      "read_only": 1
+    },
+    {
+      "fieldname": "on_demand_activity_ref",
+      "fieldtype": "Link",
+      "label": "On Demand Activity",
+      "options": "On Demand Activity",
+      "read_only": 1
+    },
     {
       "fieldname": "block",
       "fieldtype": "Link",

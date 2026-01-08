@@ -143,7 +143,7 @@ frappe.ui.form.on('On Demand Activity', {
 		if (row.block) {
 			frappe.call({
 				method: 'f2c.farm_scheduling.doctype.on_demand_activity.on_demand_activity.get_block_details',
-				args: { block: row.block },
+				args: { block: row.block, field: frm.doc.field || null },
 				callback(r) {
 					const d = r.message || {};
 					frappe.model.set_value(cdt, cdn, 'block_name', d.block_name || '');
@@ -164,7 +164,7 @@ frappe.ui.form.on('On Demand Activity', {
 		if (row.block) {
 			frappe.call({
 				method: 'f2c.farm_scheduling.doctype.on_demand_activity.on_demand_activity.get_block_details',
-				args: { block: row.block },
+				args: { block: row.block, field: frm.doc.field || null },
 				callback(r) {
 					const d = r.message || {};
 					frappe.model.set_value(cdt, cdn, 'block_name', d.block_name || '');

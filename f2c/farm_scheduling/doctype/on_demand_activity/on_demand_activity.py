@@ -339,9 +339,10 @@ def compute_total_qty(*, water_liters: float, total_acres: float, rate: float, u
 
 
 @frappe.whitelist()
-def get_block_details(block: str) -> Dict[str, Any]:
+def get_block_details(block: str, field: str = None) -> Dict[str, Any]:
 	"""
 	Return block_name, block_area_acres and no_of_seedlings for a given block.
+	If field is provided, tries to fetch no_of_seedlings from Crop Plan that contains this block.
 	"""
 	if not block:
 		return {}
@@ -351,9 +352,34 @@ def get_block_details(block: str) -> Dict[str, Any]:
 	if block_doc.area:
 		area_acres = flt(block_doc.area) * SQ_METERS_TO_ACRES
 	
-	# Get no_of_seedlings from block if available (might be stored in custom field or related table)
-	# For now, default to 0 if not available
-	no_of_seedlings = getattr(block_doc, "no_of_seedlings", 0) or 0
+	# Try to get no_of_seedlings from Crop Plan Block if field is provided
+	no_of_seedlings = 0
+	if field:
+		try:
+			# Find crop plans that contain this field
+			crop_plans = frappe.get_all(
+				"Crop Plan",
+				filters={"field": field},
+				fields=["name"],
+				limit=1
+			)
+			
+			if crop_plans:
+				crop_plan_name = crop_plans[0].name
+				crop_plan_doc = frappe.get_doc("Crop Plan", crop_plan_name)
+				
+				# Find the block in the crop plan's blocks table
+				for crop_plan_block in crop_plan_doc.blocks or []:
+					if crop_plan_block.block == block:
+						no_of_seedlings = int(crop_plan_block.no_of_seedlings or 0)
+						break
+		except Exception as e:
+			# If there's any error fetching from crop plan, log it but continue
+			frappe.log_error(f"Error fetching seedlings from crop plan for block {block}: {str(e)}", "On Demand Activity Block Details")
+	
+	# If still 0, try to get from block document as fallback (for backward compatibility)
+	if no_of_seedlings == 0:
+		no_of_seedlings = getattr(block_doc, "no_of_seedlings", 0) or 0
 	
 	return {
 		"block": block,
@@ -547,7 +573,36 @@ def schedule_campaign(
 			area_acres = 0.0
 			if block_doc.area:
 				area_acres = flt(block_doc.area) * SQ_METERS_TO_ACRES
-			no_of_seedlings = getattr(block_doc, "no_of_seedlings", 0) or 0
+			
+			# Try to get no_of_seedlings from Crop Plan Block if field is available
+			no_of_seedlings = 0
+			field_name = block_info.get("field")
+			if field_name:
+				try:
+					# Find crop plans that contain this field
+					crop_plans = frappe.get_all(
+						"Crop Plan",
+						filters={"field": field_name},
+						fields=["name"],
+						limit=1
+					)
+					
+					if crop_plans:
+						crop_plan_name = crop_plans[0].name
+						crop_plan_doc = frappe.get_doc("Crop Plan", crop_plan_name)
+						
+						# Find the block in the crop plan's blocks table
+						for crop_plan_block in crop_plan_doc.blocks or []:
+							if crop_plan_block.block == block_info["block"]:
+								no_of_seedlings = int(crop_plan_block.no_of_seedlings or 0)
+								break
+				except Exception as e:
+					# If there's any error fetching from crop plan, log it but continue
+					frappe.log_error(f"Error fetching seedlings from crop plan for block {block_info['block']}: {str(e)}", "On Demand Activity Campaign Scheduling")
+			
+			# If still 0, try to get from block document as fallback (for backward compatibility)
+			if no_of_seedlings == 0:
+				no_of_seedlings = getattr(block_doc, "no_of_seedlings", 0) or 0
 			
 			# Get activity doc to check for spray and other details
 			activity_doc = frappe.get_doc("Farm Activity", campaign_activity["activity"])

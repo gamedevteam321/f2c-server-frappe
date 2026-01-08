@@ -99,7 +99,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Status",
-   "options": "Draft\nScheduled\nRescheduled\nAborted\nCompleted\nArchived"
+   "options": "Draft\nScheduled\nReported\nRescheduled\nAborted\nCompleted\nArchived"
   },
   {
    "depends_on": "eval:doc.status=='Scheduled' || doc.activity_type=='Land'",

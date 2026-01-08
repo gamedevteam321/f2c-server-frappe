@@ -52,13 +52,40 @@ class FarmTaskExecution(Document):
 		self._check_linked_on_demand_activity()
 
 	def on_update(self):
-		"""Update linked Crop Plan Schedule status when execution is completed."""
-		if self.status == "Completed" and self.schedule_ref and self.has_value_changed("status"):
-			# Update the linked Crop Plan Schedule status to Completed
-			schedule_status = frappe.db.get_value("Crop Plan Schedule", self.schedule_ref, "status")
-			# Only update if schedule is not already in a terminal state
-			if schedule_status and schedule_status not in ("Aborted", "Completed", "Rescheduled"):
-				frappe.db.set_value("Crop Plan Schedule", self.schedule_ref, "status", "Completed", update_modified=False)
+		"""Update linked Crop Plan Schedule or On Demand Activity status when execution is completed or aborted."""
+		if self.has_value_changed("status"):
+			# Update linked Crop Plan Schedule status if execution is completed
+			if self.status == "Completed" and self.schedule_ref:
+				try:
+					schedule_status = frappe.db.get_value("Crop Plan Schedule", self.schedule_ref, "status")
+					# Only update if schedule is not already in a terminal state
+					if schedule_status and schedule_status not in ("Aborted", "Completed", "Rescheduled"):
+						frappe.db.set_value("Crop Plan Schedule", self.schedule_ref, "status", "Completed", update_modified=False)
+				except Exception as e:
+					frappe.log_error(
+						f"Error updating Crop Plan Schedule status for {self.schedule_ref}: {str(e)}",
+						"Farm Task Execution on_update Error",
+					)
+			
+			# Update linked On Demand Activity status if execution is completed
+			if self.status == "Completed" and self.on_demand_activity_ref:
+				try:
+					activity_status = frappe.db.get_value("On Demand Activity", self.on_demand_activity_ref, "status")
+					# Only update if activity is not already in a terminal state
+					if activity_status and activity_status not in ("Aborted", "Completed", "Archived"):
+						frappe.db.set_value("On Demand Activity", self.on_demand_activity_ref, "status", "Completed", update_modified=False)
+				except Exception as e:
+					frappe.log_error(f"Error updating On Demand Activity status for {self.on_demand_activity_ref}: {str(e)}", "Farm Task Execution on_update Error")
+			
+			# Update linked On Demand Activity status if execution is aborted
+			if self.status == "Aborted" and self.on_demand_activity_ref:
+				try:
+					activity_status = frappe.db.get_value("On Demand Activity", self.on_demand_activity_ref, "status")
+					# Only update if activity is not already in a terminal state
+					if activity_status and activity_status not in ("Aborted", "Completed", "Archived"):
+						frappe.db.set_value("On Demand Activity", self.on_demand_activity_ref, "status", "Aborted", update_modified=False)
+				except Exception as e:
+					frappe.log_error(f"Error updating On Demand Activity status to Aborted for {self.on_demand_activity_ref}: {str(e)}", "Farm Task Execution on_update Error")
 
 	def _check_linked_schedule(self):
 		"""Check if this execution is linked to a Crop Plan Schedule."""
@@ -132,16 +159,62 @@ class FarmTaskExecution(Document):
 		if self.status == "Started" and not self.actual_start:
 			self.actual_start = now_datetime()
 
+		# When transitioning to In Review, set actual_end if not already set
+		if self.status == "In Review" and not self.actual_end:
+			self.actual_end = now_datetime()
+
 		if self.status in ("Completed", "Aborted") and not self.actual_end:
 			self.actual_end = now_datetime()
 
+		# Get old status for transition validation
+		old_status = None
+		if self.has_value_changed("status"):
+			if hasattr(self, "_doc_before_save") and self._doc_before_save:
+				old_status = self._doc_before_save.status
+			elif not self.is_new():
+				# Fallback: fetch from database if _doc_before_save is not available
+				old_status = frappe.db.get_value(self.doctype, self.name, "status")
+
+		# For spray activities, validate actual_spray_water_liters
+		# If transitioning from In Review to Completed, use planned value as fallback if actual is not set
 		if self.is_spray and self.status in ("Completed", "Aborted"):
-			if flt(self.actual_spray_water_liters) <= 0:
-				frappe.throw("Actual Spray Water (Liters) is required for Spray activities.")
+			actual_water = flt(self.actual_spray_water_liters)
+			if actual_water <= 0:
+				# If approving from In Review and actual is not set, use planned value
+				if old_status == "In Review" and self.status == "Completed":
+					if flt(self.planned_spray_water_liters) > 0:
+						self.actual_spray_water_liters = flt(self.planned_spray_water_liters, 3)
+					else:
+						frappe.throw("Actual Spray Water (Liters) is required for Spray activities. Please set it before completing.")
+				else:
+					frappe.throw("Actual Spray Water (Liters) is required for Spray activities.")
 
 		if self.status == "Aborted":
 			if not (self.abort_category or "").strip() or not (self.abort_reason or "").strip():
 				frappe.throw("Abort Category and Abort Reason are required when status is Aborted.")
+		
+		# Validate status transitions
+		if self.has_value_changed("status"):
+			# old_status already retrieved above
+			new_status = self.status
+			
+			# Only allow specific transitions
+			valid_transitions = {
+				"Started": ["In Progress", "Reported", "Aborted"],
+				"In Progress": ["In Review", "Reported", "Aborted"],
+				"In Review": ["Completed", "Reported", "Aborted"],
+				"Reported": ["Rescheduled", "Aborted"],
+				"Rescheduled": [],  # Terminal-ish state for this execution
+				"Completed": [],  # Terminal state
+				"Aborted": []  # Terminal state
+			}
+			
+			if old_status and old_status in valid_transitions:
+				if new_status not in valid_transitions[old_status]:
+					frappe.throw(
+						f"Cannot transition from '{old_status}' to '{new_status}'. "
+						f"Valid transitions from '{old_status}' are: {', '.join(valid_transitions[old_status])}"
+					)
 
 	def _compute_consumed_qty(self):
 		for row in self.get("inputs") or []:
@@ -447,6 +520,96 @@ def start_execution(execution_name: str) -> str:
 			
 			doc.status = "In Progress"
 			doc.save(ignore_permissions=True)
+			frappe.db.commit()
+			return doc.name
+		except frappe.QueryDeadlockError:
+			frappe.db.rollback()
+			if attempt < max_retries - 1:
+				time.sleep(0.1 * (attempt + 1))  # Exponential backoff
+			else:
+				raise
+		except Exception:
+			frappe.db.rollback()
+			raise
+	
+	return execution_name
+
+
+@frappe.whitelist()
+def submit_for_review(execution_name: str) -> str:
+	"""
+	Transition execution status from In Progress to In Review.
+	Uses row locking to prevent concurrent modification errors.
+	"""
+	import time
+	max_retries = 3
+	
+	for attempt in range(max_retries):
+		try:
+			# Begin transaction and lock the row to prevent concurrent modifications
+			frappe.db.begin()
+			doc = frappe.get_doc("Farm Task Execution", execution_name, for_update=True)
+			
+			if doc.status != "In Progress":
+				frappe.db.rollback()
+				frappe.throw(f"Cannot submit for review. Current status is {doc.status}. Only 'In Progress' executions can be moved to 'In Review'.")
+			
+			doc.status = "In Review"
+			# Set actual_end when submitting for review
+			if not doc.actual_end:
+				doc.actual_end = now_datetime()
+			doc.save(ignore_permissions=True)
+			frappe.db.commit()
+			return doc.name
+		except frappe.QueryDeadlockError:
+			frappe.db.rollback()
+			if attempt < max_retries - 1:
+				time.sleep(0.1 * (attempt + 1))  # Exponential backoff
+			else:
+				raise
+		except Exception:
+			frappe.db.rollback()
+			raise
+	
+	return execution_name
+
+
+@frappe.whitelist()
+def approve_execution(execution_name: str) -> str:
+	"""
+	Approve execution and transition status from In Review to Completed.
+	Uses row locking to prevent concurrent modification errors.
+	"""
+	import time
+	max_retries = 3
+	
+	for attempt in range(max_retries):
+		try:
+			# Begin transaction and lock the row to prevent concurrent modifications
+			frappe.db.begin()
+			doc = frappe.get_doc("Farm Task Execution", execution_name, for_update=True)
+			
+			if doc.status != "In Review":
+				frappe.db.rollback()
+				frappe.throw(f"Cannot approve execution. Current status is {doc.status}. Only 'In Review' executions can be approved and moved to 'Completed'.")
+			
+			doc.status = "Completed"
+			# Ensure actual_end is set
+			if not doc.actual_end:
+				doc.actual_end = now_datetime()
+			doc.save(ignore_permissions=True)
+			
+			# Explicitly update linked On Demand Activity status after save
+			# This ensures the status is updated even if on_update didn't trigger correctly
+			if doc.on_demand_activity_ref:
+				try:
+					activity_status = frappe.db.get_value("On Demand Activity", doc.on_demand_activity_ref, "status")
+					if activity_status and activity_status not in ("Aborted", "Completed", "Archived"):
+						frappe.db.set_value("On Demand Activity", doc.on_demand_activity_ref, "status", "Completed", update_modified=False)
+				except Exception as e:
+					# Log error but don't fail the approval
+					frappe.log_error(f"Error updating On Demand Activity status for {doc.on_demand_activity_ref}: {str(e)}", "Approve Execution Error")
+			
 			frappe.db.commit()
 			return doc.name
 		except frappe.QueryDeadlockError:
@@ -1066,5 +1229,55 @@ def get_available_labour(attendance_date: str = None, debug: bool = False) -> Li
 		}
 	
 	return available_labour
+
+
+@frappe.whitelist()
+def sync_on_demand_activity_statuses() -> Dict[str, Any]:
+	"""
+	Utility function to sync On Demand Activity statuses for completed executions.
+	This can be used to fix existing records that may have been missed.
+	
+	Returns:
+		Dictionary with count of updated activities
+	"""
+	updated_count = 0
+	errors = []
+	
+	# Get all completed executions with on_demand_activity_ref
+	completed_executions = frappe.get_all(
+		"Farm Task Execution",
+		filters={
+			"status": "Completed",
+			"on_demand_activity_ref": ["!=", ""]
+		},
+		fields=["name", "on_demand_activity_ref"]
+	)
+	
+	for exec_doc in completed_executions:
+		try:
+			activity_name = exec_doc.on_demand_activity_ref
+			if not activity_name:
+				continue
+			
+			# Check current activity status
+			activity_status = frappe.db.get_value("On Demand Activity", activity_name, "status")
+			
+			# Only update if activity is not already in a terminal state
+			if activity_status and activity_status not in ("Aborted", "Completed", "Archived"):
+				frappe.db.set_value("On Demand Activity", activity_name, "status", "Completed", update_modified=False)
+				updated_count += 1
+		except Exception as e:
+			errors.append(f"Error updating activity {exec_doc.on_demand_activity_ref}: {str(e)}")
+			frappe.log_error(f"Error syncing On Demand Activity status for execution {exec_doc.name}: {str(e)}", "Sync On Demand Activity Status Error")
+	
+	# Commit all changes
+	if updated_count > 0:
+		frappe.db.commit()
+	
+	return {
+		"updated_count": updated_count,
+		"total_checked": len(completed_executions),
+		"errors": errors
+	}
 
 

@@ -45,7 +45,7 @@ class CropPlanSchedule(Document):
 			exec_status = frappe.db.get_value("Farm Task Execution", exec_name, "status")
 			if exec_status:
 				# If execution is in progress, prevent deletion/cancellation
-				if exec_status == "In Progress":
+				if exec_status in ("In Progress", "Reported"):
 					frappe.throw(
 						f"Cannot delete or cancel because Crop Plan Schedule <b>{self.name}</b> is linked with Farm Task Execution <b>{exec_name}</b> which is In Progress. Please complete or abort the execution first."
 					)
