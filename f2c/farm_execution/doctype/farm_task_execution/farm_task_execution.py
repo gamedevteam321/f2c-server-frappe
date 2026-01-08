@@ -38,8 +38,20 @@ def _insert_with_retry(exec_doc, max_retries=3):
 class FarmTaskExecution(Document):
 	def validate(self):
 		self._validate_reference()
+		self._sync_and_validate_progress_images()
 		self._validate_status_rules()
 		self._compute_consumed_qty()
+
+	def _sync_and_validate_progress_images(self):
+		"""
+		Progress images are uploaded as a child table.
+		- Keep progress_image_count in sync
+		- Enforce max 5 images
+		"""
+		rows = self.get("progress_images") or []
+		if len(rows) > 5:
+			frappe.throw("Maximum 5 progress images are allowed.")
+		self.progress_image_count = len(rows)
 
 	def on_trash(self):
 		"""Prevent deletion if linked to schedule or on-demand activity."""
@@ -197,6 +209,14 @@ class FarmTaskExecution(Document):
 		if self.has_value_changed("status"):
 			# old_status already retrieved above
 			new_status = self.status
+
+			# Require at least 3 progress images before submitting for review
+			if new_status == "In Review":
+				# Allow explicit skip from API when user chooses "Submit for review without images"
+				if not getattr(frappe.flags, "skip_progress_image_min", False):
+					rows = self.get("progress_images") or []
+					if len(rows) < 3:
+						frappe.throw("Please upload at least 3 progress images before submitting for review.")
 			
 			# Only allow specific transitions
 			valid_transitions = {
@@ -536,7 +556,7 @@ def start_execution(execution_name: str) -> str:
 
 
 @frappe.whitelist()
-def submit_for_review(execution_name: str) -> str:
+def submit_for_review(execution_name: str, skip_images: int = 0) -> str:
 	"""
 	Transition execution status from In Progress to In Review.
 	Uses row locking to prevent concurrent modification errors.
@@ -553,6 +573,9 @@ def submit_for_review(execution_name: str) -> str:
 			if doc.status != "In Progress":
 				frappe.db.rollback()
 				frappe.throw(f"Cannot submit for review. Current status is {doc.status}. Only 'In Progress' executions can be moved to 'In Review'.")
+			
+			# Optional bypass for progress-image requirement (requested UX)
+			frappe.flags.skip_progress_image_min = bool(int(skip_images or 0))
 			
 			doc.status = "In Review"
 			# Set actual_end when submitting for review

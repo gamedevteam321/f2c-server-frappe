@@ -379,7 +379,7 @@ def get_block_details(block: str, field: str = None) -> Dict[str, Any]:
 	
 	# If still 0, try to get from block document as fallback (for backward compatibility)
 	if no_of_seedlings == 0:
-		no_of_seedlings = getattr(block_doc, "no_of_seedlings", 0) or 0
+		no_of_seedlings = int(getattr(block_doc, "no_of_seedlings", 0) or 0)
 	
 	return {
 		"block": block,
@@ -602,7 +602,7 @@ def schedule_campaign(
 			
 			# If still 0, try to get from block document as fallback (for backward compatibility)
 			if no_of_seedlings == 0:
-				no_of_seedlings = getattr(block_doc, "no_of_seedlings", 0) or 0
+				no_of_seedlings = int(getattr(block_doc, "no_of_seedlings", 0) or 0)
 			
 			# Get activity doc to check for spray and other details
 			activity_doc = frappe.get_doc("Farm Activity", campaign_activity["activity"])

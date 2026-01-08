@@ -44,6 +44,9 @@
     "labour_attendance",
     "checkin_in_photo",
     "checkin_out_photo",
+    "section_break_progress_images",
+    "progress_image_count",
+    "progress_images",
     "section_break_abort",
     "abort_category",
     "abort_reason",
@@ -267,6 +270,23 @@
       "fieldname": "checkin_out_photo",
       "fieldtype": "Attach Image",
       "label": "Check-out Photo"
+    },
+    {
+      "fieldname": "section_break_progress_images",
+      "fieldtype": "Section Break",
+      "label": "Progress Images"
+    },
+    {
+      "fieldname": "progress_image_count",
+      "fieldtype": "Int",
+      "label": "Progress Image Count",
+      "read_only": 1
+    },
+    {
+      "fieldname": "progress_images",
+      "fieldtype": "Table",
+      "label": "Progress Images",
+      "options": "Farm Task Execution Progress Image"
     },
     {
       "fieldname": "section_break_abort",
