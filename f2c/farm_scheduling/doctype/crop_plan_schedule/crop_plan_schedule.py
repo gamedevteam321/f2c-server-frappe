@@ -773,10 +773,12 @@ def create_reschedule(
 
 	new_doc.insert(ignore_permissions=True)
 	
-	# Mark original schedule as "Rescheduled"
+	# Mark original schedule as "Rescheduled" unless it's already in a terminal state.
+	# For Completed/Aborted schedules we keep the original status and only create a new entry.
 	src.reload()
-	src.db_set("status", "Rescheduled", update_modified=False)
-	frappe.db.commit()
+	if (src.status or "").strip() not in ("Completed", "Aborted"):
+		src.db_set("status", "Rescheduled", update_modified=False)
+		frappe.db.commit()
 	
 	return new_doc.name
 

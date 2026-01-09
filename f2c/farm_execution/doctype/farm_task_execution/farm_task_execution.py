@@ -72,7 +72,13 @@ class FarmTaskExecution(Document):
 					schedule_status = frappe.db.get_value("Crop Plan Schedule", self.schedule_ref, "status")
 					# Only update if schedule is not already in a terminal state
 					if schedule_status and schedule_status not in ("Aborted", "Completed", "Rescheduled"):
-						frappe.db.set_value("Crop Plan Schedule", self.schedule_ref, "status", "Completed", update_modified=False)
+						frappe.db.set_value(
+							"Crop Plan Schedule",
+							self.schedule_ref,
+							"status",
+							"Completed",
+							update_modified=False,
+						)
 				except Exception as e:
 					frappe.log_error(
 						f"Error updating Crop Plan Schedule status for {self.schedule_ref}: {str(e)}",
