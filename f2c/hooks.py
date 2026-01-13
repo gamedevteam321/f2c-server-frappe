@@ -148,23 +148,12 @@ app_license = "mit"
 # Scheduled Tasks
 # ---------------
 
-# scheduler_events = {
-# 	"all": [
-# 		"f2c.tasks.all"
-# 	],
-# 	"daily": [
-# 		"f2c.tasks.daily"
-# 	],
-# 	"hourly": [
-# 		"f2c.tasks.hourly"
-# 	],
-# 	"weekly": [
-# 		"f2c.tasks.weekly"
-# 	],
-# 	"monthly": [
-# 		"f2c.tasks.monthly"
-# 	],
-# }
+scheduler_events = {
+	"daily": [
+		# Auto-create Warehouse Stock docs for warehouses that have stock available
+		"f2c.inventory.doctype.warehouse_stock.warehouse_stock.sync_warehouse_stock",
+	]
+}
 
 # Testing
 # -------
