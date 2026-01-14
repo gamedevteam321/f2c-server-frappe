@@ -43,8 +43,14 @@ app_license = "mit"
 # page_js = {"page" : "public/js/file.js"}
 
 # include js in doctype views
-# doctype_js = {"doctype" : "public/js/doctype.js"}
-# doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
+# Inject small desk customizations for specific doctypes
+doctype_js = {
+	"Location": "public/js/location_geo_fencing_sync.js",
+}
+# List-view customization for doctypes
+doctype_list_js = {
+	"Location": "public/js/location_list_geo_fencing_sync.js",
+}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
 
