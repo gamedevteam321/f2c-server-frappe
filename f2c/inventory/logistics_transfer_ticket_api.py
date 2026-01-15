@@ -38,9 +38,63 @@ def get_location_for_warehouse(warehouse: str):
 	if not warehouse:
 		frappe.throw(_("warehouse is required"))
 
-	geo_area = frappe.db.get_value(
-		"Geo Fencing Area Warehouse", {"warehouse": warehouse}, "parent", order_by="modified desc"
+	def _norm(s: str) -> str:
+		return "".join(ch for ch in str(s or "").lower() if ch.isalnum())
+
+	wh_name = frappe.db.get_value("Warehouse", warehouse, "warehouse_name") or ""
+	norm_wh = _norm(wh_name) or _norm(warehouse)
+
+	# Prefer Geo Area links, but when multiple exist pick the best match by area_name vs warehouse_name.
+	geo_area = None
+	links = frappe.get_all(
+		"Geo Fencing Area Warehouse",
+		fields=["parent"],
+		filters={"warehouse": warehouse, "parent": ["is", "set"]},
+		order_by="modified desc",
+		limit_page_length=0,
+		ignore_permissions=True,
 	)
+	parents = []
+	seen = set()
+	for l in links:
+		p = l.get("parent")
+		if p and p not in seen:
+			seen.add(p)
+			parents.append(p)
+
+	if parents:
+		# Default to the most recently modified, but override if we find a better name match.
+		geo_area = parents[0]
+		if norm_wh:
+			best = None
+			best_score = -1
+			for p in parents:
+				area_name = frappe.db.get_value("Geo Fencing Area", p, "area_name") or ""
+				norm_area = _norm(area_name)
+				score = 0
+				if norm_area and norm_area == norm_wh:
+					score = 100
+				elif norm_area and (norm_area in norm_wh or norm_wh in norm_area):
+					score = 50
+				if score > best_score:
+					best_score = score
+					best = p
+			if best is not None and best_score > 0:
+				geo_area = best
+
+	# Fallback: infer Geo Fencing Area by matching Warehouse.warehouse_name to Geo Fencing Area.area_name
+	if not geo_area and norm_wh:
+		for g in frappe.get_all(
+			"Geo Fencing Area",
+			fields=["name", "area_name"],
+			limit_page_length=0,
+			ignore_permissions=True,
+		):
+			norm_area = _norm(g.get("area_name") or "")
+			if norm_area and norm_area == norm_wh:
+				geo_area = g["name"]
+				break
+
 	if not geo_area:
 		return {"warehouse": warehouse, "geo_area": None, "location": None, "location_name": None}
 
@@ -67,8 +121,39 @@ def get_warehouses_for_geo_area(geo_area: str):
 		fields=["warehouse"],
 		filters={"parent": geo_area, "parenttype": "Geo Fencing Area", "warehouse": ["is", "set"]},
 		limit_page_length=0,
+		ignore_permissions=True,
 	)
-	return {"geo_area": geo_area, "warehouses": [w["warehouse"] for w in warehouses if w.get("warehouse")]}
+
+	linked = [w["warehouse"] for w in warehouses if w.get("warehouse")]
+
+	# Fallback: if Farm/Cluster/Field has a corresponding Warehouse record but isn't linked in the child table,
+	# try to infer by matching Geo Fencing Area.area_name to Warehouse.warehouse_name (lenient normalization).
+	area_name = frappe.db.get_value("Geo Fencing Area", geo_area, "area_name") or ""
+	norm = "".join(ch for ch in area_name.lower() if ch.isalnum())
+	fallback = []
+	if norm:
+		# Fetch non-group warehouses and match normalized warehouse_name or name prefix.
+		for wh in frappe.get_all(
+			"Warehouse",
+			fields=["name", "warehouse_name", "is_group"],
+			filters={"is_group": 0},
+			limit_page_length=0,
+			ignore_permissions=True,
+		):
+			wh_name = wh.get("warehouse_name") or ""
+			wh_norm = "".join(ch for ch in wh_name.lower() if ch.isalnum())
+			name_norm = "".join(ch for ch in (wh.get("name") or "").lower() if ch.isalnum())
+			if wh_norm == norm or name_norm.startswith(norm):
+				fallback.append(wh["name"])
+
+	combined = []
+	seen = set()
+	for w in linked + fallback:
+		if w and w not in seen:
+			seen.add(w)
+			combined.append(w)
+
+	return {"geo_area": geo_area, "warehouses": combined}
 
 
 @frappe.whitelist()
@@ -76,7 +161,7 @@ def create_logistics_transfer_ticket(
 	from_warehouse: str,
 	to_warehouse: str,
 	stock_items: list[dict] | None = None,
-	assets: list[str] | None = None,
+	assets: list | None = None,
 ):
 	"""
 	Create ONE Logistics Transfer Ticket that links:
@@ -137,33 +222,93 @@ def create_logistics_transfer_ticket(
 		stock_entry_name = se.name
 
 	asset_movement_name = None
+	asset_item_rows_for_ticket: list[dict] = []
 	if assets:
+		# For asset transfers, destination Location must exist. If it doesn't, ERPNext will treat
+		# target_location as source_location and throw: "Source and Target Location cannot be same".
+		if not to_loc:
+			frappe.throw(
+				_(
+					"Destination warehouse has no mapped Location. Please run Location sync (Geo Warehouses → Location) for the destination area."
+				)
+			)
+
+		# assets can be:
+		# - ["ACC-ASS-00001", ...] (treated as qty=1 each)
+		# - [{"asset":"ACC-ASS-00001","qty":2}, ...]
+		requests: list[dict] = []
+		for a in assets:
+			if isinstance(a, str):
+				requests.append({"asset": a, "qty": 1})
+			elif isinstance(a, dict):
+				requests.append({"asset": a.get("asset"), "qty": a.get("qty")})
+
 		asset_rows = []
 		first_company = None
-		for asset in assets:
-			asset_doc = frappe.get_doc("Asset", asset)
+		already_there: list[str] = []
+
+		for req in requests:
+			asset_name = req.get("asset")
+			req_qty = flt(req.get("qty") or 0)
+			if not asset_name or req_qty <= 0:
+				continue
+
+			asset_doc = frappe.get_doc("Asset", asset_name)
+			if asset_doc.location and asset_doc.location == to_loc:
+				already_there.append(asset_doc.name)
+				continue
+			asset_qty = flt(getattr(asset_doc, "asset_quantity", 1) or 1)
+
+			if req_qty > asset_qty:
+				frappe.throw(_("Requested qty {0} exceeds asset qty {1} for Asset {2}").format(req_qty, asset_qty, asset_doc.name))
+
+			move_asset = asset_doc
+			move_qty = req_qty
+
+			# If partial quantity requested, split the asset first.
+			if asset_qty > 1 and req_qty < asset_qty:
+				try:
+					from erpnext.assets.doctype.asset.asset import split_asset  # type: ignore
+				except Exception:
+					frappe.throw(_("Cannot split asset quantity; ERPNext split_asset not available"))
+
+				new_asset = split_asset(asset_doc.name, int(req_qty))
+				move_asset = new_asset
+				move_qty = flt(getattr(new_asset, "asset_quantity", req_qty) or req_qty)
+
 			if not first_company:
-				first_company = asset_doc.company
+				first_company = move_asset.company
+
 			asset_rows.append(
 				{
 					"doctype": "Asset Movement Item",
-					"asset": asset_doc.name,
-					"asset_name": asset_doc.asset_name,
-					"source_location": asset_doc.location,
-					"target_location": to_loc or asset_doc.location,
+					"asset": move_asset.name,
+					"asset_name": move_asset.asset_name,
+					"source_location": move_asset.location,
+					"target_location": to_loc,
 				}
 			)
-		am = frappe.get_doc(
-			{
-				"doctype": "Asset Movement",
-				"company": first_company or company,
-				"purpose": "Transfer",
-				"transaction_date": now_datetime(),
-				"assets": asset_rows,
-			}
-		)
-		am.insert(ignore_permissions=True)
-		asset_movement_name = am.name
+			asset_item_rows_for_ticket.append({"asset": move_asset.name, "qty": move_qty})
+
+		if already_there and not asset_rows:
+			frappe.throw(
+				_("Selected asset(s) are already in the destination Location {0}: {1}").format(
+					to_loc, ", ".join(already_there[:10])
+				)
+			)
+
+		if asset_rows:
+			am = frappe.get_doc(
+				{
+					"doctype": "Asset Movement",
+					"company": first_company or company,
+					"purpose": "Transfer",
+					"transaction_date": now_datetime(),
+					"assets": asset_rows,
+				}
+			)
+			am.insert(ignore_permissions=True)
+			asset_movement_name = am.name
 
 	ticket = frappe.get_doc(
 		{
@@ -178,7 +323,7 @@ def create_logistics_transfer_ticket(
 			"stock_items": [
 				{"item_code": r.get("item_code"), "qty": flt(r.get("qty"))} for r in (stock_items or []) if r.get("item_code")
 			],
-			"asset_items": [{"asset": a} for a in (assets or []) if a],
+			"asset_items": [{"asset": r.get("asset"), "qty": r.get("qty") or 1} for r in asset_item_rows_for_ticket if r.get("asset")],
 		}
 	)
 	ticket.insert(ignore_permissions=True)

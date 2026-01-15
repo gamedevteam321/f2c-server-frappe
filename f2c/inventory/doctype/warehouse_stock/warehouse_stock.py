@@ -32,22 +32,24 @@ def refresh_from_ledger(warehouse_stock_name: str) -> str:
 	"""
 	Rebuild the child table rows by computing net qty per item from Stock Ledger Entry.
 	"""
-	doc = frappe.get_doc("Warehouse Stock", warehouse_stock_name)
-	if not doc.warehouse:
+	# Note: this method can be called in quick succession from the frontend (e.g. auto-refresh + modal open).
+	# To avoid TimestampMismatchError race conditions, we compute the snapshot once and then save with a reload+retry.
+	doc0 = frappe.get_doc("Warehouse Stock", warehouse_stock_name)
+	if not doc0.warehouse:
 		frappe.throw("Please set Warehouse before refreshing.")
 
-	company = frappe.db.get_value("Warehouse", doc.warehouse, "company")
+	company = frappe.db.get_value("Warehouse", doc0.warehouse, "company")
 	if not company:
 		frappe.throw("Warehouse has no Company set; cannot refresh.")
 
-	doc.company = company
+	warehouse = doc0.warehouse
 
 	sle = frappe.qb.DocType("Stock Ledger Entry")
 	rows = (
 		frappe.qb.from_(sle)
 		.select(sle.item_code, Sum(sle.actual_qty).as_("qty"))
 		.where(
-			(sle.warehouse == doc.warehouse)
+			(sle.warehouse == warehouse)
 			& (sle.company == company)
 			& (sle.is_cancelled == 0)
 			& (sle.item_code.isnotnull())
@@ -65,28 +67,40 @@ def refresh_from_ledger(warehouse_stock_name: str) -> str:
 		):
 			item_meta[it["name"]] = it
 
-	# Replace snapshot rows
-	doc.set("items", [])
+	# Build snapshot rows (so we can retry save without re-querying SLE)
+	snapshot_items: list[dict] = []
 	for r in rows:
 		item_code = r.get("item_code")
 		qty = flt(r.get("qty") or 0, 3)
 		if not item_code or abs(qty) < 0.0001:
 			continue
 		meta = item_meta.get(item_code) or {}
-		doc.append(
-			"items",
+		snapshot_items.append(
 			{
 				"item_code": item_code,
 				"item_name": meta.get("item_name"),
 				"category": meta.get("item_group"),
 				"qty": qty,
 				"stock_uom": meta.get("stock_uom"),
-			},
+			}
 		)
 
-	doc.last_refreshed_on = now_datetime()
-	doc.save(ignore_permissions=True)
-	return doc.name
+	for attempt in range(2):
+		doc = frappe.get_doc("Warehouse Stock", warehouse_stock_name)
+		doc.company = company
+		doc.set("items", [])
+		for it in snapshot_items:
+			doc.append("items", it)
+		doc.last_refreshed_on = now_datetime()
+		try:
+			doc.save(ignore_permissions=True)
+			return doc.name
+		except frappe.TimestampMismatchError:
+			if attempt == 0:
+				continue
+			raise
+
+	return warehouse_stock_name
 
 
 def _get_warehouses_with_positive_stock() -> list[str]:
