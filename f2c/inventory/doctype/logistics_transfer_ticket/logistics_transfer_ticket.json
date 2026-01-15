@@ -1,0 +1,187 @@
+{
+  "doctype": "DocType",
+  "name": "Logistics Transfer Ticket",
+  "module": "Inventory",
+  "document_type": "Document",
+  "autoname": "format:LTT-{YYYY}-{#####}",
+  "allow_import": 1,
+  "track_changes": 1,
+  "index_web_pages_for_search": 1,
+  "engine": "InnoDB",
+  "is_submittable": 0,
+  "field_order": [
+    "from_warehouse",
+    "to_warehouse",
+    "column_break_1",
+    "from_location",
+    "to_location",
+    "column_break_2",
+    "status",
+    "stock_entry",
+    "asset_movement",
+    "section_break_stock",
+    "stock_items",
+    "section_break_assets",
+    "asset_items",
+    "section_break_timestamps",
+    "dispatched_on",
+    "column_break_3",
+    "received_on",
+    "section_break_report",
+    "report_reason"
+  ],
+  "fields": [
+    {
+      "fieldname": "from_warehouse",
+      "fieldtype": "Link",
+      "label": "From Warehouse",
+      "options": "Warehouse",
+      "reqd": 1,
+      "in_list_view": 1,
+      "in_standard_filter": 1
+    },
+    {
+      "fieldname": "to_warehouse",
+      "fieldtype": "Link",
+      "label": "To Warehouse",
+      "options": "Warehouse",
+      "reqd": 1,
+      "in_list_view": 1,
+      "in_standard_filter": 1
+    },
+    {
+      "fieldname": "column_break_1",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "from_location",
+      "fieldtype": "Link",
+      "label": "From Location",
+      "options": "Location",
+      "read_only": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "to_location",
+      "fieldtype": "Link",
+      "label": "To Location",
+      "options": "Location",
+      "read_only": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "column_break_2",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "status",
+      "fieldtype": "Select",
+      "label": "Status",
+      "options": "\nPending Pickup\nIn Transit\nReceived\nReported\nCancelled",
+      "default": "Pending Pickup",
+      "reqd": 1,
+      "in_list_view": 1,
+      "in_standard_filter": 1
+    },
+    {
+      "fieldname": "stock_entry",
+      "fieldtype": "Link",
+      "label": "Stock Entry",
+      "options": "Stock Entry",
+      "read_only": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "asset_movement",
+      "fieldtype": "Link",
+      "label": "Asset Movement",
+      "options": "Asset Movement",
+      "read_only": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "section_break_stock",
+      "fieldtype": "Section Break",
+      "label": "Stock Items"
+    },
+    {
+      "fieldname": "stock_items",
+      "fieldtype": "Table",
+      "label": "Stock Items",
+      "options": "Logistics Transfer Stock Item"
+    },
+    {
+      "fieldname": "section_break_assets",
+      "fieldtype": "Section Break",
+      "label": "Assets"
+    },
+    {
+      "fieldname": "asset_items",
+      "fieldtype": "Table",
+      "label": "Assets",
+      "options": "Logistics Transfer Asset"
+    },
+    {
+      "fieldname": "section_break_timestamps",
+      "fieldtype": "Section Break",
+      "label": "Timestamps",
+      "collapsible": 1
+    },
+    {
+      "fieldname": "dispatched_on",
+      "fieldtype": "Datetime",
+      "label": "Dispatched On",
+      "read_only": 1
+    },
+    {
+      "fieldname": "column_break_3",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "received_on",
+      "fieldtype": "Datetime",
+      "label": "Received On",
+      "read_only": 1
+    },
+    {
+      "fieldname": "section_break_report",
+      "fieldtype": "Section Break",
+      "label": "Report",
+      "collapsible": 1
+    },
+    {
+      "fieldname": "report_reason",
+      "fieldtype": "Small Text",
+      "label": "Report Reason"
+    }
+  ],
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "share": 1,
+      "write": 1,
+      "role": "System Manager"
+    },
+    {
+      "create": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "share": 1,
+      "write": 1,
+      "role": "All"
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC"
+}
+
+
