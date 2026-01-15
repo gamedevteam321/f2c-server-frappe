@@ -14,6 +14,19 @@ class WarehouseStock(Document):
 			self.company = company
 
 
+def _get_ws_docname_for_warehouse(warehouse: str) -> str | None:
+	"""
+	Return an existing Warehouse Stock docname for a given warehouse.
+	Preferred docname is the warehouse itself (autoname=field:warehouse), but we also
+	handle older/out-of-sync records where doc.name != doc.warehouse.
+	"""
+	if not warehouse:
+		return None
+	if frappe.db.exists("Warehouse Stock", warehouse):
+		return warehouse
+	return frappe.db.get_value("Warehouse Stock", {"warehouse": warehouse}, "name", order_by="modified desc")
+
+
 @frappe.whitelist()
 def refresh_from_ledger(warehouse_stock_name: str) -> str:
 	"""
@@ -132,10 +145,11 @@ def sync_warehouse_stock(refresh_existing: int = 0) -> dict:
 			pass
 
 	for wh in warehouses:
-		if frappe.db.exists("Warehouse Stock", wh):
+		existing_name = _get_ws_docname_for_warehouse(wh)
+		if existing_name:
 			if refresh_existing:
 				try:
-					refresh_from_ledger(wh)
+					refresh_from_ledger(existing_name)
 					refreshed += 1
 				except Exception:
 					skipped += 1
@@ -162,7 +176,8 @@ def _create_missing_warehouse_stock_docs(warehouses: list[str]) -> dict:
 	skipped = 0
 
 	for wh in warehouses:
-		if frappe.db.exists("Warehouse Stock", wh):
+		existing_name = _get_ws_docname_for_warehouse(wh)
+		if existing_name:
 			existed += 1
 			continue
 
@@ -186,16 +201,17 @@ def _populate_warehouse_stock_items(*, warehouses: list[str], refresh_existing: 
 	skipped = 0
 
 	for wh in warehouses:
-		if not frappe.db.exists("Warehouse Stock", wh):
+		existing_name = _get_ws_docname_for_warehouse(wh)
+		if not existing_name:
 			continue
 		if not refresh_existing:
 			# only populate if never refreshed before (best-effort)
-			last_refreshed = frappe.db.get_value("Warehouse Stock", wh, "last_refreshed_on")
+			last_refreshed = frappe.db.get_value("Warehouse Stock", existing_name, "last_refreshed_on")
 			if last_refreshed:
 				continue
 
 		try:
-			refresh_from_ledger(wh)
+			refresh_from_ledger(existing_name)
 			populated += 1
 		except Exception:
 			skipped += 1
@@ -245,6 +261,52 @@ def sync_warehouse_stock_async(refresh_existing: int = 0) -> dict:
 		"skipped": create_stats["skipped"],
 		"enqueued": 1,
 	}
+
+
+@frappe.whitelist()
+def get_flat_stock_rows(search: str = "", limit: int = 1000, offset: int = 0) -> list[dict]:
+	"""
+	Return flattened snapshot rows (one row per Warehouse Stock Item) without recalculating from ledger.
+	Intended for frontend Flat view.
+	"""
+	limit = int(limit or 1000)
+	offset = int(offset or 0)
+	search = (search or "").strip()
+
+	conditions = ""
+	params = {"limit": limit, "offset": offset}
+	if search:
+		conditions = """
+			and (
+				ws.warehouse like %(q)s
+				or wsi.item_code like %(q)s
+				or wsi.item_name like %(q)s
+				or wsi.category like %(q)s
+			)
+		"""
+		params["q"] = f"%{search}%"
+
+	return frappe.db.sql(
+		f"""
+		select
+			ws.warehouse as warehouse,
+			ws.company as company,
+			ws.last_refreshed_on as last_refreshed_on,
+			wsi.item_code as item_code,
+			wsi.item_name as item_name,
+			wsi.category as category,
+			wsi.qty as qty,
+			wsi.stock_uom as stock_uom
+		from `tabWarehouse Stock Item` wsi
+		inner join `tabWarehouse Stock` ws on ws.name = wsi.parent
+		where ws.docstatus < 2
+		{conditions}
+		order by ws.modified desc, wsi.idx asc
+		limit %(limit)s offset %(offset)s
+		""",
+		params,
+		as_dict=True,
+	)
 
 
 
