@@ -1,6 +1,6 @@
 import frappe
 from frappe import _
-from frappe.utils import flt, now_datetime
+from frappe.utils import cint, flt, now_datetime
 
 
 def _geo_area_path_names(geo_area_name: str) -> list[str]:
@@ -113,7 +113,7 @@ def get_location_for_geo_area(geo_area: str):
 
 
 @frappe.whitelist()
-def get_warehouses_for_geo_area(geo_area: str):
+def get_warehouses_for_geo_area(geo_area: str, strict_geo_area: int = 0):
 	if not geo_area:
 		frappe.throw(_("geo_area is required"))
 	warehouses = frappe.get_all(
@@ -153,6 +153,20 @@ def get_warehouses_for_geo_area(geo_area: str):
 			seen.add(w)
 			combined.append(w)
 
+	# If strict, only keep warehouses that truly map back to this geo_area (by our Warehouse->Geo mapping).
+	# This prevents wrongly-linked child rows from polluting Farm-level selections (e.g., Cluster warehouse linked on Farm).
+	if cint(strict_geo_area):
+		filtered: list[str] = []
+		for w in combined:
+			try:
+				res = get_location_for_warehouse(w) or {}
+				if res.get("geo_area") == geo_area:
+					filtered.append(w)
+			except Exception:
+				# best-effort filter; keep it out if it can't be resolved
+				continue
+		combined = filtered
+
 	return {"geo_area": geo_area, "warehouses": combined}
 
 
@@ -170,6 +184,8 @@ def create_logistics_transfer_ticket(
 	"""
 	if not from_warehouse or not to_warehouse:
 		frappe.throw(_("from_warehouse and to_warehouse are required"))
+	if from_warehouse == to_warehouse:
+		frappe.throw(_("From and To Warehouse cannot be same"))
 
 	stock_items = stock_items or []
 	assets = assets or []
