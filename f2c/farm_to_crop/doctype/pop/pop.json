@@ -11,9 +11,6 @@
         "pop_name",
         "crop",
         "column_break_1",
-        "is_inter_cropping",
-        "section_break_crops",
-        "crops",
         "section_break_1",
         "description",
         "section_break_2",
@@ -35,31 +32,11 @@
             "in_standard_filter": 1,
             "label": "Crop",
             "options": "Crop",
-            "mandatory_depends_on": "eval:!doc.is_inter_cropping"
+            "reqd": 1
         },
         {
             "fieldname": "column_break_1",
             "fieldtype": "Column Break"
-        },
-        {
-            "fieldname": "is_inter_cropping",
-            "fieldtype": "Check",
-            "label": "Enable Inter-Cropping",
-            "default": 0
-        },
-        {
-            "fieldname": "section_break_crops",
-            "fieldtype": "Section Break",
-            "label": "Inter-Cropping Crops",
-            "depends_on": "eval:doc.is_inter_cropping==1"
-        },
-        {
-            "fieldname": "crops",
-            "fieldtype": "Table MultiSelect",
-            "label": "Crops",
-            "options": "POP Crop",
-            "depends_on": "eval:doc.is_inter_cropping==1",
-            "description": "Select up to 4 crops for inter-cropping"
         },
         {
             "fieldname": "section_break_1",
