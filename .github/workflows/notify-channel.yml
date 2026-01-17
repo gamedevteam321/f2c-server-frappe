@@ -19,10 +19,17 @@ jobs:
           REPO: ${{ github.repository }}
           ACTOR: ${{ github.actor }}
           BRANCH: ${{ github.ref_name }}
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
+          if [ "$EVENT" = "push" ]; then
+            MESSAGE="🔔 **Event:** push\n📦 **Repo:** ${REPO}\n🌿 **Branch:** ${BRANCH}\n👤 **By:** ${ACTOR}\n📝 **Commit:** ${COMMIT_MSG}"
+          else
+            MESSAGE="🔔 **Event:** ${EVENT}\n📦 **Repo:** ${REPO}\n👤 **By:** ${ACTOR}"
+          fi
+
           cat <<EOF > payload.json
           {
-            "content": "🔔 **Event:** ${EVENT}\n📦 **Repo:** ${REPO}\n🌿 **Branch:** ${BRANCH}\n👤 **By:** ${ACTOR}"
+            "content": "$MESSAGE"
           }
           EOF
 
