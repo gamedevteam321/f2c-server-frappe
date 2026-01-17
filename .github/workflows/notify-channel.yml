@@ -1,0 +1,32 @@
+name: Channel Notify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  release:
+    types: [published]
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Post update to channel
+        env:
+          WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK }}
+          EVENT: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          ACTOR: ${{ github.actor }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          cat <<EOF > payload.json
+          {
+            "content": "🔔 **Event:** ${EVENT}\n📦 **Repo:** ${REPO}\n🌿 **Branch:** ${BRANCH}\n👤 **By:** ${ACTOR}"
+          }
+          EOF
+
+          curl -s -X POST \
+            -H "Content-Type: application/json" \
+            --data @payload.json \
+            "$WEBHOOK_URL"
