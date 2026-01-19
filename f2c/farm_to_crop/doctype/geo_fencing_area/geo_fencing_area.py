@@ -655,7 +655,12 @@ class GeoFencingArea(Document):
 				frappe.log_error(f"Error scheduling parent recalculation on insert: {str(e)}", "Geo Fencing Area Insert")
 	
 	def create_warehouse_if_needed(self):
-		"""Create warehouse if geo_fencing_type has_warehouse is true"""
+		"""Create warehouse if geo_fencing_type has_warehouse is true
+		
+		Warehouse hierarchy: Farm -> Cluster -> Field
+		- Farm and Cluster warehouses are group warehouses (is_group = 1)
+		- Field and other warehouses are ledger warehouses (is_group = 0)
+		"""
 		try:
 			if not self.geo_fencing_type:
 				return
@@ -670,18 +675,95 @@ class GeoFencingArea(Document):
 			# Set has_warehouse to true for this area
 			self.has_warehouse = 1
 			
+			# Determine if warehouse should be a group warehouse
+			# Farm and Cluster are group warehouses (can have children)
+			# Field and others are ledger warehouses (cannot have children)
+			is_group = 1 if self.geo_fencing_type in ["Farm", "Cluster"] else 0
+			
+			# Get parent warehouse if parent_area exists
+			parent_warehouse = None
+			if self.parent_area:
+				try:
+					parent_area_doc = frappe.get_doc("Geo Fencing Area", self.parent_area)
+					if parent_area_doc.has_warehouse and parent_area_doc.warehouses:
+						# Get the first warehouse from parent area
+						parent_warehouse = parent_area_doc.warehouses[0].warehouse
+				except Exception as e:
+					frappe.log_error(f"Error getting parent warehouse for {self.name}: {str(e)}", "Geo Fencing Area Create Warehouse")
+			
 			# Create a new Warehouse document
-			warehouse = frappe.get_doc({
+			warehouse_data = {
 				"doctype": "Warehouse",
 				"warehouse_name": self.area_name,
-				"is_group": 0
-			})
+				"is_group": is_group
+			}
+			
+			# Set parent_warehouse if parent area has a warehouse
+			# Hierarchy: Farm -> Cluster -> Field
+			if parent_warehouse:
+				warehouse_data["parent_warehouse"] = parent_warehouse
+			
+			warehouse = frappe.get_doc(warehouse_data)
 			warehouse.insert(ignore_permissions=True)
 			
-			# Add warehouse to the warehouses child table
-			self.append("warehouses", {
+			# Calculate center coordinates and radius based on shape type
+			center_latitude = None
+			center_longitude = None
+			radius = None
+			
+			if self.shape_type == "Circle":
+				# For Circle: use center_latitude, center_longitude, and radius if available
+				if self.center_latitude is not None and self.center_longitude is not None:
+					center_latitude = float(self.center_latitude)
+					center_longitude = float(self.center_longitude)
+					if self.radius is not None:
+						radius = float(self.radius)
+			
+			elif self.shape_type == "Polygon":
+				# For Polygon: calculate centroid and farthest point distance
+				if self.geo_fencing_coordinates and len(self.geo_fencing_coordinates) >= 3:
+					# Sort coordinates by sequence
+					coords = sorted(self.geo_fencing_coordinates, key=lambda x: x.sequence or 0)
+					
+					# Convert child table rows to dict-like format for centroid calculation
+					# The _calculate_polygon_centroid method expects objects with .get() method
+					coords_for_calc = []
+					for coord in coords:
+						# Child table rows have .latitude and .longitude attributes
+						coords_for_calc.append({
+							"latitude": coord.latitude,
+							"longitude": coord.longitude
+						})
+					
+					# Calculate centroid
+					centroid = self._calculate_polygon_centroid(coords_for_calc)
+					if centroid:
+						center_latitude = centroid[0]
+						center_longitude = centroid[1]
+						
+						# Calculate radius as distance to farthest point from centroid
+						farthest_distance = self._calculate_farthest_polygon_point(
+							center_latitude, center_longitude, coords_for_calc
+						)
+						if farthest_distance > 0:
+							# Add a small buffer (1% or minimum 10 meters) to ensure full coverage
+							buffer = max(farthest_distance * 0.01, 10)
+							radius = farthest_distance + buffer
+			
+			# Add warehouse to the warehouses child table with calculated location values
+			warehouse_row = {
 				"warehouse": warehouse.name
-			})
+			}
+			
+			# Set location values if calculated
+			if center_latitude is not None:
+				warehouse_row["center_latitude"] = center_latitude
+			if center_longitude is not None:
+				warehouse_row["center_longitude"] = center_longitude
+			if radius is not None:
+				warehouse_row["radius"] = radius
+			
+			self.append("warehouses", warehouse_row)
 			
 			# Save the document to persist the changes
 			self.save(ignore_permissions=True)
@@ -691,10 +773,168 @@ class GeoFencingArea(Document):
 		except Exception as e:
 			frappe.log_error(f"Error creating warehouse for {self.name}: {str(e)}", "Geo Fencing Area Create Warehouse")
 	
+	def update_warehouse_parent_if_needed(self):
+		"""Update warehouse's parent_warehouse when parent_area changes.
+		
+		When a field's parent cluster changes, update the field warehouse's parent_warehouse
+		to match the new cluster's warehouse.
+		"""
+		try:
+			# Only update if this area has a warehouse
+			if not self.has_warehouse or not self.warehouses:
+				return
+			
+			# Get the warehouse for this area (first warehouse in the list)
+			warehouse_name = self.warehouses[0].warehouse if self.warehouses else None
+			if not warehouse_name:
+				return
+			
+			# Get the new parent warehouse
+			new_parent_warehouse = None
+			if self.parent_area:
+				try:
+					parent_area_doc = frappe.get_doc("Geo Fencing Area", self.parent_area)
+					if parent_area_doc.has_warehouse and parent_area_doc.warehouses:
+						# Get the first warehouse from parent area
+						new_parent_warehouse = parent_area_doc.warehouses[0].warehouse
+				except Exception as e:
+					frappe.log_error(f"Error getting parent warehouse for {self.name}: {str(e)}", "Geo Fencing Area Update Warehouse Parent")
+					return
+			
+			# Update the warehouse's parent_warehouse
+			try:
+				warehouse_doc = frappe.get_doc("Warehouse", warehouse_name)
+				old_parent = warehouse_doc.parent_warehouse
+				
+				if warehouse_doc.parent_warehouse != new_parent_warehouse:
+					warehouse_doc.parent_warehouse = new_parent_warehouse
+					warehouse_doc.flags.ignore_validate = True
+					warehouse_doc.save(ignore_permissions=True)
+					
+					# Shorten log message to avoid CharacterLengthExceededError (140 char limit)
+					old_parent_str = old_parent or "None"
+					new_parent_str = new_parent_warehouse or "None"
+					old_area = getattr(self, '_old_parent_area', None) or "None"
+					frappe.log_error(
+						f"Updated {warehouse_name} parent: {old_parent_str} -> {new_parent_str} (area {self.name}, parent: {old_area} -> {self.parent_area or 'None'})",
+						"Geo Fencing Area Update Warehouse Parent"
+					)
+			except Exception as e:
+				frappe.log_error(f"Error updating warehouse {warehouse_name} parent_warehouse: {str(e)}", "Geo Fencing Area Update Warehouse Parent")
+		except Exception as e:
+			frappe.log_error(f"Error in update_warehouse_parent_if_needed for {self.name}: {str(e)}", "Geo Fencing Area Update Warehouse Parent")
+	
+	def update_warehouse_geo_location_if_needed(self):
+		"""Update warehouse geo location values (center_latitude, center_longitude, radius) if they are 0 or empty.
+		
+		This method calculates and fills in missing location values based on the area's shape type:
+		- Circle: Uses center_latitude, center_longitude, and radius from the area
+		- Polygon: Calculates centroid and farthest point distance
+		"""
+		try:
+			# Only update if this area has warehouses
+			if not self.has_warehouse or not self.warehouses:
+				return
+			
+			# Calculate center coordinates and radius based on shape type
+			center_latitude = None
+			center_longitude = None
+			radius = None
+			
+			if self.shape_type == "Circle":
+				# For Circle: use center_latitude, center_longitude, and radius if available
+				if self.center_latitude is not None and self.center_longitude is not None:
+					center_latitude = float(self.center_latitude)
+					center_longitude = float(self.center_longitude)
+					if self.radius is not None:
+						radius = float(self.radius)
+			
+			elif self.shape_type == "Polygon":
+				# For Polygon: calculate centroid and farthest point distance
+				if self.geo_fencing_coordinates and len(self.geo_fencing_coordinates) >= 3:
+					# Sort coordinates by sequence
+					coords = sorted(self.geo_fencing_coordinates, key=lambda x: x.sequence or 0)
+					
+					# Convert child table rows to dict-like format for centroid calculation
+					coords_for_calc = []
+					for coord in coords:
+						# Child table rows have .latitude and .longitude attributes
+						if coord.latitude is not None and coord.longitude is not None:
+							coords_for_calc.append({
+								"latitude": coord.latitude,
+								"longitude": coord.longitude
+							})
+					
+					if len(coords_for_calc) >= 3:
+						# Calculate centroid
+						centroid = self._calculate_polygon_centroid(coords_for_calc)
+						if centroid:
+							center_latitude = centroid[0]
+							center_longitude = centroid[1]
+							
+							# Calculate radius as distance to farthest point from centroid
+							farthest_distance = self._calculate_farthest_polygon_point(
+								center_latitude, center_longitude, coords_for_calc
+							)
+							if farthest_distance > 0:
+								# Add a small buffer (1% or minimum 10 meters) to ensure full coverage
+								buffer = max(farthest_distance * 0.01, 10)
+								radius = farthest_distance + buffer
+			
+			# If we have calculated values, update warehouses that have 0 or empty values
+			if center_latitude is not None or center_longitude is not None or radius is not None:
+				updated = False
+				for warehouse_row in self.warehouses:
+					needs_update = False
+					
+					# Check if values are 0, None, or empty
+					if center_latitude is not None:
+						current_lat = warehouse_row.center_latitude
+						if current_lat is None or current_lat == 0:
+							warehouse_row.center_latitude = center_latitude
+							needs_update = True
+					
+					if center_longitude is not None:
+						current_lng = warehouse_row.center_longitude
+						if current_lng is None or current_lng == 0:
+							warehouse_row.center_longitude = center_longitude
+							needs_update = True
+					
+					if radius is not None:
+						current_radius = warehouse_row.radius
+						if current_radius is None or current_radius == 0:
+							warehouse_row.radius = radius
+							needs_update = True
+					
+					if needs_update:
+						updated = True
+				
+				if updated:
+					# Shorten log message to avoid CharacterLengthExceededError (140 char limit)
+					area_name_short = self.name[:20] if len(self.name) > 20 else self.name
+					shape_short = self.shape_type[:5] if self.shape_type else "?"
+					lat_val = f"{center_latitude:.4f}" if center_latitude is not None else "0"
+					lng_val = f"{center_longitude:.4f}" if center_longitude is not None else "0"
+					rad_val = f"{radius:.0f}" if radius is not None else "0"
+					frappe.log_error(
+						f"Updated warehouse geo loc for {area_name_short} ({shape_short}): lat={lat_val}, lng={lng_val}, r={rad_val}",
+						"Geo Fencing Area Update Warehouse Location"
+					)
+		except Exception as e:
+			frappe.log_error(f"Error in update_warehouse_geo_location_if_needed for {self.name}: {str(e)}", "Geo Fencing Area Update Warehouse Location")
+	
 	def on_update(self):
-		"""Update parent circle if auto-calculate is enabled, and update parent area if hierarchical calculation is needed"""
+		"""Update parent circle if auto-calculate is enabled, and update parent area if hierarchical calculation is needed.
+		Also update warehouse parent_warehouse when parent_area changes.
+		Update warehouse geo location values if they are 0 or empty."""
+		# Update warehouse geo location values if they are missing or 0
+		self.update_warehouse_geo_location_if_needed()
+		
 		# Check if parent_area changed
 		if hasattr(self, '_old_parent_area') and self._old_parent_area != self.parent_area:
+			# Update warehouse parent_warehouse if this area has a warehouse
+			self.update_warehouse_parent_if_needed()
+			
 			# Update old parent if it exists
 			if self._old_parent_area:
 				try:
@@ -771,6 +1011,10 @@ class GeoFencingArea(Document):
 		self.set_level_sequence()
 		self.fetch_shape_type()
 		self.calculate_area()
+		
+		# Update warehouse geo location values if they are 0 or empty
+		# Do this in before_save to ensure values are set before document is saved
+		self.update_warehouse_geo_location_if_needed()
 	
 	def set_has_warehouse_from_type(self):
 		"""Set has_warehouse based on geo_fencing_type"""

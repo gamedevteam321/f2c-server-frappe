@@ -26,6 +26,9 @@ class CropPlanSchedule(Document):
 		self._compute_water()
 		self._validate_spray_requirements()
 		self._recompute_input_totals_if_needed()
+		# Validate equipment slot availability
+		if self.status == "Scheduled" and self.planned_start and self.planned_end:
+			self._validate_equipment_slot_availability()
 
 	def on_trash(self):
 		"""Prevent deletion if linked to execution or if it's a rescheduled source."""
@@ -232,6 +235,738 @@ class CropPlanSchedule(Document):
 			else:
 				row.quantity_to_use_display = ""
 
+	def _get_cluster_for_field(self, field_name: str) -> str | None:
+		"""Get the cluster (Geo Fencing Area with type='Cluster') for a given field by traversing parent_area hierarchy."""
+		if not field_name:
+			return None
+		
+		try:
+			field_doc = frappe.get_doc("Geo Fencing Area", field_name)
+			if not field_doc:
+				return None
+			
+			# If field itself is a cluster (edge case), return it
+			if field_doc.geo_fencing_type == "Cluster":
+				return field_name
+			
+			# Traverse up the parent_area hierarchy to find Cluster
+			current = field_doc
+			visited = set()
+			max_depth = 10  # Prevent infinite loops
+			depth = 0
+			
+			while current and current.parent_area and depth < max_depth:
+				if current.parent_area in visited:
+					break  # Circular reference detected
+				visited.add(current.parent_area)
+				
+				parent = frappe.get_doc("Geo Fencing Area", current.parent_area)
+				if parent.geo_fencing_type == "Cluster":
+					return parent.name
+				
+				current = parent
+				depth += 1
+			
+			return None
+		except Exception as e:
+			frappe.log_error(f"Error getting cluster for field {field_name}: {str(e)}", "Equipment Slot Validation")
+			return None
+
+	def _collect_equipment_assets(self) -> List[str]:
+		"""Helper to collect all unique assets from all equipment tables."""
+		assets = set()
+		
+		# Collect from machinery
+		for m in self.get("machinery") or []:
+			if m.asset:
+				assets.add(m.asset)
+		
+		# Collect from implements
+		for imp in self.get("implements") or []:
+			if imp.asset:
+				assets.add(imp.asset)
+		
+		# Collect from hand tools
+		for ht in self.get("hand_tools") or []:
+			if ht.asset:
+				assets.add(ht.asset)
+		
+		# Collect from other tools
+		for ot in self.get("other_tools") or []:
+			if ot.asset:
+				assets.add(ot.asset)
+		
+		return list(assets)
+
+	def _check_time_overlap(self, start1: str, end1: str, start2: str, end2: str) -> bool:
+		"""Check if two time ranges overlap."""
+		from frappe.utils import get_datetime
+		
+		try:
+			start1_dt = get_datetime(start1)
+			end1_dt = get_datetime(end1)
+			start2_dt = get_datetime(start2)
+			end2_dt = get_datetime(end2)
+			
+			# Check if ranges overlap: start1 < end2 AND start2 < end1
+			return start1_dt < end2_dt and start2_dt < end1_dt
+		except Exception:
+			return False
+
+	def _check_overlapping_schedules_in_cps(self, equipment_assets: List[str], cluster: str) -> List[Dict]:
+		"""Query Crop Plan Schedule tables for conflicts (all equipment types in one query), filtered by cluster."""
+		if not equipment_assets or not cluster or not self.planned_start or not self.planned_end:
+			return []
+		
+		conflicts = []
+		
+		# Build a single query using UNION ALL to check all equipment types at once
+		# Use parameterized query for security
+		placeholders = ', '.join(['%s'] * len(equipment_assets))
+		
+		query = f"""
+			SELECT DISTINCT 
+				cps.name as schedule_name,
+				cps.planned_start,
+				cps.planned_end,
+				cps.status,
+				eq.asset,
+				eq.asset_name,
+				cps.field
+			FROM `tabCrop Plan Schedule` cps
+			INNER JOIN (
+				SELECT parent, asset, asset_name FROM `tabCrop Plan Schedule Machinery` WHERE asset IN ({placeholders})
+				UNION ALL
+				SELECT parent, asset, asset_name FROM `tabCrop Plan Schedule Implement` WHERE asset IN ({placeholders})
+				UNION ALL
+				SELECT parent, asset, asset_name FROM `tabCrop Plan Schedule Hand Tool` WHERE asset IN ({placeholders})
+				UNION ALL
+				SELECT parent, asset, asset_name FROM `tabCrop Plan Schedule Other Tool` WHERE asset IN ({placeholders})
+			) eq ON cps.name = eq.parent
+			WHERE cps.name != %s
+				AND cps.status IN ('Scheduled', 'Reported')
+				AND cps.planned_start IS NOT NULL
+				AND cps.planned_end IS NOT NULL
+		"""
+		
+		# Get all schedules with matching assets, then filter by cluster in Python
+		params = equipment_assets * 4 + [self.name]  # 4 times for each UNION ALL
+		schedules = frappe.db.sql(query, params, as_dict=True)
+		
+		# Filter by cluster - check if each schedule's field belongs to the same cluster
+		for schedule in schedules:
+			if not schedule.get("field"):
+				continue
+			
+			schedule_cluster = self._get_cluster_for_field(schedule.field)
+			if schedule_cluster != cluster:
+				continue  # Different cluster, skip
+			
+			# Check for time overlap
+			if self._check_time_overlap(
+				self.planned_start,
+				self.planned_end,
+				schedule.planned_start,
+				schedule.planned_end
+			):
+				conflicts.append({
+					'asset': schedule.asset,
+					'asset_name': schedule.asset_name or schedule.asset,
+					'schedule_name': schedule.schedule_name,
+					'schedule_type': 'Crop Plan Schedule',
+					'start': schedule.planned_start,
+					'end': schedule.planned_end
+				})
+		
+		return conflicts
+
+	def _check_overlapping_schedules_in_oda(self, equipment_assets: List[str], cluster: str) -> List[Dict]:
+		"""Query On Demand Activity tables for conflicts (all equipment types in one query), filtered by cluster."""
+		if not equipment_assets or not cluster or not self.planned_start or not self.planned_end:
+			return []
+		
+		conflicts = []
+		
+		# Build a single query using UNION ALL to check all equipment types at once
+		# Use parameterized query for security
+		placeholders = ', '.join(['%s'] * len(equipment_assets))
+		
+		query = f"""
+			SELECT DISTINCT 
+				oda.name as activity_name,
+				oda.planned_start,
+				oda.planned_end,
+				oda.status,
+				eq.asset,
+				eq.asset_name,
+				oda.field
+			FROM `tabOn Demand Activity` oda
+			INNER JOIN (
+				SELECT parent, asset, asset_name FROM `tabOn Demand Activity Machinery` WHERE asset IN ({placeholders})
+				UNION ALL
+				SELECT parent, asset, asset_name FROM `tabOn Demand Activity Implement` WHERE asset IN ({placeholders})
+				UNION ALL
+				SELECT parent, asset, asset_name FROM `tabOn Demand Activity Hand Tool` WHERE asset IN ({placeholders})
+				UNION ALL
+				SELECT parent, asset, asset_name FROM `tabOn Demand Activity Other Tool` WHERE asset IN ({placeholders})
+			) eq ON oda.name = eq.parent
+			WHERE oda.status IN ('Scheduled', 'Reported')
+				AND oda.planned_start IS NOT NULL
+				AND oda.planned_end IS NOT NULL
+		"""
+		
+		# Get all activities with matching assets, then filter by cluster in Python
+		params = equipment_assets * 4  # 4 times for each UNION ALL
+		activities = frappe.db.sql(query, params, as_dict=True)
+		
+		# Filter by cluster - check if each activity's field belongs to the same cluster
+		for activity in activities:
+			if not activity.get("field"):
+				continue
+			
+			activity_cluster = self._get_cluster_for_field(activity.field)
+			if activity_cluster != cluster:
+				continue  # Different cluster, skip
+			
+			# Check for time overlap
+			if self._check_time_overlap(
+				self.planned_start,
+				self.planned_end,
+				activity.planned_start,
+				activity.planned_end
+			):
+				conflicts.append({
+					'asset': activity.asset,
+					'asset_name': activity.asset_name or activity.asset,
+					'schedule_name': activity.activity_name,
+					'schedule_type': 'On Demand Activity',
+					'start': activity.planned_start,
+					'end': activity.planned_end
+				})
+		
+		return conflicts
+
+	def _validate_equipment_slot_availability(self):
+		"""Check if equipment slots are already booked for the given time period within the same cluster."""
+		if not self.planned_start or not self.planned_end:
+			return
+		
+		if self.status != "Scheduled":
+			return  # Only validate scheduled activities
+		
+		if not self.field:
+			return  # No field specified, skip validation
+		
+		# Get the cluster for the current schedule's field
+		cluster = self._get_cluster_for_field(self.field)
+		if not cluster:
+			# Field has no cluster, skip validation (edge case)
+			return
+		
+		# Collect all equipment assets
+		equipment_assets = self._collect_equipment_assets()
+		if not equipment_assets:
+			return  # No equipment to validate
+		
+		# Check for overlapping schedules in Crop Plan Schedule
+		overlapping_schedules = self._check_overlapping_schedules_in_cps(equipment_assets, cluster)
+		
+		# Check for overlapping schedules in On Demand Activity
+		overlapping_activities = self._check_overlapping_schedules_in_oda(equipment_assets, cluster)
+		
+		# Report conflicts
+		conflicts = []
+		if overlapping_schedules:
+			conflicts.extend(overlapping_schedules)
+		if overlapping_activities:
+			conflicts.extend(overlapping_activities)
+		
+		if conflicts:
+			conflict_messages = []
+			for conflict in conflicts:
+				conflict_messages.append(
+					f"Asset {conflict['asset_name']} ({conflict['asset']}) is already booked in "
+					f"{conflict['schedule_type']} {conflict['schedule_name']} "
+					f"({conflict['start']} to {conflict['end']})"
+				)
+			frappe.throw(
+				"Equipment slot conflict detected:\n\n" + "\n".join(conflict_messages),
+				title="Slot Already Booked"
+			)
+
+	def _get_warehouse_from_location(self, location: str) -> str | None:
+		"""Get warehouse from Location using reverse lookup."""
+		if not location:
+			return None
+		
+		try:
+			# Get all warehouses and check which one maps to this location
+			from f2c.inventory.logistics_transfer_ticket_api import get_location_for_warehouse
+			
+			warehouses = frappe.get_all("Warehouse", fields=["name"], limit=1000)
+			for wh in warehouses:
+				try:
+					result = get_location_for_warehouse(wh.name)
+					if result and result.get("location") == location:
+						return wh.name
+				except Exception:
+					continue
+			
+			return None
+		except Exception as e:
+			frappe.log_error(f"Error getting warehouse from location {location}: {str(e)}", "Equipment Transfer Ticket")
+			return None
+
+	def _get_target_warehouse_for_field(self, field_name: str) -> str | None:
+		"""Get target warehouse for field/block using get_warehouses_for_geo_area()."""
+		if not field_name:
+			return None
+		
+		try:
+			from f2c.inventory.logistics_transfer_ticket_api import get_warehouses_for_geo_area
+			
+			result = get_warehouses_for_geo_area(field_name, strict_geo_area=1)
+			warehouses = result.get("warehouses", []) if result else []
+			
+			if warehouses and len(warehouses) > 0:
+				return warehouses[0]  # Use first warehouse
+			
+			return None
+		except Exception as e:
+			frappe.log_error(f"Error getting target warehouse for field {field_name}: {str(e)}", "Equipment Transfer Ticket")
+			return None
+
+	def _get_cluster_warehouse_for_field(self, field_name: str) -> str | None:
+		"""Get cluster warehouse (parent warehouse) for a field.
+		
+		Warehouse hierarchy: Farm Warehouse (top) -> Cluster Warehouse (middle) -> Field Warehouse (bottom)
+		This method returns the Cluster Warehouse, which is the direct parent of the Field Warehouse.
+		"""
+		if not field_name:
+			return None
+		
+		try:
+			# Get field warehouse first
+			field_warehouse = self._get_target_warehouse_for_field(field_name)
+			if not field_warehouse:
+				frappe.log_error(f"Cannot find field warehouse for field {field_name}", "Equipment Transfer Ticket")
+				return None
+			
+			# Get parent_warehouse from field warehouse (should be cluster warehouse)
+			# Hierarchy: Farm -> Cluster -> Field
+			parent_warehouse = frappe.db.get_value("Warehouse", field_warehouse, "parent_warehouse")
+			if parent_warehouse:
+				return parent_warehouse
+			
+			# Fallback: Get cluster from Geo Fencing Area and find its warehouse
+			cluster = self._get_cluster_for_field(field_name)
+			if not cluster:
+				frappe.log_error(f"Cannot find cluster for field {field_name}", "Equipment Transfer Ticket")
+				return None
+			
+			# Get warehouses linked to cluster via Geo Fencing Area Warehouse
+			cluster_warehouses = frappe.get_all(
+				"Geo Fencing Area Warehouse",
+				fields=["warehouse"],
+				filters={"parent": cluster, "parenttype": "Geo Fencing Area"},
+				limit=1
+			)
+			
+			if cluster_warehouses and cluster_warehouses[0].warehouse:
+				return cluster_warehouses[0].warehouse
+			
+			return None
+		except Exception as e:
+			frappe.log_error(f"Error getting cluster warehouse for field {field_name}: {str(e)}", "Equipment Transfer Ticket")
+			return None
+
+	def _group_assets_by_source_warehouse(self, equipment_assets: List[str]) -> Dict[str, List[str]]:
+		"""Group all assets under cluster warehouse (parent of field warehouse).
+		
+		Warehouse hierarchy: Farm -> Cluster -> Field
+		Equipment is sourced from the Cluster Warehouse (parent of Field Warehouse).
+		"""
+		assets_by_warehouse: Dict[str, List[str]] = {}
+		
+		if not self.field:
+			frappe.log_error(f"Schedule {self.name} has no field specified for grouping assets", "Equipment Transfer Ticket")
+			return assets_by_warehouse
+		
+		# Get cluster warehouse (parent warehouse of field warehouse)
+		# Hierarchy: Farm -> Cluster -> Field, so cluster is direct parent of field
+		cluster_warehouse = self._get_cluster_warehouse_for_field(self.field)
+		if not cluster_warehouse:
+			frappe.log_error(f"Cannot find cluster warehouse for field {self.field} in schedule {self.name}", "Equipment Transfer Ticket")
+			return assets_by_warehouse
+		
+		# Group all equipment assets under the cluster warehouse
+		assets_by_warehouse[cluster_warehouse] = equipment_assets
+		
+		return assets_by_warehouse
+
+	def _create_equipment_transfer_tickets(self):
+		"""Create Logistics Transfer Tickets for all equipment when schedule is saved with status Scheduled."""
+		if self.status != "Scheduled":
+			frappe.log_error(f"Schedule {self.name} status is not 'Scheduled' (current: {self.status}), skipping ticket creation", "Equipment Transfer Ticket")
+			return
+		
+		if not self.field:
+			frappe.log_error(f"Schedule {self.name} has no field specified, skipping ticket creation", "Equipment Transfer Ticket")
+			return  # No field specified
+		
+		# Collect all equipment assets
+		equipment_assets = self._collect_equipment_assets()
+		if not equipment_assets:
+			frappe.log_error(f"Schedule {self.name} has no equipment assets to transfer", "Equipment Transfer Ticket")
+			return  # No equipment to transfer
+		
+		frappe.log_error(f"Creating transfer tickets for schedule {self.name} with {len(equipment_assets)} assets: {equipment_assets}", "Equipment Transfer Ticket")
+		
+		# Get target warehouse from field
+		target_warehouse = self._get_target_warehouse_for_field(self.field)
+		if not target_warehouse:
+			error_msg = f"Cannot find target warehouse for field {self.field} in schedule {self.name}"
+			frappe.log_error(error_msg, "Equipment Transfer Ticket")
+			# Don't show error to user - just log it, allow schedule to be created
+			return
+		
+		# Check if target warehouse has a location (required for asset transfer)
+		from f2c.inventory.logistics_transfer_ticket_api import get_location_for_warehouse
+		try:
+			target_location_result = get_location_for_warehouse(target_warehouse)
+			if not target_location_result or not target_location_result.get("location"):
+				error_msg = f"Target warehouse {target_warehouse} for field {self.field} has no mapped location. Please run Location sync (Geo Warehouses → Location) for the destination area."
+				frappe.log_error(error_msg, "Equipment Transfer Ticket")
+				# Don't block schedule creation - just log the error
+				return
+		except Exception as e:
+			frappe.log_error(f"Error checking location for target warehouse {target_warehouse}: {str(e)}", "Equipment Transfer Ticket")
+			return
+		
+		# Group assets by source warehouse
+		assets_by_warehouse = self._group_assets_by_source_warehouse(equipment_assets)
+		if not assets_by_warehouse:
+			error_msg = f"Cannot find source warehouses for equipment assets in schedule {self.name}. Please ensure assets have locations mapped to warehouses."
+			frappe.log_error(error_msg, "Equipment Transfer Ticket")
+			frappe.msgprint(error_msg, indicator="orange", title="Transfer Ticket Creation Failed")
+			return  # No valid assets with source warehouses
+		
+		# Create transfer tickets for each source warehouse group
+		from f2c.inventory.logistics_transfer_ticket_api import create_logistics_transfer_ticket
+		created_tickets = []
+		errors = []
+		
+		for from_warehouse, asset_list in assets_by_warehouse.items():
+			if from_warehouse == target_warehouse:
+				frappe.log_error(f"Asset(s) {asset_list} already at target warehouse {target_warehouse}, skipping", "Equipment Transfer Ticket")
+				continue  # Skip if already at target
+			
+			try:
+				result = create_logistics_transfer_ticket(
+					from_warehouse=from_warehouse,
+					to_warehouse=target_warehouse,
+					stock_items=None,
+					assets=asset_list
+				)
+				if result and result.get("ticket"):
+					created_tickets.append(result.get("ticket"))
+					frappe.log_error(f"Successfully created transfer ticket {result.get('ticket')} for assets {asset_list} from {from_warehouse} to {target_warehouse}", "Equipment Transfer Ticket")
+			except Exception as e:
+				error_msg = f"Error creating transfer ticket from {from_warehouse} to {target_warehouse} for schedule {self.name}: {str(e)}"
+				frappe.log_error(error_msg, "Equipment Transfer Ticket")
+				errors.append(error_msg)
+				continue
+		
+		if created_tickets:
+			frappe.msgprint(f"Created {len(created_tickets)} transfer ticket(s) for equipment: {', '.join(created_tickets)}", indicator="green", title="Transfer Tickets Created")
+		elif errors:
+			frappe.msgprint("Failed to create transfer tickets. Please check Error Log for details.", indicator="red", title="Transfer Ticket Creation Failed")
+
+	def _collect_input_items(self) -> List[Dict[str, Any]]:
+		"""Helper to collect input items from inputs table."""
+		input_items = []
+		for inp in self.get("inputs") or []:
+			if inp.item and inp.total_quantity_to_use and flt(inp.total_quantity_to_use) > 0:
+				input_items.append({
+					"item_code": inp.item,
+					"qty": flt(inp.total_quantity_to_use, 3)
+				})
+		return input_items
+
+	def _get_source_warehouse_for_inputs(self) -> str | None:
+		"""Get source warehouse for input items. Uses company default or first available warehouse."""
+		# Get company from crop plan
+		company = None
+		if self.crop_plan:
+			try:
+				company = frappe.db.get_value("Crop Plan", self.crop_plan, "company")
+			except Exception:
+				pass
+		
+		if not company:
+			# Try to get company from target warehouse (if we have it)
+			target_warehouse = self._get_target_warehouse_for_field(self.field) if self.field else None
+			if target_warehouse:
+				try:
+					company = frappe.db.get_value("Warehouse", target_warehouse, "company")
+				except Exception:
+					pass
+		
+		if not company:
+			frappe.log_error(f"Cannot determine company for schedule {self.name}", "Input Transfer Ticket")
+			return None
+		
+		try:
+			# Try to get company's default warehouse
+			default_warehouse = frappe.db.get_value("Company", company, "default_warehouse")
+			if default_warehouse:
+				return default_warehouse
+			
+			# Fallback: get first warehouse for the company
+			warehouses = frappe.get_all(
+				"Warehouse",
+				filters={"company": company},
+				fields=["name"],
+				limit=1
+			)
+			if warehouses:
+				return warehouses[0].name
+		except Exception as e:
+			frappe.log_error(f"Error getting source warehouse for inputs: {str(e)}", "Input Transfer Ticket")
+		
+		return None
+
+	def _create_input_transfer_tickets(self):
+		"""Create Logistics Transfer Tickets for input items when schedule is saved with status Scheduled."""
+		if self.status != "Scheduled":
+			frappe.log_error(f"Schedule {self.name} status is not 'Scheduled' (current: {self.status}), skipping input ticket creation", "Input Transfer Ticket")
+			return
+		
+		if not self.field:
+			frappe.log_error(f"Schedule {self.name} has no field specified, skipping input ticket creation", "Input Transfer Ticket")
+			return  # No field specified
+		
+		# Collect input items
+		input_items = self._collect_input_items()
+		if not input_items:
+			frappe.log_error(f"Schedule {self.name} has no input items to transfer", "Input Transfer Ticket")
+			return  # No input items to transfer
+		
+		# Log summary only (not full list to avoid exceeding 140 char limit)
+		item_codes = [item.get("item_code", "") for item in input_items[:3]]  # First 3 items only
+		item_summary = ", ".join(item_codes)
+		if len(input_items) > 3:
+			item_summary += f" (+{len(input_items) - 3} more)"
+		frappe.log_error(f"Creating input transfer tickets for schedule {self.name} with {len(input_items)} items: {item_summary}", "Input Transfer Ticket")
+		
+		# Get source warehouse
+		source_warehouse = self._get_source_warehouse_for_inputs()
+		if not source_warehouse:
+			error_msg = f"Cannot find source warehouse for input items in schedule {self.name}. Please ensure company has a default warehouse."
+			frappe.log_error(error_msg, "Input Transfer Ticket")
+			frappe.msgprint(error_msg, indicator="orange", title="Input Transfer Ticket Creation Failed")
+			return
+		
+		# Get target warehouse from field
+		target_warehouse = self._get_target_warehouse_for_field(self.field)
+		if not target_warehouse:
+			error_msg = f"Cannot find target warehouse for field {self.field} in schedule {self.name}"
+			frappe.log_error(error_msg, "Input Transfer Ticket")
+			frappe.msgprint(error_msg, indicator="orange", title="Input Transfer Ticket Creation Failed")
+			return
+		
+		if source_warehouse == target_warehouse:
+			frappe.log_error(f"Input items already at target warehouse {target_warehouse}, skipping", "Input Transfer Ticket")
+			return  # Skip if already at target
+		
+		# Create transfer ticket for input items
+		from f2c.inventory.logistics_transfer_ticket_api import create_logistics_transfer_ticket
+		try:
+			result = create_logistics_transfer_ticket(
+				from_warehouse=source_warehouse,
+				to_warehouse=target_warehouse,
+				stock_items=input_items,
+				assets=None
+			)
+			if result and result.get("ticket"):
+				frappe.msgprint(f"Created input transfer ticket {result.get('ticket')} for {len(input_items)} item(s)", indicator="green", title="Input Transfer Ticket Created")
+				frappe.log_error(f"Successfully created input transfer ticket {result.get('ticket')} for items from {source_warehouse} to {target_warehouse}", "Input Transfer Ticket")
+		except Exception as e:
+			error_msg = f"Error creating input transfer ticket from {source_warehouse} to {target_warehouse} for schedule {self.name}: {str(e)}"
+			frappe.log_error(error_msg, "Input Transfer Ticket")
+			frappe.msgprint("Failed to create input transfer ticket. Please check Error Log for details.", indicator="red", title="Input Transfer Ticket Creation Failed")
+
+	def _create_return_transfer_tickets(self):
+		"""Create Logistics Transfer Tickets to return equipment from field to cluster when activity is completed.
+		
+		Warehouse hierarchy: Farm -> Cluster -> Field
+		Returns equipment from Field Warehouse (child) back to Cluster Warehouse (parent).
+		"""
+		if self.status != "Completed":
+			frappe.log_error(f"Schedule {self.name} status is not 'Completed' (current: {self.status}), skipping return ticket creation", "Return Transfer Ticket")
+			return
+		
+		if not self.field:
+			frappe.log_error(f"Schedule {self.name} has no field specified, skipping return ticket creation", "Return Transfer Ticket")
+			return
+		
+		# Get equipment assets
+		equipment_assets = self._collect_equipment_assets()
+		if not equipment_assets:
+			frappe.log_error(f"Schedule {self.name} has no equipment assets to return", "Return Transfer Ticket")
+			return
+		
+		# Get field warehouse (source for return = where equipment currently is)
+		field_warehouse = self._get_target_warehouse_for_field(self.field)
+		if not field_warehouse:
+			error_msg = f"Cannot find field warehouse for field {self.field} in schedule {self.name}"
+			frappe.log_error(error_msg, "Return Transfer Ticket")
+			return
+		
+		# Get cluster warehouse (destination for return)
+		cluster_warehouse = self._get_cluster_warehouse_for_field(self.field)
+		if not cluster_warehouse:
+			error_msg = f"Cannot find cluster warehouse for field {self.field} in schedule {self.name}"
+			frappe.log_error(error_msg, "Return Transfer Ticket")
+			return
+		
+		if field_warehouse == cluster_warehouse:
+			frappe.log_error(f"Field warehouse and cluster warehouse are the same ({field_warehouse}), skipping return transfer", "Return Transfer Ticket")
+			return  # Already at cluster
+		
+		# Check if cluster warehouse has a location (required for asset transfer)
+		from f2c.inventory.logistics_transfer_ticket_api import get_location_for_warehouse
+		try:
+			cluster_location_result = get_location_for_warehouse(cluster_warehouse)
+			if not cluster_location_result or not cluster_location_result.get("location"):
+				error_msg = f"Cluster warehouse {cluster_warehouse} has no mapped location. Please run Location sync (Geo Warehouses → Location) for the cluster area."
+				frappe.log_error(error_msg, "Return Transfer Ticket")
+				return
+		except Exception as e:
+			frappe.log_error(f"Error checking location for cluster warehouse {cluster_warehouse}: {str(e)}", "Return Transfer Ticket")
+			return
+		
+		# Create return transfer ticket
+		from f2c.inventory.logistics_transfer_ticket_api import create_logistics_transfer_ticket
+		try:
+			result = create_logistics_transfer_ticket(
+				from_warehouse=field_warehouse,
+				to_warehouse=cluster_warehouse,
+				stock_items=None,
+				assets=[{"asset": asset, "qty": 1} for asset in equipment_assets]
+			)
+			if result and result.get("ticket"):
+				frappe.msgprint(f"Created return transfer ticket {result.get('ticket')} to return equipment to cluster", indicator="green", title="Return Transfer Ticket Created")
+				frappe.log_error(f"Successfully created return transfer ticket {result.get('ticket')} for assets {equipment_assets} from {field_warehouse} to {cluster_warehouse}", "Return Transfer Ticket")
+		except Exception as e:
+			error_msg = f"Error creating return transfer ticket from {field_warehouse} to {cluster_warehouse} for schedule {self.name}: {str(e)}"
+			frappe.log_error(error_msg, "Return Transfer Ticket")
+			frappe.msgprint("Failed to create return transfer ticket. Please check Error Log for details.", indicator="red", title="Return Transfer Ticket Creation Failed")
+
+	def after_insert(self):
+		"""Create transfer tickets when schedule is first created with status Scheduled."""
+		if self.status == "Scheduled":
+			try:
+				self._create_equipment_transfer_tickets()
+				self._create_input_transfer_tickets()
+			except Exception as e:
+				# Log error but don't block schedule creation
+				error_msg = f"Error in after_insert creating transfer tickets for schedule {self.name}: {str(e)}"
+				frappe.log_error(error_msg, "Transfer Ticket")
+				# Don't raise - allow schedule to be created even if ticket creation fails
+
+	def on_update(self):
+		"""Create transfer tickets when schedule status changes to Scheduled or equipment is added.
+		Create return transfer tickets when status changes to Completed."""
+		if not self.is_new():
+			old_status = frappe.db.get_value(self.doctype, self.name, "status")
+			
+			# Check if status changed to Completed - create return transfer tickets
+			if old_status != "Completed" and self.status == "Completed":
+				try:
+					self._create_return_transfer_tickets()
+				except Exception as e:
+					# Log error but don't block schedule update
+					error_msg = f"Error in on_update creating return transfer tickets for schedule {self.name}: {str(e)}"
+					frappe.log_error(error_msg, "Return Transfer Ticket")
+					# Don't raise - allow schedule to be updated even if ticket creation fails
+				return  # Don't process forward transfers if status is Completed
+		
+		# Only create forward transfer tickets if status is Scheduled
+		if self.status != "Scheduled":
+			return
+		
+		# Check if status changed to Scheduled
+		if not self.is_new():
+			old_status = frappe.db.get_value(self.doctype, self.name, "status")
+			if old_status != "Scheduled":
+				# Status just changed to Scheduled, create tickets
+				try:
+					self._create_equipment_transfer_tickets()
+					self._create_input_transfer_tickets()
+				except Exception as e:
+					# Log error but don't block schedule update
+					error_msg = f"Error in on_update creating transfer tickets for schedule {self.name}: {str(e)}"
+					frappe.log_error(error_msg, "Transfer Ticket")
+					# Don't raise - allow schedule to be updated even if ticket creation fails
+			# If status was already Scheduled, check if equipment was added
+			# by comparing current equipment with previous equipment
+			else:
+				# Get previous equipment assets
+				prev_assets = set()
+				try:
+					prev_machinery = frappe.get_all(
+						"Crop Plan Schedule Machinery",
+						filters={"parent": self.name},
+						fields=["asset"],
+						pluck="asset"
+					)
+					prev_implements = frappe.get_all(
+						"Crop Plan Schedule Implement",
+						filters={"parent": self.name},
+						fields=["asset"],
+						pluck="asset"
+					)
+					prev_hand_tools = frappe.get_all(
+						"Crop Plan Schedule Hand Tool",
+						filters={"parent": self.name},
+						fields=["asset"],
+						pluck="asset"
+					)
+					prev_other_tools = frappe.get_all(
+						"Crop Plan Schedule Other Tool",
+						filters={"parent": self.name},
+						fields=["asset"],
+						pluck="asset"
+					)
+					prev_assets = set(prev_machinery + prev_implements + prev_hand_tools + prev_other_tools)
+				except Exception:
+					prev_assets = set()
+				
+				# Get current equipment assets
+				current_assets = set(self._collect_equipment_assets())
+				
+				# If new equipment was added, create tickets
+				if current_assets and current_assets != prev_assets:
+					try:
+						self._create_equipment_transfer_tickets()
+					except Exception as e:
+						# Log error but don't block schedule update
+						error_msg = f"Error in on_update creating transfer tickets for schedule {self.name} (equipment added): {str(e)}"
+						frappe.log_error(error_msg, "Equipment Transfer Ticket")
+						# Don't raise - allow schedule to be updated even if ticket creation fails
+				
+				# Check if inputs were added/changed and create tickets if needed
+				# Note: We create tickets if inputs exist, but don't check for duplicates here
+				# The create_logistics_transfer_ticket API should handle or we can add duplicate checking later
+				try:
+					self._create_input_transfer_tickets()
+				except Exception as e:
+					# Log error but don't block schedule update
+					error_msg = f"Error in on_update creating input transfer tickets for schedule {self.name}: {str(e)}"
+					frappe.log_error(error_msg, "Input Transfer Ticket")
+					# Don't raise - allow schedule to be updated even if ticket creation fails
+
 
 def compute_total_qty(*, water_liters: float, total_acres: float, rate: float, unit: str) -> float:
 	"""
@@ -293,6 +1028,399 @@ def get_block_details(crop_plan: str, block: str) -> Dict[str, Any]:
 			"no_of_seedlings": int(b.no_of_seedlings or 0),
 		}
 	return {}
+
+@frappe.whitelist()
+def create_transfer_tickets_for_schedule(schedule_name: str):
+	"""Manually trigger transfer ticket creation for a schedule (for debugging)."""
+	try:
+		schedule = frappe.get_doc("Crop Plan Schedule", schedule_name)
+		schedule._create_equipment_transfer_tickets()
+		return {"success": True, "message": "Transfer ticket creation triggered"}
+	except Exception as e:
+		frappe.log_error(f"Error in create_transfer_tickets_for_schedule for {schedule_name}: {str(e)}", "Equipment Transfer Ticket")
+		return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def get_transfer_tickets_for_schedule(schedule_name: str) -> Dict[str, Any]:
+	"""
+	Get Logistics Transfer Tickets and Stock Entries linked to a schedule.
+	Links are found by matching warehouse/field relationships.
+	"""
+	if not schedule_name:
+		return {"logistics_tickets": [], "stock_entries": []}
+	
+	try:
+		schedule = frappe.get_doc("Crop Plan Schedule", schedule_name)
+		if not schedule.field:
+			return {"logistics_tickets": [], "stock_entries": []}
+		
+		# Get target warehouse for the schedule's field
+		target_warehouse = schedule._get_target_warehouse_for_field(schedule.field)
+		if not target_warehouse:
+			return {"logistics_tickets": [], "stock_entries": []}
+		
+		# Find Logistics Transfer Tickets that have this target warehouse
+		# and were created around the time of scheduling
+		logistics_tickets = frappe.get_all(
+			"Logistics Transfer Ticket",
+			filters={
+				"to_warehouse": target_warehouse,
+				"status": ["!=", "Cancelled"]
+			},
+			fields=["name", "status", "creation"],
+			order_by="creation desc",
+			limit=10
+		)
+		
+		# Find Stock Entries (Material Transfer) that have this target warehouse
+		# These are created as part of Logistics Transfer Tickets or separately
+		stock_entries = frappe.get_all(
+			"Stock Entry",
+			filters={
+				"purpose": "Material Transfer",
+				"to_warehouse": target_warehouse,
+				"docstatus": ["<", 2]  # Not cancelled
+			},
+			fields=["name", "docstatus", "posting_date", "posting_time"],
+			order_by="posting_date desc, posting_time desc",
+			limit=10
+		)
+		
+		# Also check if stock entries are linked via Logistics Transfer Ticket
+		linked_stock_entries = []
+		for ticket in logistics_tickets:
+			ticket_doc = frappe.get_doc("Logistics Transfer Ticket", ticket.name)
+			if ticket_doc.stock_entry:
+				linked_stock_entries.append(ticket_doc.stock_entry)
+		
+		# Filter out stock entries that are already linked via tickets
+		stock_entries = [se for se in stock_entries if se.name not in linked_stock_entries]
+		
+		return {
+			"logistics_tickets": [{"name": t.name, "status": t.status, "creation": t.creation} for t in logistics_tickets],
+			"stock_entries": [{"name": se.name, "docstatus": se.docstatus, "posting_date": se.posting_date} for se in stock_entries]
+		}
+	except Exception as e:
+		frappe.log_error(f"Error getting transfer tickets for schedule {schedule_name}: {str(e)}", "Transfer Ticket Lookup")
+		return {"logistics_tickets": [], "stock_entries": []}
+
+
+@frappe.whitelist()
+def get_available_assets_for_cluster(
+	field: str = None,
+	block: str = None,
+	asset_category: str = None,
+	planned_start: str = None,
+	planned_end: str = None,
+	exclude_schedule: str = None
+) -> List[Dict[str, Any]]:
+	"""
+	Get available assets from the same cluster as the field/block.
+	Optionally filters by asset category and excludes assets booked for the time period.
+	
+	Args:
+		field: Field name (Geo Fencing Area)
+		block: Block name (Geo Fencing Area) - optional, uses field if not provided
+		asset_category: Filter by asset category (e.g., "Machinery", "Implement")
+		planned_start: Start datetime to check availability (optional)
+		planned_end: End datetime to check availability (optional)
+		exclude_schedule: Schedule name to exclude from conflict check (for updates)
+	
+	Returns:
+		List of available assets with name, asset_name, location, etc.
+	"""
+	try:
+		# Get cluster from field or block
+		target_area = block or field
+		if not target_area:
+			frappe.log_error(f"get_available_assets_for_cluster: No field/block provided. field={field}, block={block}", "Asset Filter")
+			return []
+		
+		# Debug logging
+		frappe.log_error(f"get_available_assets_for_cluster: target_area={target_area}, asset_category={asset_category}", "Asset Filter Debug")
+		
+		# Get cluster for the field/block
+		cluster = None
+		try:
+			area_doc = frappe.get_doc("Geo Fencing Area", target_area)
+			current = area_doc
+			# Traverse up to find cluster
+			while current:
+				if current.geo_fencing_type == "Cluster":
+					cluster = current.name
+					break
+				if current.parent_area:
+					current = frappe.get_doc("Geo Fencing Area", current.parent_area)
+				else:
+					break
+		except Exception as e:
+			# Log error but keep it short
+			frappe.log_error(f"Error getting cluster for {target_area}: {str(e)[:100]}", "Asset Filter")
+			return []
+		
+		if not cluster:
+			frappe.log_error(f"get_available_assets_for_cluster: No cluster found for {target_area}", "Asset Filter")
+			return []
+		
+		frappe.log_error(f"get_available_assets_for_cluster: Found cluster={cluster} for target_area={target_area}", "Asset Filter Debug")
+		
+		# Get all warehouses in this cluster
+		warehouses = frappe.get_all(
+			"Geo Fencing Area Warehouse",
+			fields=["warehouse"],
+			filters={"parent": cluster, "parenttype": "Geo Fencing Area"},
+			limit_page_length=0
+		)
+		warehouse_list = [w.warehouse for w in warehouses if w.warehouse]
+		
+		frappe.log_error(f"get_available_assets_for_cluster: Found {len(warehouse_list)} warehouses in cluster {cluster}: {warehouse_list[:3]}", "Asset Filter Debug")
+		
+		if not warehouse_list:
+			frappe.log_error(f"get_available_assets_for_cluster: No warehouses in cluster {cluster}", "Asset Filter")
+			return []
+		
+		# Get locations for these warehouses
+		from f2c.inventory.logistics_transfer_ticket_api import get_location_for_warehouse
+		location_list = []
+		warehouse_to_location = {}
+		for wh in warehouse_list:
+			try:
+				result = get_location_for_warehouse(wh)
+				if result and result.get("location"):
+					location_list.append(result.get("location"))
+					warehouse_to_location[wh] = result.get("location")
+			except Exception:
+				# Silently skip warehouses without locations
+				continue
+		
+		# Build asset filters - try both location-based and warehouse-based lookup
+		assets = []
+		
+		# Method 1: Find assets by location (if locations are available)
+		if location_list:
+			asset_filters = [["location", "in", location_list]]
+			if asset_category:
+				asset_filters.append(["asset_category", "like", f"%{asset_category}%"])
+			
+			assets = frappe.get_all(
+				"Asset",
+				fields=["name", "asset_name", "asset_category", "location", "status"],
+				filters=asset_filters,
+				limit=1000
+			)
+		
+		# Method 2: If no assets found by location, try finding assets by location name pattern matching
+		# Build location names for cluster and all its children, then find assets with matching location names
+		if not assets:
+			from f2c.inventory.logistics_transfer_ticket_api import _build_location_name_for_geo_area
+			
+			# Get all geo areas in the cluster hierarchy (cluster and all its children)
+			cluster_geo_areas = [cluster]
+			try:
+				# Get all fields and blocks under this cluster
+				child_areas = frappe.get_all(
+					"Geo Fencing Area",
+					filters={"parent_area": cluster},
+					fields=["name"],
+					limit_page_length=0
+				)
+				for area in child_areas:
+					cluster_geo_areas.append(area.name)
+					# Also get blocks under fields
+					blocks = frappe.get_all(
+						"Geo Fencing Area",
+						filters={"parent_area": area.name},
+						fields=["name"],
+						limit_page_length=0
+					)
+					for block in blocks:
+						cluster_geo_areas.append(block.name)
+			except Exception:
+				pass
+			
+			# Build location names for all geo areas in cluster
+			location_names = []
+			for geo_area_name in cluster_geo_areas:
+				try:
+					loc_name = _build_location_name_for_geo_area(geo_area_name)
+					if loc_name:
+						location_names.append(loc_name)
+				except Exception:
+					continue
+			
+			# Find locations with matching location_name
+			if location_names:
+				matching_locations = frappe.get_all(
+					"Location",
+					filters={"location_name": ["in", location_names]},
+					fields=["name"],
+					limit_page_length=0
+				)
+				matching_location_ids = [loc.name for loc in matching_locations]
+				
+				if matching_location_ids:
+					asset_filters = [["location", "in", matching_location_ids]]
+					if asset_category:
+						asset_filters.append(["asset_category", "like", f"%{asset_category}%"])
+					
+					assets = frappe.get_all(
+						"Asset",
+						fields=["name", "asset_name", "asset_category", "location", "status"],
+						filters=asset_filters,
+						limit=1000
+					)
+					
+					frappe.log_error(f"get_available_assets_for_cluster: Method 2 found {len(assets)} assets by location name pattern", "Asset Filter Debug")
+		
+		# Method 3: If still no assets, try pattern matching on location_name (contains cluster name)
+		if not assets and cluster:
+			try:
+				# Get cluster area_name for pattern matching
+				cluster_area_name = frappe.db.get_value("Geo Fencing Area", cluster, "area_name") or ""
+				if cluster_area_name:
+					# Get all locations whose location_name contains the cluster area_name
+					all_locations = frappe.get_all(
+						"Location",
+						filters={"location_name": ["like", f"%{cluster_area_name}%"]},
+						fields=["name", "location_name"],
+						limit_page_length=0
+					)
+					
+					if all_locations:
+						matching_location_ids = [loc.name for loc in all_locations]
+						asset_filters = [["location", "in", matching_location_ids]]
+						if asset_category:
+							asset_filters.append(["asset_category", "like", f"%{asset_category}%"])
+						
+						assets = frappe.get_all(
+							"Asset",
+							fields=["name", "asset_name", "asset_category", "location", "status"],
+							filters=asset_filters,
+							limit=1000
+						)
+			except Exception as e:
+				frappe.log_error(f"Error in Method 3 asset lookup: {str(e)[:100]}", "Asset Filter")
+		
+		# Method 4: Last resort - get all assets with category and check if their location maps to cluster warehouses
+		if not assets and warehouse_list:
+			try:
+				# Get all assets with the category
+				asset_filters = []
+				if asset_category:
+					asset_filters.append(["asset_category", "like", f"%{asset_category}%"])
+				
+				all_assets = frappe.get_all(
+					"Asset",
+					fields=["name", "asset_name", "asset_category", "location", "status"],
+					filters=asset_filters if asset_filters else None,
+					limit=1000
+				)
+				
+				# For each asset, check if its location maps to any warehouse in our cluster
+				for asset in all_assets:
+					if not asset.location:
+						continue
+					
+					# Try to get warehouse from asset's location
+					try:
+						# Get location document
+						location_doc = frappe.get_doc("Location", asset.location)
+						location_name = location_doc.location_name or ""
+						
+						# Try to find a warehouse that maps to this location
+						for wh in warehouse_list:
+							try:
+								wh_result = get_location_for_warehouse(wh)
+								if wh_result and wh_result.get("location") == asset.location:
+									assets.append(asset)
+									break
+							except Exception:
+								continue
+					except Exception:
+						# If location lookup fails, skip this asset
+						continue
+				
+				frappe.log_error(f"get_available_assets_for_cluster: Method 4 found {len(assets)} assets by reverse warehouse lookup", "Asset Filter Debug")
+			except Exception as e:
+				frappe.log_error(f"Error in Method 4 asset lookup: {str(e)[:100]}", "Asset Filter")
+		
+		frappe.log_error(f"get_available_assets_for_cluster: Final result: {len(assets)} assets found", "Asset Filter Debug")
+		
+		# Log detailed info if no assets found (for debugging)
+		if not assets:
+			category_info = f" category={asset_category}" if asset_category else ""
+			loc_info = f" locations={location_list[:2]}" if location_list else " no locations"
+			wh_info = f" warehouses={warehouse_list[:2]}" if warehouse_list else ""
+			cluster_info = f" cluster={cluster}" if cluster else ""
+			frappe.log_error(f"get_available_assets_for_cluster: No assets found{cluster_info}{loc_info}{wh_info}{category_info}", "Asset Filter")
+		
+		# If time period is provided, filter out booked assets
+		if planned_start and planned_end:
+			available_assets = []
+			for asset in assets:
+				asset_name = asset.name
+				try:
+					# Check for conflicts in Crop Plan Schedule
+					conflicts_cps = frappe.db.sql("""
+						SELECT DISTINCT cps.name
+						FROM `tabCrop Plan Schedule` cps
+						INNER JOIN (
+							SELECT parent, asset FROM `tabCrop Plan Schedule Machinery` WHERE asset = %s
+							UNION ALL
+							SELECT parent, asset FROM `tabCrop Plan Schedule Implement` WHERE asset = %s
+							UNION ALL
+							SELECT parent, asset FROM `tabCrop Plan Schedule Hand Tool` WHERE asset = %s
+							UNION ALL
+							SELECT parent, asset FROM `tabCrop Plan Schedule Other Tool` WHERE asset = %s
+						) eq ON cps.name = eq.parent
+						WHERE cps.status IN ('Scheduled', 'Reported')
+							AND cps.planned_start IS NOT NULL
+							AND cps.planned_end IS NOT NULL
+							AND cps.planned_start < %s
+							AND cps.planned_end > %s
+					""", (asset_name, asset_name, asset_name, asset_name, planned_end, planned_start), as_dict=True)
+					
+					# Check for conflicts in On Demand Activity
+					conflicts_oda = frappe.db.sql("""
+						SELECT DISTINCT oda.name
+						FROM `tabOn Demand Activity` oda
+						INNER JOIN (
+							SELECT parent, asset FROM `tabOn Demand Activity Machinery` WHERE asset = %s
+							UNION ALL
+							SELECT parent, asset FROM `tabOn Demand Activity Implement` WHERE asset = %s
+							UNION ALL
+							SELECT parent, asset FROM `tabOn Demand Activity Hand Tool` WHERE asset = %s
+							UNION ALL
+							SELECT parent, asset FROM `tabOn Demand Activity Other Tool` WHERE asset = %s
+						) eq ON oda.name = eq.parent
+						WHERE oda.status IN ('Scheduled', 'Reported')
+							AND oda.planned_start IS NOT NULL
+							AND oda.planned_end IS NOT NULL
+							AND oda.planned_start < %s
+							AND oda.planned_end > %s
+					""", (asset_name, asset_name, asset_name, asset_name, planned_end, planned_start), as_dict=True)
+					
+					# Exclude the current schedule if updating
+					if exclude_schedule:
+						conflicts_cps = [c for c in conflicts_cps if c.name != exclude_schedule]
+					
+					# If no conflicts, asset is available
+					if not conflicts_cps and not conflicts_oda:
+						available_assets.append(asset)
+				except Exception:
+					# If conflict check fails, include the asset (better to show it than hide it)
+					available_assets.append(asset)
+			assets = available_assets
+		
+		return assets
+	except Exception as e:
+		# Catch any unexpected errors and return empty list
+		# Log error but keep it short to avoid CharacterLengthExceededError
+		error_msg = str(e)[:100] if str(e) else "Unknown error"
+		frappe.log_error(f"Error in get_available_assets_for_cluster: {error_msg}", "Asset Filter")
+		return []
+
 
 @frappe.whitelist()
 def get_schedule_defaults(crop_plan: str, crop_plan_activity: str) -> Dict[str, Any]:
