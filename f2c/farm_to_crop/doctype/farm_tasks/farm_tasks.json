@@ -10,6 +10,7 @@
     "field_order": [
         "task_name",
         "category",
+        "activity_category",
         "description",
         "items"
     ],
@@ -30,6 +31,13 @@
             "label": "Category",
             "options": "Approved Tank Mix",
             "reqd": 1
+        },
+        {
+            "fieldname": "activity_category",
+            "fieldtype": "Select",
+            "in_list_view": 1,
+            "label": "Activity Category",
+            "options": "Plant Protection\nNutrition Management"
         },
         {
             "fieldname": "description",

@@ -118,3 +118,69 @@ def get_parent_activities(doctype, txt, searchfield, start, page_len, filters):
 		'current_doc': current_doc
 	}, as_dict=False)
 
+
+def _normalize_activity_category(activity_group_type_name: str | None, code: str | None) -> str:
+	"""Map activity group type to a stable category string for Approved Tank Mix UI."""
+	raw = (activity_group_type_name or "").strip()
+	code_val = (code or "").strip()
+	key = f"{raw} {code_val}".lower()
+
+	if "plant" in key or "protection" in key or "pp" in key:
+		return "Plant Protection"
+	if "nutrition" in key or "nutri" in key or "nm" in key:
+		return "Nutrition Management"
+
+	# Fallback to the group type name (best-effort)
+	return raw or code_val or ""
+
+
+@frappe.whitelist()
+def get_activity_category_for_farm_tasks(farm_tasks) -> dict:
+	"""Return mapping of Farm Tasks -> activity category derived from Farm Activity mapping.
+
+	Args:
+		farm_tasks: list[str] or JSON string list of Farm Tasks names
+
+	Returns:
+		{ "<Farm Tasks name>": "Plant Protection" | "Nutrition Management" | "<fallback>" }
+	"""
+	# Guard: only users who can read Farm Tasks should be able to call this helper
+	if not frappe.has_permission("Farm Tasks", "read"):
+		raise frappe.PermissionError("Not permitted")
+
+	task_list = frappe.parse_json(farm_tasks) if isinstance(farm_tasks, str) else farm_tasks
+	if not task_list:
+		return {}
+
+	# ensure strings only + unique
+	task_list = list({str(t) for t in task_list if t})
+	if not task_list:
+		return {}
+
+	rows = frappe.db.sql(
+		"""
+		SELECT
+			fat.farm_task as farm_task,
+			agt.activity_group_type_name as activity_group_type_name,
+			agt.code as code
+		FROM `tabFarm Activity Task` fat
+		INNER JOIN `tabFarm Activity` fa
+			ON fa.name = fat.parent
+			AND fat.parenttype = 'Farm Activity'
+		LEFT JOIN `tabActivity Group Type` agt
+			ON agt.name = fa.activity_group_type
+		WHERE fat.farm_task IN %(farm_tasks)s
+		""",
+		{"farm_tasks": tuple(task_list)},
+		as_dict=True,
+	)
+
+	result: dict[str, str] = {}
+	for r in rows:
+		ft = (r.get("farm_task") or "").strip()
+		if not ft or ft in result:
+			continue
+		result[ft] = _normalize_activity_category(r.get("activity_group_type_name"), r.get("code"))
+
+	return result
+

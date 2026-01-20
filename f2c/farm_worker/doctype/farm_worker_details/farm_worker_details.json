@@ -14,7 +14,14 @@
         "aadhaar_number",
         "gender",
         "section_break_1",
-        "address"
+        "address",
+        "section_break_work_details",
+        "farm_project",
+        "farm",
+        "farm_name",
+        "daily_wage_amount",
+        "contractor",
+        "contractor_name"
     ],
     "fields": [
         {
@@ -61,6 +68,61 @@
             "fieldname": "address",
             "fieldtype": "Small Text",
             "label": "Address"
+        },
+        {
+            "fieldname": "section_break_work_details",
+            "fieldtype": "Section Break",
+            "label": "Work Details"
+        },
+        {
+            "fieldname": "farm_project",
+            "fieldtype": "Link",
+            "in_list_view": 1,
+            "in_standard_filter": 1,
+            "label": "Project",
+            "options": "Farm Project",
+            "reqd": 1
+        },
+        {
+            "fieldname": "farm",
+            "fieldtype": "Link",
+            "in_list_view": 1,
+            "in_standard_filter": 1,
+            "label": "Farm",
+            "options": "Geo Fencing Area",
+            "reqd": 1
+        },
+        {
+            "fetch_from": "farm.area_name",
+            "fieldname": "farm_name",
+            "fieldtype": "Data",
+            "in_list_view": 1,
+            "label": "Farm Name",
+            "read_only": 1
+        },
+        {
+            "fieldname": "daily_wage_amount",
+            "fieldtype": "Currency",
+            "in_list_view": 1,
+            "label": "Daily Wage Amount",
+            "reqd": 1
+        },
+        {
+            "fieldname": "contractor",
+            "fieldtype": "Link",
+            "in_list_view": 1,
+            "in_standard_filter": 1,
+            "label": "Contractor",
+            "options": "Farm Worker Contractor",
+            "reqd": 1
+        },
+        {
+            "fetch_from": "contractor.contractor_name",
+            "fieldname": "contractor_name",
+            "fieldtype": "Data",
+            "in_list_view": 1,
+            "label": "Contractor Name",
+            "read_only": 1
         }
     ],
     "index_web_pages_for_search": 1,
