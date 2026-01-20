@@ -581,10 +581,15 @@ class CropPlanSchedule(Document):
 			return None
 
 	def _group_assets_by_source_warehouse(self, equipment_assets: List[str]) -> Dict[str, List[str]]:
-		"""Group all assets under cluster warehouse (parent of field warehouse).
+		"""Group assets by their actual current warehouse location.
+		
+		Determines source warehouse by checking asset's current location,
+		then mapping location to warehouse. Supports:
+		- Cluster → Field (first transfer of day)
+		- Field → Field (in-between transfers)
 		
 		Warehouse hierarchy: Farm -> Cluster -> Field
-		Equipment is sourced from the Cluster Warehouse (parent of Field Warehouse).
+		Falls back to cluster warehouse if location cannot be determined.
 		"""
 		assets_by_warehouse: Dict[str, List[str]] = {}
 		
@@ -592,15 +597,39 @@ class CropPlanSchedule(Document):
 			frappe.log_error(f"Schedule {self.name} has no field specified for grouping assets", "Equipment Transfer Ticket")
 			return assets_by_warehouse
 		
-		# Get cluster warehouse (parent warehouse of field warehouse)
-		# Hierarchy: Farm -> Cluster -> Field, so cluster is direct parent of field
+		# Get cluster warehouse as fallback
 		cluster_warehouse = self._get_cluster_warehouse_for_field(self.field)
 		if not cluster_warehouse:
 			frappe.log_error(f"Cannot find cluster warehouse for field {self.field} in schedule {self.name}", "Equipment Transfer Ticket")
 			return assets_by_warehouse
 		
-		# Group all equipment assets under the cluster warehouse
-		assets_by_warehouse[cluster_warehouse] = equipment_assets
+		# Group assets by their actual current warehouse location
+		for asset in equipment_assets:
+			try:
+				# Get asset's current location
+				asset_doc = frappe.get_doc("Asset", asset)
+				current_location = asset_doc.location if asset_doc else None
+				
+				# Map location to warehouse
+				source_warehouse = None
+				if current_location:
+					source_warehouse = self._get_warehouse_from_location(current_location)
+				
+				# Fallback to cluster if location mapping fails
+				if not source_warehouse:
+					source_warehouse = cluster_warehouse
+					frappe.log_error(f"Could not determine warehouse for asset {asset} location {current_location}, using cluster warehouse {cluster_warehouse}", "Equipment Transfer Ticket")
+				
+				# Group by source warehouse
+				if source_warehouse not in assets_by_warehouse:
+					assets_by_warehouse[source_warehouse] = []
+				assets_by_warehouse[source_warehouse].append(asset)
+			except Exception as e:
+				# If asset lookup fails, fallback to cluster warehouse
+				frappe.log_error(f"Error getting location for asset {asset}: {str(e)}, using cluster warehouse {cluster_warehouse}", "Equipment Transfer Ticket")
+				if cluster_warehouse not in assets_by_warehouse:
+					assets_by_warehouse[cluster_warehouse] = []
+				assets_by_warehouse[cluster_warehouse].append(asset)
 		
 		return assets_by_warehouse
 
@@ -796,11 +825,141 @@ class CropPlanSchedule(Document):
 			frappe.log_error(error_msg, "Input Transfer Ticket")
 			frappe.msgprint("Failed to create input transfer ticket. Please check Error Log for details.", indicator="red", title="Input Transfer Ticket Creation Failed")
 
+	def _get_asset_current_warehouse(self, asset: str) -> str | None:
+		"""Get warehouse for asset's current location.
+		
+		Returns the warehouse that maps to the asset's current location,
+		or None if location cannot be determined or mapped.
+		"""
+		try:
+			asset_doc = frappe.get_doc("Asset", asset)
+			current_location = asset_doc.location if asset_doc else None
+			
+			if current_location:
+				return self._get_warehouse_from_location(current_location)
+			
+			return None
+		except Exception as e:
+			frappe.log_error(f"Error getting current warehouse for asset {asset}: {str(e)}", "Asset Location Lookup")
+			return None
+
+	def _has_more_activities_for_assets(self, equipment_assets: List[str], after_time: str, exclude_schedule: str = None) -> bool:
+		"""Check if assets have more scheduled activities on the same day after the given time.
+		
+		Checks both Crop Plan Schedule and On Demand Activity for overlapping assets
+		that are scheduled after the given time on the same day.
+		
+		Args:
+			equipment_assets: List of asset names to check
+			after_time: Datetime string - check for activities after this time
+			exclude_schedule: Schedule/Activity name to exclude from check (current activity)
+		
+		Returns:
+			True if there are more activities scheduled for these assets after the given time
+		"""
+		if not equipment_assets or not after_time:
+			return False
+		
+		try:
+			from frappe.utils import get_datetime
+			after_dt = get_datetime(after_time)
+			after_date = after_dt.date()
+			
+			# Build placeholders for SQL query
+			placeholders = ', '.join(['%s'] * len(equipment_assets))
+			
+			# Check Crop Plan Schedule
+			cps_query = f"""
+				SELECT DISTINCT cps.name, cps.planned_start, cps.planned_end
+				FROM `tabCrop Plan Schedule` cps
+				INNER JOIN (
+					SELECT parent, asset FROM `tabCrop Plan Schedule Machinery` WHERE asset IN ({placeholders})
+					UNION ALL
+					SELECT parent, asset FROM `tabCrop Plan Schedule Implement` WHERE asset IN ({placeholders})
+					UNION ALL
+					SELECT parent, asset FROM `tabCrop Plan Schedule Hand Tool` WHERE asset IN ({placeholders})
+					UNION ALL
+					SELECT parent, asset FROM `tabCrop Plan Schedule Other Tool` WHERE asset IN ({placeholders})
+				) eq ON cps.name = eq.parent
+				WHERE cps.status IN ('Scheduled', 'Reported')
+					AND cps.planned_start IS NOT NULL
+					AND DATE(cps.planned_start) = %s
+					AND cps.planned_start > %s
+			"""
+			
+			if exclude_schedule:
+				cps_query += " AND cps.name != %s"
+			
+			cps_params = equipment_assets * 4 + [after_date, after_time]
+			if exclude_schedule:
+				cps_query += " AND cps.name != %s"
+				cps_params.append(exclude_schedule)
+			
+			cps_results = frappe.db.sql(cps_query, cps_params, as_dict=True)
+			
+			# Check On Demand Activity
+			oda_query = f"""
+				SELECT DISTINCT oda.name, oda.planned_start, oda.planned_end
+				FROM `tabOn Demand Activity` oda
+				INNER JOIN (
+					SELECT parent, asset FROM `tabOn Demand Activity Machinery` WHERE asset IN ({placeholders})
+					UNION ALL
+					SELECT parent, asset FROM `tabOn Demand Activity Implement` WHERE asset IN ({placeholders})
+					UNION ALL
+					SELECT parent, asset FROM `tabOn Demand Activity Hand Tool` WHERE asset IN ({placeholders})
+					UNION ALL
+					SELECT parent, asset FROM `tabOn Demand Activity Other Tool` WHERE asset IN ({placeholders})
+				) eq ON oda.name = eq.parent
+				WHERE oda.status IN ('Scheduled', 'Reported')
+					AND oda.planned_start IS NOT NULL
+					AND DATE(oda.planned_start) = %s
+					AND oda.planned_start > %s
+			"""
+			
+			oda_params = equipment_assets * 4 + [after_date, after_time]
+			if exclude_schedule:
+				oda_query += " AND oda.name != %s"
+				oda_params.append(exclude_schedule)
+			
+			oda_results = frappe.db.sql(oda_query, oda_params, as_dict=True)
+			
+			# Return True if any activities found
+			return len(cps_results) > 0 or len(oda_results) > 0
+			
+		except Exception as e:
+			frappe.log_error(f"Error checking for more activities for assets {equipment_assets}: {str(e)}", "Activity Check")
+			# On error, assume no more activities (safer to return to cluster)
+			return False
+
+	def _should_return_to_cluster(self, equipment_assets: List[str], activity_end_time: str) -> bool:
+		"""Check if assets should be returned to cluster.
+		
+		Returns False if there are more scheduled activities for these assets
+		on the same day after the current activity ends.
+		Otherwise returns True (should return to cluster).
+		
+		Args:
+			equipment_assets: List of asset names
+			activity_end_time: End time of current activity (datetime string)
+		
+		Returns:
+			True if assets should be returned to cluster, False if more activities exist
+		"""
+		if not equipment_assets or not activity_end_time:
+			return True  # Default to returning if we can't determine
+		
+		# Check if there are more activities scheduled after this one
+		has_more = self._has_more_activities_for_assets(equipment_assets, activity_end_time, self.name)
+		
+		# Return to cluster only if no more activities exist
+		return not has_more
+
 	def _create_return_transfer_tickets(self):
 		"""Create Logistics Transfer Tickets to return equipment from field to cluster when activity is completed.
 		
 		Warehouse hierarchy: Farm -> Cluster -> Field
 		Returns equipment from Field Warehouse (child) back to Cluster Warehouse (parent).
+		Only creates return transfer if this is the last activity of the day for these assets.
 		"""
 		if self.status != "Completed":
 			frappe.log_error(f"Schedule {self.name} status is not 'Completed' (current: {self.status}), skipping return ticket creation", "Return Transfer Ticket")
@@ -815,6 +974,14 @@ class CropPlanSchedule(Document):
 		if not equipment_assets:
 			frappe.log_error(f"Schedule {self.name} has no equipment assets to return", "Return Transfer Ticket")
 			return
+		
+		# Check if there are more activities scheduled for these assets on the same day
+		# Only return to cluster if this is the last activity
+		if self.planned_end:
+			should_return = self._should_return_to_cluster(equipment_assets, self.planned_end)
+			if not should_return:
+				frappe.log_error(f"Schedule {self.name} has more activities scheduled for assets {equipment_assets} after {self.planned_end}, skipping return transfer", "Return Transfer Ticket")
+				return  # More activities exist, skip return transfer
 		
 		# Get field warehouse (source for return = where equipment currently is)
 		field_warehouse = self._get_target_warehouse_for_field(self.field)
@@ -1045,7 +1212,8 @@ def create_transfer_tickets_for_schedule(schedule_name: str):
 def get_transfer_tickets_for_schedule(schedule_name: str) -> Dict[str, Any]:
 	"""
 	Get Logistics Transfer Tickets and Stock Entries linked to a schedule.
-	Links are found by matching warehouse/field relationships.
+	Links are found by matching warehouse/field relationships, equipment assets, and destination location.
+	Only returns tickets that contain ALL assets assigned to the schedule and match the destination location.
 	"""
 	if not schedule_name:
 		return {"logistics_tickets": [], "stock_entries": []}
@@ -1060,18 +1228,63 @@ def get_transfer_tickets_for_schedule(schedule_name: str) -> Dict[str, Any]:
 		if not target_warehouse:
 			return {"logistics_tickets": [], "stock_entries": []}
 		
+		# Get all equipment assets from the schedule
+		schedule_assets = set(schedule._collect_equipment_assets())
+		
+		# If schedule has no equipment assets, return empty ticket list
+		if not schedule_assets:
+			return {"logistics_tickets": [], "stock_entries": []}
+		
+		# Get the location for the target warehouse
+		from f2c.inventory.logistics_transfer_ticket_api import get_location_for_warehouse
+		target_location_result = get_location_for_warehouse(target_warehouse)
+		target_location = target_location_result.get("location") if target_location_result else None
+		
 		# Find Logistics Transfer Tickets that have this target warehouse
 		# and were created around the time of scheduling
-		logistics_tickets = frappe.get_all(
+		all_tickets = frappe.get_all(
 			"Logistics Transfer Ticket",
 			filters={
 				"to_warehouse": target_warehouse,
 				"status": ["!=", "Cancelled"]
 			},
-			fields=["name", "status", "creation"],
+			fields=["name", "status", "creation", "to_location"],
 			order_by="creation desc",
-			limit=10
+			limit=50  # Increased limit to allow filtering
 		)
+		
+		# Filter tickets by matching assets and location
+		matched_tickets = []
+		for ticket in all_tickets:
+			try:
+				# Fetch full ticket document to get asset_items
+				ticket_doc = frappe.get_doc("Logistics Transfer Ticket", ticket.name)
+				
+				# Extract asset IDs from ticket's asset_items
+				ticket_assets = set()
+				if ticket_doc.asset_items:
+					for asset_item in ticket_doc.asset_items:
+						if asset_item.asset:
+							ticket_assets.add(asset_item.asset)
+				
+				# Check if ticket contains ALL schedule assets (ticket assets must be superset or equal)
+				assets_match = schedule_assets.issubset(ticket_assets)
+				
+				# Check location match
+				ticket_location = ticket_doc.to_location
+				location_match = True
+				if target_location:
+					# If schedule has a location, ticket must match it
+					location_match = (ticket_location == target_location)
+				# If schedule has no location, skip location matching (still filter by assets)
+				
+				# Only include tickets that match both conditions
+				if assets_match and location_match:
+					matched_tickets.append(ticket)
+			except Exception as e:
+				# Log error but continue processing other tickets
+				frappe.log_error(f"Error processing ticket {ticket.name}: {str(e)}", "Equipment Filter")
+				continue
 		
 		# Find Stock Entries (Material Transfer) that have this target warehouse
 		# These are created as part of Logistics Transfer Tickets or separately
@@ -1089,16 +1302,19 @@ def get_transfer_tickets_for_schedule(schedule_name: str) -> Dict[str, Any]:
 		
 		# Also check if stock entries are linked via Logistics Transfer Ticket
 		linked_stock_entries = []
-		for ticket in logistics_tickets:
-			ticket_doc = frappe.get_doc("Logistics Transfer Ticket", ticket.name)
-			if ticket_doc.stock_entry:
-				linked_stock_entries.append(ticket_doc.stock_entry)
+		for ticket in matched_tickets:
+			try:
+				ticket_doc = frappe.get_doc("Logistics Transfer Ticket", ticket.name)
+				if ticket_doc.stock_entry:
+					linked_stock_entries.append(ticket_doc.stock_entry)
+			except Exception:
+				continue
 		
 		# Filter out stock entries that are already linked via tickets
 		stock_entries = [se for se in stock_entries if se.name not in linked_stock_entries]
 		
 		return {
-			"logistics_tickets": [{"name": t.name, "status": t.status, "creation": t.creation} for t in logistics_tickets],
+			"logistics_tickets": [{"name": t.name, "status": t.status, "creation": t.creation} for t in matched_tickets],
 			"stock_entries": [{"name": se.name, "docstatus": se.docstatus, "posting_date": se.posting_date} for se in stock_entries]
 		}
 	except Exception as e:

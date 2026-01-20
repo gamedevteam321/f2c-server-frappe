@@ -727,6 +727,9 @@ class GeoFencingArea(Document):
 		Warehouse hierarchy: Farm -> Cluster -> Field
 		- Farm and Cluster warehouses are group warehouses (is_group = 1)
 		- Field and other warehouses are ledger warehouses (is_group = 0)
+		
+		For Farm and Cluster (group warehouses), automatically creates a child ledger warehouse
+		named "{area_name} - Stock" to allow transactions (stock entries, asset transfers).
 		"""
 		try:
 			if not self.geo_fencing_type:
@@ -834,6 +837,61 @@ class GeoFencingArea(Document):
 				warehouse_row["radius"] = radius
 			
 			self.append("warehouses", warehouse_row)
+			
+			# If this is a group warehouse (Farm or Cluster), create a child ledger warehouse
+			# This allows items and assets to be stored in Farm/Cluster warehouses
+			if is_group == 1:
+				# Get company from parent warehouse or default
+				company = None
+				if parent_warehouse:
+					company = frappe.db.get_value("Warehouse", parent_warehouse, "company")
+				
+				if not company:
+					# Try to get from the newly created warehouse
+					company = warehouse.company if hasattr(warehouse, 'company') and warehouse.company else None
+				
+				if not company:
+					# Get default company
+					try:
+						company = frappe.defaults.get_global_default("company")
+					except:
+						pass
+					
+					if not company:
+						try:
+							company = frappe.db.get_single_value("Global Defaults", "default_company")
+						except:
+							pass
+				
+				# Create child ledger warehouse
+				child_warehouse_name = f"{self.area_name} - Stock"
+				child_warehouse_data = {
+					"doctype": "Warehouse",
+					"warehouse_name": child_warehouse_name,
+					"is_group": 0,  # Ledger warehouse
+					"parent_warehouse": warehouse.name,
+					"custom_geo_fence_area": self.name,
+				}
+				
+				if company:
+					child_warehouse_data["company"] = company
+				
+				child_warehouse = frappe.get_doc(child_warehouse_data)
+				child_warehouse.insert(ignore_permissions=True)
+				
+				# Add child warehouse to warehouses child table with same location values
+				child_warehouse_row = {
+					"warehouse": child_warehouse.name
+				}
+				
+				if center_latitude is not None:
+					child_warehouse_row["center_latitude"] = center_latitude
+				if center_longitude is not None:
+					child_warehouse_row["center_longitude"] = center_longitude
+				if radius is not None:
+					child_warehouse_row["radius"] = radius
+				
+				self.append("warehouses", child_warehouse_row)
 			
 			# Save the document to persist the changes
 			self.save(ignore_permissions=True)
@@ -1239,6 +1297,251 @@ class GeoFencingArea(Document):
 		# Update warehouse geo location values if they are 0 or empty
 		# Do this in before_save to ensure values are set before document is saved
 		self.update_warehouse_geo_location_if_needed()
+		
+		# Create stock warehouses for newly linked Farm/Cluster warehouses
+		self.create_stock_warehouses_for_linked_warehouses()
+	
+	def create_stock_warehouses_for_linked_warehouses(self):
+		"""Create stock warehouses for newly linked Farm/Cluster group warehouses.
+		
+		When a Farm or Cluster warehouse is manually linked to a Geo Fencing Area,
+		automatically create and add its child stock warehouse to the warehouses child table.
+		"""
+		try:
+			if not self.has_warehouse or not self.warehouses:
+				return
+			
+			# Get previous warehouses if document existed before
+			previous_warehouses = set()
+			if not self.is_new() and self.name:
+				try:
+					previous_warehouse_rows = frappe.get_all(
+						"Geo Fencing Area Warehouse",
+						filters={
+							"parent": self.name,
+							"parenttype": "Geo Fencing Area"
+						},
+						fields=["warehouse"]
+					)
+					for row in previous_warehouse_rows:
+						if row.warehouse:
+							previous_warehouses.add(row.warehouse)
+				except Exception as e:
+					frappe.log_error(f"Error getting previous warehouses: {str(e)}", "Geo Fencing Area Create Stock Warehouses")
+			
+			# Get current warehouses from child table
+			current_warehouses = set()
+			warehouse_row_map = {}  # Map warehouse name to row data
+			current_warehouse_names = set()  # Track all warehouse names for duplicate checking
+			for warehouse_row in self.warehouses:
+				if warehouse_row.warehouse:
+					current_warehouses.add(warehouse_row.warehouse)
+					warehouse_row_map[warehouse_row.warehouse] = warehouse_row
+					# Also track warehouse names (without company suffix) for duplicate detection
+					wh_name = warehouse_row.warehouse
+					# Remove company suffix if present
+					if " - " in wh_name:
+						parts = wh_name.split(" - ")
+						if len(parts) > 1 and len(parts[-1]) <= 3:
+							current_warehouse_names.add(" - ".join(parts[:-1]))
+						else:
+							current_warehouse_names.add(wh_name)
+					else:
+						current_warehouse_names.add(wh_name)
+			
+			# Find newly added warehouses
+			new_warehouses = current_warehouses - previous_warehouses
+			
+			# For each new warehouse, check if it's a group warehouse (Farm/Cluster)
+			for warehouse_name in new_warehouses:
+				try:
+					# Check if warehouse exists and is a group warehouse
+					if not frappe.db.exists("Warehouse", warehouse_name):
+						continue
+					
+					warehouse_doc = frappe.get_doc("Warehouse", warehouse_name)
+					
+					# Only create stock warehouse for group warehouses
+					if not warehouse_doc.is_group:
+						continue
+					
+					# Check if this warehouse is linked to a Farm or Cluster Geo Fencing Area
+					# by checking the warehouse's custom_geo_fence_area or by checking if parent area is Farm/Cluster
+					is_farm_or_cluster = False
+					if self.geo_fencing_type in ["Farm", "Cluster"]:
+						is_farm_or_cluster = True
+					else:
+						# Check if warehouse is linked to a Farm/Cluster area
+						linked_area = warehouse_doc.get("custom_geo_fence_area")
+						if linked_area:
+							try:
+								area_doc = frappe.get_doc("Geo Fencing Area", linked_area)
+								if area_doc.geo_fencing_type in ["Farm", "Cluster"]:
+									is_farm_or_cluster = True
+							except:
+								pass
+					
+					if not is_farm_or_cluster:
+						continue
+					
+					# Check if stock warehouse already exists
+					warehouse_name_base = warehouse_doc.warehouse_name
+					# Remove company suffix if present (e.g., "Farm1 - O" -> "Farm1")
+					if " - " in warehouse_name_base:
+						parts = warehouse_name_base.split(" - ")
+						if len(parts) > 1:
+							# Check if last part is a company abbreviation (usually 1-3 chars)
+							last_part = parts[-1]
+							if len(last_part) <= 3:
+								warehouse_name_base = " - ".join(parts[:-1])
+					
+					stock_warehouse_name = f"{warehouse_name_base} - Stock"
+					
+					# First check if stock warehouse is already in the current child table
+					# This prevents duplicates when warehouse was created via create_warehouse_if_needed
+					stock_warehouse_in_table = False
+					existing_stock_warehouse_in_table = None
+					for row in self.warehouses:
+						if row.warehouse:
+							# Check if this warehouse matches the stock warehouse name pattern
+							row_wh_name = row.warehouse
+							# Remove company suffix if present
+							row_base_name = row_wh_name
+							if " - " in row_wh_name:
+								parts = row_wh_name.split(" - ")
+								if len(parts) > 1 and len(parts[-1]) <= 3:
+									row_base_name = " - ".join(parts[:-1])
+							
+							# Check if it matches stock warehouse name pattern
+							if row_base_name == stock_warehouse_name or row_base_name.endswith(" - Stock"):
+								# Verify it's a child of the parent warehouse
+								try:
+									row_wh_doc = frappe.get_doc("Warehouse", row.warehouse)
+									if row_wh_doc.parent_warehouse == warehouse_name:
+										stock_warehouse_in_table = True
+										existing_stock_warehouse_in_table = row.warehouse
+										break
+								except:
+									# If we can't verify, skip to avoid errors
+									pass
+					
+					# If already in table, skip creating/adding
+					if stock_warehouse_in_table:
+						continue
+					
+					# Check if stock warehouse already exists as a child of this warehouse
+					existing_stock_warehouse = existing_stock_warehouse_in_table
+					company = warehouse_doc.company if hasattr(warehouse_doc, 'company') and warehouse_doc.company else None
+					
+					# First, try to find existing child warehouses of this parent warehouse
+					existing_children = frappe.get_all(
+						"Warehouse",
+						filters={
+							"parent_warehouse": warehouse_name,
+							"is_group": 0
+						},
+						fields=["name", "warehouse_name", "company"]
+					)
+					
+					# Check if any child matches the stock warehouse name pattern
+					for child in existing_children:
+						child_base_name = child.warehouse_name
+						# Remove company suffix if present
+						if " - " in child_base_name:
+							parts = child_base_name.split(" - ")
+							if len(parts) > 1 and len(parts[-1]) <= 3:
+								child_base_name = " - ".join(parts[:-1])
+						
+						if child_base_name == stock_warehouse_name or child_base_name.endswith(" - Stock"):
+							existing_stock_warehouse = child.name
+							break
+					
+					# If not found in children, try direct lookup
+					if not existing_stock_warehouse:
+						if company:
+							# Try to find with company suffix
+							company_abbr = frappe.get_cached_value("Company", company, "abbr")
+							stock_warehouse_name_with_suffix = f"{stock_warehouse_name} - {company_abbr}"
+							if frappe.db.exists("Warehouse", stock_warehouse_name_with_suffix):
+								# Verify it's a child of the parent warehouse
+								wh_doc = frappe.get_doc("Warehouse", stock_warehouse_name_with_suffix)
+								if wh_doc.parent_warehouse == warehouse_name:
+									existing_stock_warehouse = stock_warehouse_name_with_suffix
+						else:
+							# Try without company suffix
+							if frappe.db.exists("Warehouse", stock_warehouse_name):
+								# Verify it's a child of the parent warehouse
+								wh_doc = frappe.get_doc("Warehouse", stock_warehouse_name)
+								if wh_doc.parent_warehouse == warehouse_name:
+									existing_stock_warehouse = stock_warehouse_name
+					
+					# Create stock warehouse if it doesn't exist
+					if not existing_stock_warehouse:
+						# Get company from parent warehouse or default
+						if not company:
+							if warehouse_doc.parent_warehouse:
+								company = frappe.db.get_value("Warehouse", warehouse_doc.parent_warehouse, "company")
+						
+						if not company:
+							try:
+								company = frappe.defaults.get_global_default("company")
+							except:
+								pass
+							
+							if not company:
+								try:
+									company = frappe.db.get_single_value("Global Defaults", "default_company")
+								except:
+									pass
+						
+						# Create child ledger warehouse
+						child_warehouse_data = {
+							"doctype": "Warehouse",
+							"warehouse_name": stock_warehouse_name,
+							"is_group": 0,  # Ledger warehouse
+							"parent_warehouse": warehouse_name,
+							"custom_geo_fence_area": self.name,
+						}
+						
+						if company:
+							child_warehouse_data["company"] = company
+						
+						child_warehouse = frappe.get_doc(child_warehouse_data)
+						child_warehouse.insert(ignore_permissions=True)
+						existing_stock_warehouse = child_warehouse.name
+					
+					# Add stock warehouse to child table if not already present
+					# (stock_warehouse_in_table is already checked above, so this should be safe)
+					if existing_stock_warehouse:
+						# Get location values from parent warehouse row
+						parent_row = warehouse_row_map.get(warehouse_name)
+						stock_warehouse_row = {
+							"warehouse": existing_stock_warehouse
+						}
+						
+						if parent_row:
+							if hasattr(parent_row, 'center_latitude') and parent_row.center_latitude is not None:
+								stock_warehouse_row["center_latitude"] = parent_row.center_latitude
+							if hasattr(parent_row, 'center_longitude') and parent_row.center_longitude is not None:
+								stock_warehouse_row["center_longitude"] = parent_row.center_longitude
+							if hasattr(parent_row, 'radius') and parent_row.radius is not None:
+								stock_warehouse_row["radius"] = parent_row.radius
+						
+						self.append("warehouses", stock_warehouse_row)
+					
+				except Exception as e:
+					wh_short = warehouse_name[:20] if len(warehouse_name) > 20 else warehouse_name
+					frappe.log_error(
+						f"Error creating stock warehouse for {wh_short}: {str(e)}",
+						"Geo Fencing Area Create Stock Warehouses"
+					)
+		
+		except Exception as e:
+			area_short = self.name[:20] if len(self.name) > 20 else self.name if self.name else "New"
+			frappe.log_error(
+				f"Error in create_stock_warehouses_for_linked_warehouses for {area_short}: {str(e)}",
+				"Geo Fencing Area Create Stock Warehouses"
+			)
 	
 	def set_has_warehouse_from_type(self):
 		"""Set has_warehouse based on geo_fencing_type"""
