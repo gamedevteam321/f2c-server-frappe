@@ -295,6 +295,63 @@ def get_google_maps_api_key():
 	return frappe.conf.get('google_maps_api_key') or ''
 
 @frappe.whitelist()
+def update_warehouse_geo_fence_area_for_area(area_name):
+	"""Standalone function to update warehouse geo_fence_area field for a given Geo Fencing Area.
+	
+	This function can be called via enqueue to ensure updates happen after transaction commits.
+	"""
+	try:
+		if not area_name:
+			return
+		
+		# Get all warehouses linked to this Geo Fencing Area
+		linked_warehouses = frappe.get_all(
+			"Geo Fencing Area Warehouse",
+			filters={
+				"parent": area_name,
+				"parenttype": "Geo Fencing Area"
+			},
+			fields=["warehouse"],
+			pluck="warehouse"
+		)
+		
+		# Update each warehouse's geo_fence_area field
+		for warehouse_name in linked_warehouses:
+			if warehouse_name and frappe.db.exists("Warehouse", warehouse_name):
+				try:
+					# Use SQL UPDATE to directly modify the database
+					# This bypasses Frappe's field validation
+					frappe.db.sql("""
+						UPDATE `tabWarehouse`
+						SET `custom_geo_fence_area` = %s
+						WHERE `name` = %s
+					""", (area_name, warehouse_name))
+				except Exception as e:
+					error_msg = str(e)
+					wh_short = warehouse_name[:20] if len(warehouse_name) > 20 else warehouse_name
+					area_short = area_name[:20] if len(area_name) > 20 else area_name
+					# Check if error is about missing column
+					if "Unknown column" in error_msg or "doesn't exist" in error_msg.lower():
+						frappe.log_error(
+							f"Field custom_geo_fence_area does not exist in Warehouse table. Add it as a custom field first. Warehouse: {wh_short}, Area: {area_short}",
+							"Geo Fencing Area Update Warehouse Geo Fence Area - Missing Field"
+						)
+					else:
+						frappe.log_error(
+							f"Error updating custom_geo_fence_area for {wh_short} in {area_short}: {error_msg[:100]}",
+							"Geo Fencing Area Update Warehouse Geo Fence Area"
+						)
+		
+		# Commit the changes
+		frappe.db.commit()
+	except Exception as e:
+		area_short = area_name[:20] if area_name and len(area_name) > 20 else (area_name or "Unknown")
+		frappe.log_error(
+			f"Error in update_warehouse_geo_fence_area_for_area for {area_short}: {str(e)[:80]}",
+			"Geo Fencing Area Update Warehouse Geo Fence Area"
+		)
+
+@frappe.whitelist()
 def validate_warehouse_location(area_name, latitude, longitude):
 	"""
 	Validate if a warehouse location is inside the current area's geo fencing and parent area's geo fencing
@@ -630,6 +687,16 @@ class GeoFencingArea(Document):
 		# Create warehouse if geo_fencing_type has_warehouse is true
 		self.create_warehouse_if_needed()
 		
+		# Update warehouse geo_fence_area field for newly created area
+		# Use enqueue to ensure it happens after transaction commits
+		if self.name:
+			frappe.enqueue(
+				"f2c.farm_to_crop.doctype.geo_fencing_area.geo_fencing_area.update_warehouse_geo_fence_area_for_area",
+				area_name=self.name,
+				queue="short",
+				now=False
+			)
+		
 		# Use enqueue to ensure parent recalculation happens after transaction commits
 		# This ensures the new child is fully saved before parent recalculation
 		if self.parent_area:
@@ -703,6 +770,9 @@ class GeoFencingArea(Document):
 			if parent_warehouse:
 				warehouse_data["parent_warehouse"] = parent_warehouse
 			
+			# Set custom_geo_fence_area to link warehouse back to this Geo Fencing Area
+			warehouse_data["custom_geo_fence_area"] = self.name
+			
 			warehouse = frappe.get_doc(warehouse_data)
 			warehouse.insert(ignore_permissions=True)
 			
@@ -767,6 +837,17 @@ class GeoFencingArea(Document):
 			
 			# Save the document to persist the changes
 			self.save(ignore_permissions=True)
+			
+			# Create Location record for this Geo Fencing Area
+			# Use enqueue to avoid blocking the main transaction
+			if self.name:
+				frappe.enqueue(
+					"f2c.farm_to_crop.location_sync.create_location_for_geo_area",
+					geo_area_name=self.name,
+					update_existing=False,
+					queue="short",
+					now=False
+				)
 			
 			frappe.msgprint(f"Warehouse '{warehouse.name}' created and linked to area '{self.area_name}'")
 			
@@ -923,12 +1004,155 @@ class GeoFencingArea(Document):
 		except Exception as e:
 			frappe.log_error(f"Error in update_warehouse_geo_location_if_needed for {self.name}: {str(e)}", "Geo Fencing Area Update Warehouse Location")
 	
+	def update_warehouse_geo_fence_area(self):
+		"""Update warehouse geo_fence_area field to sync with Geo Fencing Area Warehouse child table.
+		
+		This method ensures that when warehouses are linked/unlinked from a Geo Fencing Area,
+		their geo_fence_area field is automatically updated to maintain bidirectional synchronization.
+		When a Geo Fencing Area is updated, all linked warehouses are updated to reference it.
+		"""
+		try:
+			# Get the document before save to detect changes in warehouses child table
+			doc_before_save = self.get_doc_before_save()
+			
+			# Get current warehouses from child table
+			current_warehouses = set()
+			if self.has_warehouse and self.warehouses:
+				for warehouse_row in self.warehouses:
+					if warehouse_row.warehouse:
+						current_warehouses.add(warehouse_row.warehouse)
+			
+			# Also query the database to get all warehouses linked to this Geo Fencing Area
+			# This ensures we catch all linked warehouses even if child table isn't fully loaded
+			if self.name:
+				db_linked_warehouses = frappe.get_all(
+					"Geo Fencing Area Warehouse",
+					filters={
+						"parent": self.name,
+						"parenttype": "Geo Fencing Area"
+					},
+					fields=["warehouse"],
+					pluck="warehouse"
+				)
+				# Add to current_warehouses set
+				for wh in db_linked_warehouses:
+					if wh:
+						current_warehouses.add(wh)
+			
+			# Get previous warehouses if document existed before
+			previous_warehouses = set()
+			if doc_before_save and doc_before_save.has_warehouse and doc_before_save.warehouses:
+				for warehouse_row in doc_before_save.warehouses:
+					if warehouse_row.warehouse:
+						previous_warehouses.add(warehouse_row.warehouse)
+			
+			# Update geo_fence_area for all current warehouses
+			# Always update to ensure consistency, even if the value is already correct
+			for warehouse_name in current_warehouses:
+				try:
+					# Use SQL to directly update the field in the database
+					# This works even if the field isn't recognized by the doctype class
+					# Check if warehouse exists first
+					if frappe.db.exists("Warehouse", warehouse_name):
+						# Use SQL UPDATE to directly modify the database
+						# This bypasses Frappe's field validation
+						frappe.db.sql("""
+							UPDATE `tabWarehouse`
+							SET `custom_geo_fence_area` = %s
+							WHERE `name` = %s
+						""", (self.name, warehouse_name))
+						frappe.db.commit()
+				except Exception as e:
+					# Log error but don't block the update
+					wh_short = warehouse_name[:20] if len(warehouse_name) > 20 else warehouse_name
+					area_short = self.name[:20] if len(self.name) > 20 else self.name
+					error_msg = str(e)
+					# Check if error is about missing column
+					if "Unknown column" in error_msg or "doesn't exist" in error_msg.lower():
+						frappe.log_error(
+							f"Field custom_geo_fence_area does not exist in Warehouse table. Add it as a custom field first. Warehouse: {wh_short}, Area: {area_short}",
+							"Geo Fencing Area Update Warehouse Geo Fence Area - Missing Field"
+						)
+					else:
+						frappe.log_error(
+							f"Error updating custom_geo_fence_area for {wh_short} in {area_short}: {error_msg[:100]}",
+							"Geo Fencing Area Update Warehouse Geo Fence Area"
+						)
+			
+			# Handle warehouses that were removed
+			removed_warehouses = previous_warehouses - current_warehouses
+			for warehouse_name in removed_warehouses:
+				try:
+					# Check if this warehouse is linked to any other Geo Fencing Area
+					other_links = frappe.get_all(
+						"Geo Fencing Area Warehouse",
+						filters={
+							"warehouse": warehouse_name,
+							"parent": ["!=", self.name]
+						},
+						limit=1
+					)
+					
+					# Get current custom_geo_fence_area value
+					current_geo_fence_area = frappe.db.get_value("Warehouse", warehouse_name, "custom_geo_fence_area")
+					
+					# If not linked to any other Geo Fencing Area, clear the field
+					if not other_links and current_geo_fence_area == self.name:
+						if frappe.db.exists("Warehouse", warehouse_name):
+							frappe.db.sql("""
+								UPDATE `tabWarehouse`
+								SET `custom_geo_fence_area` = NULL
+								WHERE `name` = %s
+							""", warehouse_name)
+				except Exception as e:
+					# Log error but don't block the update
+					wh_short = warehouse_name[:20] if len(warehouse_name) > 20 else warehouse_name
+					area_short = self.name[:20] if len(self.name) > 20 else self.name
+					frappe.log_error(
+						f"Error clearing custom_geo_fence_area for {wh_short} from {area_short}: {str(e)[:50]}",
+						"Geo Fencing Area Update Warehouse Geo Fence Area"
+					)
+		
+		except Exception as e:
+			area_short = self.name[:20] if len(self.name) > 20 else self.name
+			frappe.log_error(
+				f"Error in update_warehouse_geo_fence_area for {area_short}: {str(e)[:80]}",
+				"Geo Fencing Area Update Warehouse Geo Fence Area"
+			)
+	
 	def on_update(self):
 		"""Update parent circle if auto-calculate is enabled, and update parent area if hierarchical calculation is needed.
 		Also update warehouse parent_warehouse when parent_area changes.
-		Update warehouse geo location values if they are 0 or empty."""
+		Update warehouse geo location values if they are 0 or empty.
+		Update warehouse geo_fence_area field to sync with child table.
+		Ensure Location record exists for this Geo Fencing Area if it has warehouses."""
 		# Update warehouse geo location values if they are missing or 0
 		self.update_warehouse_geo_location_if_needed()
+		
+		# Update warehouse geo_fence_area field to sync with warehouses child table
+		# Call synchronously first, then also enqueue as backup to ensure it happens
+		self.update_warehouse_geo_fence_area()
+		
+		# Also enqueue to ensure update happens after transaction commits (backup)
+		if self.name:
+			frappe.enqueue(
+				"f2c.farm_to_crop.doctype.geo_fencing_area.geo_fencing_area.update_warehouse_geo_fence_area_for_area",
+				area_name=self.name,
+				queue="short",
+				now=False
+			)
+		
+		# Ensure Location record exists if this area has warehouses
+		# This handles cases where warehouses are manually added later
+		if self.has_warehouse and self.warehouses and len(self.warehouses) > 0:
+			if self.name:
+				frappe.enqueue(
+					"f2c.farm_to_crop.location_sync.create_location_for_geo_area",
+					geo_area_name=self.name,
+					update_existing=False,
+					queue="short",
+					now=False
+				)
 		
 		# Check if parent_area changed
 		if hasattr(self, '_old_parent_area') and self._old_parent_area != self.parent_area:

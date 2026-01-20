@@ -145,6 +145,112 @@ def _geojson_and_latlng_from_geo_area(geo_area_name: str):
 	return (json.dumps(geojson), lat, lon)
 
 
+def create_location_for_geo_area(geo_area_name: str, update_existing: bool = False):
+	"""
+	Create or update a single Location record for a Geo Fencing Area.
+	
+	Args:
+		geo_area_name: Name of the Geo Fencing Area
+		update_existing: If True, update existing location; if False, skip if exists
+		
+	Returns:
+		dict with keys: 'success' (bool), 'action' (str: 'created', 'updated', 'skipped', 'error'), 
+		'location_name' (str), 'error' (str if failed)
+	"""
+	try:
+		if not geo_area_name:
+			return {
+				"success": False,
+				"action": "error",
+				"location_name": None,
+				"error": "geo_area_name is required"
+			}
+		
+		# Build location name from area hierarchy
+		location_name = _build_location_name_from_area(geo_area_name)
+		if not location_name:
+			return {
+				"success": False,
+				"action": "error",
+				"location_name": None,
+				"error": f"Could not build location name for {geo_area_name}"
+			}
+		
+		# Get geojson and coordinates
+		geojson_str, lat, lon = _geojson_and_latlng_from_geo_area(geo_area_name)
+		
+		# Check if location already exists
+		existing_loc = frappe.db.get_value("Location", {"location_name": location_name}, "name")
+		
+		if existing_loc:
+			if not update_existing:
+				return {
+					"success": True,
+					"action": "skipped",
+					"location_name": location_name,
+					"error": None
+				}
+			
+			# Update existing location
+			loc = frappe.get_doc("Location", existing_loc)
+			changed = False
+			if geojson_str and not loc.location:
+				loc.location = geojson_str
+				changed = True
+			if lat is not None and (loc.latitude is None or (loc.latitude is not None and math.isnan(float(loc.latitude)))):
+				loc.latitude = lat
+				changed = True
+			if lon is not None and (loc.longitude is None or (loc.longitude is not None and math.isnan(float(loc.longitude)))):
+				loc.longitude = lon
+				changed = True
+			
+			if changed:
+				loc.save(ignore_permissions=True)
+				return {
+					"success": True,
+					"action": "updated",
+					"location_name": location_name,
+					"error": None
+				}
+			else:
+				return {
+					"success": True,
+					"action": "skipped",
+					"location_name": location_name,
+					"error": None
+				}
+		
+		# Create new location
+		loc = frappe.get_doc(
+			{
+				"doctype": "Location",
+				"location_name": location_name,
+				"is_group": 0,
+				"location": geojson_str,
+				"latitude": lat,
+				"longitude": lon,
+			}
+		)
+		loc.insert(ignore_permissions=True)
+		
+		return {
+			"success": True,
+			"action": "created",
+			"location_name": location_name,
+			"error": None
+		}
+		
+	except Exception as e:
+		error_msg = f"Failed to create location for Geo Area {geo_area_name}: {str(e)}"
+		frappe.log_error(error_msg, "Location Creation Error")
+		return {
+			"success": False,
+			"action": "error",
+			"location_name": None,
+			"error": error_msg
+		}
+
+
 @frappe.whitelist()
 def create_locations_from_geo_warehouses(update_existing: int = 0):
 	"""

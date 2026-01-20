@@ -416,3 +416,107 @@ def mark_cancelled(ticket_name: str, reason: str = ""):
 	return {"ticket": ticket.name, "status": ticket.status}
 
 
+@frappe.whitelist()
+def get_assets_for_warehouse(warehouse: str):
+	"""
+	Get assets for a warehouse using location mapping, with fallback methods.
+	
+	Returns assets even if location mapping isn't perfect, using pattern matching
+	on location names that might be related to the warehouse or geo area.
+	"""
+	if not warehouse:
+		frappe.throw(_("warehouse is required"))
+	
+	def _norm(s: str) -> str:
+		return "".join(ch for ch in str(s or "").lower() if ch.isalnum())
+	
+	# Method 1: Try normal location-based lookup
+	location_result = get_location_for_warehouse(warehouse)
+	location = location_result.get("location") if location_result else None
+	geo_area = location_result.get("geo_area") if location_result else None
+	
+	assets = []
+	
+	# If we have a location, use it directly
+	if location:
+		assets = frappe.get_all(
+			"Asset",
+			fields=["name", "asset_name", "item_code", "asset_category", "location", "status", "asset_quantity"],
+			filters=[["location", "=", location]],
+			limit=1000
+		)
+	
+	# Method 2: Fallback - try to find assets by location name pattern matching
+	if not assets and geo_area:
+		# Get location name that should exist for this geo area
+		expected_location_name = _build_location_name_for_geo_area(geo_area)
+		if expected_location_name:
+			# Try to find locations with similar names
+			all_locations = frappe.get_all(
+				"Location",
+				fields=["name", "location_name"],
+				limit=1000
+			)
+			
+			# Find locations whose names contain parts of the expected location name
+			norm_expected = _norm(expected_location_name)
+			matching_locations = []
+			for loc in all_locations:
+				loc_name = loc.get("location_name") or ""
+				norm_loc = _norm(loc_name)
+				# Check if location name contains key parts of expected name
+				if norm_expected and norm_loc:
+					# Split expected name into parts and check if any part matches
+					expected_parts = [p for p in expected_location_name.split("-") if p.strip()]
+					loc_parts = [p for p in loc_name.split("-") if p.strip()]
+					# If at least one part matches, consider it a match
+					if any(_norm(ep) in norm_loc or _norm(lp) in norm_expected for ep in expected_parts for lp in loc_parts):
+						matching_locations.append(loc["name"])
+			
+			if matching_locations:
+				assets = frappe.get_all(
+					"Asset",
+					fields=["name", "asset_name", "item_code", "asset_category", "location", "status", "asset_quantity"],
+					filters=[["location", "in", matching_locations]],
+					limit=1000
+				)
+	
+	# Method 3: Last resort - try matching by warehouse name in location names
+	if not assets:
+		wh_name = frappe.db.get_value("Warehouse", warehouse, "warehouse_name") or ""
+		norm_wh = _norm(wh_name) or _norm(warehouse)
+		
+		if norm_wh:
+			# Find locations whose names might contain the warehouse name
+			all_locations = frappe.get_all(
+				"Location",
+				fields=["name", "location_name"],
+				limit=1000
+			)
+			
+			matching_locations = []
+			for loc in all_locations:
+				loc_name = loc.get("location_name") or ""
+				norm_loc = _norm(loc_name)
+				# Check if location name contains warehouse name or vice versa
+				if norm_wh in norm_loc or norm_loc in norm_wh:
+					matching_locations.append(loc["name"])
+			
+			if matching_locations:
+				assets = frappe.get_all(
+					"Asset",
+					fields=["name", "asset_name", "item_code", "asset_category", "location", "status", "asset_quantity"],
+					filters=[["location", "in", matching_locations]],
+					limit=1000
+				)
+	
+	return {
+		"warehouse": warehouse,
+		"location": location,
+		"geo_area": geo_area,
+		"assets": assets,
+		"count": len(assets),
+		"has_location_mapping": bool(location)
+	}
+
+
