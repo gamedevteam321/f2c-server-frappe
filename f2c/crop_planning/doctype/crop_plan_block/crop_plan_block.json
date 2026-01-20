@@ -95,10 +95,10 @@
         },
         {
             "fieldname": "irrigation_type",
-            "fieldtype": "Select",
+            "fieldtype": "Link",
             "in_list_view": 1,
             "label": "Irrigation Type",
-            "options": "Drip\nSprinkler\nFlood\nOther"
+            "options": "Irrigation Type"
         }
     ],
     "istable": 1,

@@ -91,6 +91,10 @@ doctype_list_js = {
 # before_install = "f2c.install.before_install"
 # after_install = "f2c.install.after_install"
 
+# Seed required master data after installs/migrations
+after_install = "f2c.seed_defaults.after_install"
+after_migrate = "f2c.seed_defaults.after_migrate"
+
 # Uninstallation
 # ------------
 
