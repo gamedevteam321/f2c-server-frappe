@@ -11,6 +11,15 @@
         "activity_name",
         "activity_group_type",
         "parent_activity",
+        "section_break_equipment_suggestions",
+        "section_break_suggested_machinery",
+        "suggested_machinery",
+        "section_break_suggested_implements",
+        "suggested_implements",
+        "section_break_suggested_hand_tools",
+        "suggested_hand_tools",
+        "section_break_suggested_other_tools",
+        "suggested_other_tools",
         "section_break_tasks",
         "farm_tasks"
     ],
@@ -44,6 +53,55 @@
             "fieldtype": "Link",
             "label": "Parent Activity",
             "options": "Farm Activity"
+        },
+        {
+            "fieldname": "section_break_equipment_suggestions",
+            "fieldtype": "Section Break",
+            "label": "Equipment Suggestions"
+        },
+        {
+            "fieldname": "section_break_suggested_machinery",
+            "fieldtype": "Section Break",
+            "label": "Suggested Machinery"
+        },
+        {
+            "fieldname": "suggested_machinery",
+            "fieldtype": "Table",
+            "label": "Machinery",
+            "options": "Farm Activity Suggested Machinery"
+        },
+        {
+            "fieldname": "section_break_suggested_implements",
+            "fieldtype": "Section Break",
+            "label": "Suggested Implements"
+        },
+        {
+            "fieldname": "suggested_implements",
+            "fieldtype": "Table",
+            "label": "Implements",
+            "options": "Farm Activity Suggested Implement"
+        },
+        {
+            "fieldname": "section_break_suggested_hand_tools",
+            "fieldtype": "Section Break",
+            "label": "Suggested Hand Tools"
+        },
+        {
+            "fieldname": "suggested_hand_tools",
+            "fieldtype": "Table",
+            "label": "Hand Tools",
+            "options": "Farm Activity Suggested Hand Tool"
+        },
+        {
+            "fieldname": "section_break_suggested_other_tools",
+            "fieldtype": "Section Break",
+            "label": "Suggested Other Tools"
+        },
+        {
+            "fieldname": "suggested_other_tools",
+            "fieldtype": "Table",
+            "label": "Other Tools",
+            "options": "Farm Activity Suggested Other Tool"
         },
         {
             "fieldname": "section_break_tasks",
