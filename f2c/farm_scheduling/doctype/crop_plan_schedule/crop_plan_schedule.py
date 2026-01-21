@@ -1388,7 +1388,18 @@ def get_available_assets_for_cluster(
 			filters={"parent": cluster, "parenttype": "Geo Fencing Area"},
 			limit_page_length=0
 		)
-		warehouse_list = [w.warehouse for w in warehouses if w.warehouse]
+		cluster_warehouse_list = [w.warehouse for w in warehouses if w.warehouse]
+		
+		# Get all child warehouses for each cluster warehouse
+		from erpnext.stock.doctype.warehouse.warehouse import get_child_warehouses
+		warehouse_list = []
+		for cluster_wh in cluster_warehouse_list:
+			# get_child_warehouses returns [children..., warehouse] (includes self)
+			child_warehouses = get_child_warehouses(cluster_wh)
+			warehouse_list.extend(child_warehouses)
+		
+		# Remove duplicates while preserving order
+		warehouse_list = list(dict.fromkeys(warehouse_list))
 		
 		frappe.log_error(f"get_available_assets_for_cluster: Found {len(warehouse_list)} warehouses in cluster {cluster}: {warehouse_list[:3]}", "Asset Filter Debug")
 		
