@@ -147,13 +147,41 @@ after_migrate = "f2c.seed_defaults.after_migrate"
 # ---------------
 # Hook on document methods and events
 
-# doc_events = {
-# 	"*": {
-# 		"on_update": "method",
-# 		"on_cancel": "method",
-# 		"on_trash": "method"
-# 	}
-# }
+doc_events = {
+	# Stock quantity changes
+	"Stock Entry": {
+		"on_submit": "f2c.inventory.warehouse_stock_sync_hooks.trigger_warehouse_stock_sync",
+		"on_cancel": "f2c.inventory.warehouse_stock_sync_hooks.trigger_warehouse_stock_sync",
+	},
+	"Purchase Receipt": {
+		"on_submit": "f2c.inventory.warehouse_stock_sync_hooks.trigger_warehouse_stock_sync",
+		"on_cancel": "f2c.inventory.warehouse_stock_sync_hooks.trigger_warehouse_stock_sync",
+	},
+	"Delivery Note": {
+		"on_submit": "f2c.inventory.warehouse_stock_sync_hooks.trigger_warehouse_stock_sync",
+		"on_cancel": "f2c.inventory.warehouse_stock_sync_hooks.trigger_warehouse_stock_sync",
+	},
+	"Stock Reconciliation": {
+		"on_submit": "f2c.inventory.warehouse_stock_sync_hooks.trigger_warehouse_stock_sync",
+		"on_cancel": "f2c.inventory.warehouse_stock_sync_hooks.trigger_warehouse_stock_sync",
+	},
+	"Subcontracting Receipt": {
+		"on_submit": "f2c.inventory.warehouse_stock_sync_hooks.trigger_warehouse_stock_sync",
+		"on_cancel": "f2c.inventory.warehouse_stock_sync_hooks.trigger_warehouse_stock_sync",
+	},
+	"Asset Capitalization": {
+		"on_submit": "f2c.inventory.warehouse_stock_sync_hooks.trigger_warehouse_stock_sync",
+		"on_cancel": "f2c.inventory.warehouse_stock_sync_hooks.trigger_warehouse_stock_sync",
+	},
+	# Asset location changes
+	"Asset Movement": {
+		"on_submit": "f2c.inventory.warehouse_stock_sync_hooks.trigger_warehouse_stock_sync",
+		"on_cancel": "f2c.inventory.warehouse_stock_sync_hooks.trigger_warehouse_stock_sync",
+	},
+	"Asset": {
+		"on_update": "f2c.inventory.warehouse_stock_sync_hooks.trigger_warehouse_stock_sync_on_asset_update",
+	},
+}
 
 # Scheduled Tasks
 # ---------------

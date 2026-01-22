@@ -421,7 +421,8 @@ class OnDemandActivity(Document):
 				cps.status,
 				eq.asset,
 				eq.asset_name,
-				cps.field
+				cps.field,
+				cps.block
 			FROM `tabCrop Plan Schedule` cps
 			INNER JOIN (
 				SELECT parent, asset, asset_name FROM `tabCrop Plan Schedule Machinery` WHERE asset IN ({placeholders})
@@ -457,13 +458,24 @@ class OnDemandActivity(Document):
 				schedule.planned_start,
 				schedule.planned_end
 			):
+				# Get block name for better error message
+				block_name = schedule.get("block") or ""
+				if block_name:
+					try:
+						block_doc = frappe.get_doc("Geo Fencing Area", block_name)
+						block_name = getattr(block_doc, "area_name", block_name)
+					except Exception:
+						pass
+				
 				conflicts.append({
 					'asset': schedule.asset,
 					'asset_name': schedule.asset_name or schedule.asset,
 					'schedule_name': schedule.schedule_name,
 					'schedule_type': 'Crop Plan Schedule',
 					'start': schedule.planned_start,
-					'end': schedule.planned_end
+					'end': schedule.planned_end,
+					'block': schedule.get("block") or "",
+					'block_name': block_name
 				})
 		
 		return conflicts
@@ -479,6 +491,8 @@ class OnDemandActivity(Document):
 		# Use parameterized query for security
 		placeholders = ', '.join(['%s'] * len(equipment_assets))
 		
+		# Handle new activities (self.name might be None or empty)
+		name_filter = "oda.name != %s" if self.name else "1=1"
 		query = f"""
 			SELECT DISTINCT 
 				oda.name as activity_name,
@@ -498,18 +512,24 @@ class OnDemandActivity(Document):
 				UNION ALL
 				SELECT parent, asset, asset_name FROM `tabOn Demand Activity Other Tool` WHERE asset IN ({placeholders})
 			) eq ON oda.name = eq.parent
-			WHERE oda.name != %s
+			WHERE {name_filter}
 				AND oda.status IN ('Scheduled', 'Reported')
 				AND oda.planned_start IS NOT NULL
 				AND oda.planned_end IS NOT NULL
 		"""
 		
 		# Get all activities with matching assets, then filter by cluster in Python
-		params = equipment_assets * 4 + [self.name]  # 4 times for each UNION ALL, plus current doc name
+		params = equipment_assets * 4  # 4 times for each UNION ALL
+		if self.name:
+			params.append(self.name)
 		activities = frappe.db.sql(query, params, as_dict=True)
 		
 		# Filter by cluster - check if each activity's field belongs to the same cluster
 		for activity in activities:
+			# Explicitly exclude the current activity when editing
+			if self.name and activity.activity_name == self.name:
+				continue
+			
 			if not activity.get("field"):
 				continue
 			
@@ -524,13 +544,17 @@ class OnDemandActivity(Document):
 				activity.planned_start,
 				activity.planned_end
 			):
+				# On Demand Activity has blocks in a child table, so we can't easily get block info here
+				# For now, we'll skip block information for ODA conflicts
 				conflicts.append({
 					'asset': activity.asset,
 					'asset_name': activity.asset_name or activity.asset,
 					'schedule_name': activity.activity_name,
 					'schedule_type': 'On Demand Activity',
 					'start': activity.planned_start,
-					'end': activity.planned_end
+					'end': activity.planned_end,
+					'block': "",
+					'block_name': ""
 				})
 		
 		return conflicts
@@ -573,9 +597,15 @@ class OnDemandActivity(Document):
 		if conflicts:
 			conflict_messages = []
 			for conflict in conflicts:
+				block_info = ""
+				if conflict.get('block_name'):
+					block_info = f" for block {conflict['block_name']}"
+				elif conflict.get('block'):
+					block_info = f" for block {conflict['block']}"
+				
 				conflict_messages.append(
-					f"Asset {conflict['asset_name']} ({conflict['asset']}) is already booked in "
-					f"{conflict['schedule_type']} {conflict['schedule_name']} "
+					f"Asset {conflict['asset_name']} ({conflict['asset']}) is already booked{block_info} "
+					f"in {conflict['schedule_type']} {conflict['schedule_name']} "
 					f"({conflict['start']} to {conflict['end']})"
 				)
 			frappe.throw(
@@ -769,34 +799,56 @@ class OnDemandActivity(Document):
 			frappe.msgprint(error_msg, indicator="orange", title="Transfer Ticket Creation Failed")
 			return  # No valid assets with source warehouses
 		
+		# Get input items and their source warehouse (to include in equipment tickets when source matches)
+		input_items = self._collect_input_items()
+		input_source_warehouse = None
+		if input_items:
+			input_source_warehouse = self._get_source_warehouse_for_inputs()
+		
 		# Create transfer tickets for each source warehouse group
 		from f2c.inventory.logistics_transfer_ticket_api import create_logistics_transfer_ticket
 		created_tickets = []
 		errors = []
+		inputs_included_in_ticket = False
 		
 		for from_warehouse, asset_list in assets_by_warehouse.items():
 			if from_warehouse == target_warehouse:
 				frappe.log_error(f"Asset(s) {asset_list} already at target warehouse {target_warehouse}, skipping", "Equipment Transfer Ticket")
 				continue  # Skip if already at target
 			
+			# Include inputs in this ticket if source warehouse matches input source warehouse
+			stock_items_for_ticket = None
+			if input_items and input_source_warehouse and from_warehouse == input_source_warehouse:
+				stock_items_for_ticket = input_items
+				inputs_included_in_ticket = True
+				frappe.log_error(f"Including {len(input_items)} input item(s) in equipment transfer ticket from {from_warehouse}", "Equipment Transfer Ticket")
+			
 			try:
 				result = create_logistics_transfer_ticket(
 					from_warehouse=from_warehouse,
 					to_warehouse=target_warehouse,
-					stock_items=None,
+					stock_items=stock_items_for_ticket,
 					assets=asset_list
 				)
 				if result and result.get("ticket"):
 					created_tickets.append(result.get("ticket"))
-					frappe.log_error(f"Successfully created transfer ticket {result.get('ticket')} for assets {asset_list} from {from_warehouse} to {target_warehouse}", "Equipment Transfer Ticket")
+					ticket_type = "equipment and inputs" if stock_items_for_ticket else "equipment"
+					frappe.log_error(f"Successfully created transfer ticket {result.get('ticket')} for {ticket_type} from {from_warehouse} to {target_warehouse}", "Equipment Transfer Ticket")
 			except Exception as e:
-				error_msg = f"Error creating transfer ticket from {from_warehouse} to {target_warehouse} for activity {self.name}: {str(e)}"
+				# Truncate error message to prevent CharacterLengthExceededError (max 140 chars for title)
+				# Keep message very short to avoid nested error log references causing overflow
+				error_str = str(e)[:60] if len(str(e)) > 60 else str(e)
+				error_msg = f"Transfer ticket error for {self.name}: {error_str}"
 				frappe.log_error(error_msg, "Equipment Transfer Ticket")
-				errors.append(error_msg)
+				errors.append(f"Error creating transfer ticket from {from_warehouse} to {target_warehouse}: {str(e)}")
 				continue
 		
+		# Store flag to indicate inputs were included (used by _create_input_transfer_tickets to skip if already included)
+		self._inputs_included_in_equipment_tickets = inputs_included_in_ticket
+		
 		if created_tickets:
-			frappe.msgprint(f"Created {len(created_tickets)} transfer ticket(s) for equipment: {', '.join(created_tickets)}", indicator="green", title="Transfer Tickets Created")
+			ticket_type = "equipment and inputs" if inputs_included_in_ticket else "equipment"
+			frappe.msgprint(f"Created {len(created_tickets)} transfer ticket(s) for {ticket_type}: {', '.join(created_tickets)}", indicator="green", title="Transfer Tickets Created")
 		elif errors:
 			frappe.msgprint("Failed to create transfer tickets. Please check Error Log for details.", indicator="red", title="Transfer Ticket Creation Failed")
 
@@ -812,7 +864,14 @@ class OnDemandActivity(Document):
 		return input_items
 
 	def _get_source_warehouse_for_inputs(self) -> str | None:
-		"""Get source warehouse for input items. Uses company default or first available warehouse."""
+		"""Get source warehouse for input items. Uses cluster warehouse (matching equipment transfer pattern), falls back to company default warehouse."""
+		# First, try to get cluster warehouse (matching equipment transfer behavior)
+		if self.field:
+			cluster_warehouse = self._get_cluster_warehouse_for_field(self.field)
+			if cluster_warehouse:
+				return cluster_warehouse
+		
+		# Fallback to company default warehouse (for backward compatibility)
 		# Get company from target warehouse (if we have it)
 		company = None
 		target_warehouse = self._get_target_warehouse_for_field(self.field) if self.field else None
@@ -847,7 +906,8 @@ class OnDemandActivity(Document):
 		return None
 
 	def _create_input_transfer_tickets(self):
-		"""Create Logistics Transfer Tickets for input items when activity is saved with status Scheduled."""
+		"""Create Logistics Transfer Tickets for input items when activity is saved with status Scheduled.
+		Note: If inputs were already included in equipment transfer tickets, this will skip creating a separate ticket."""
 		if self.status != "Scheduled":
 			frappe.log_error(f"Activity {self.name} status is not 'Scheduled' (current: {self.status}), skipping input ticket creation", "Input Transfer Ticket")
 			return
@@ -855,6 +915,11 @@ class OnDemandActivity(Document):
 		if not self.field:
 			frappe.log_error(f"Activity {self.name} has no field specified, skipping input ticket creation", "Input Transfer Ticket")
 			return  # No field specified
+		
+		# Check if inputs were already included in equipment tickets
+		if getattr(self, '_inputs_included_in_equipment_tickets', False):
+			frappe.log_error(f"Input items for activity {self.name} were already included in equipment transfer ticket(s), skipping separate input ticket", "Input Transfer Ticket")
+			return
 		
 		# Collect input items
 		input_items = self._collect_input_items()
@@ -872,7 +937,7 @@ class OnDemandActivity(Document):
 		# Get source warehouse
 		source_warehouse = self._get_source_warehouse_for_inputs()
 		if not source_warehouse:
-			error_msg = f"Cannot find source warehouse for input items in activity {self.name}. Please ensure company has a default warehouse."
+			error_msg = f"Cannot find source warehouse (cluster warehouse) for input items in activity {self.name}. Please ensure field has a cluster warehouse configured or company has a default warehouse."
 			frappe.log_error(error_msg, "Input Transfer Ticket")
 			frappe.msgprint(error_msg, indicator="orange", title="Input Transfer Ticket Creation Failed")
 			return
@@ -902,7 +967,10 @@ class OnDemandActivity(Document):
 				frappe.msgprint(f"Created input transfer ticket {result.get('ticket')} for {len(input_items)} item(s)", indicator="green", title="Input Transfer Ticket Created")
 				frappe.log_error(f"Successfully created input transfer ticket {result.get('ticket')} for items from {source_warehouse} to {target_warehouse}", "Input Transfer Ticket")
 		except Exception as e:
-			error_msg = f"Error creating input transfer ticket from {source_warehouse} to {target_warehouse} for activity {self.name}: {str(e)}"
+			# Truncate error message to prevent CharacterLengthExceededError (max 140 chars for title)
+			# Keep message very short to avoid nested error log references causing overflow
+			error_str = str(e)[:60] if len(str(e)) > 60 else str(e)
+			error_msg = f"Input transfer ticket error for {self.name}: {error_str}"
 			frappe.log_error(error_msg, "Input Transfer Ticket")
 			frappe.msgprint("Failed to create input transfer ticket. Please check Error Log for details.", indicator="red", title="Input Transfer Ticket Creation Failed")
 
@@ -1116,7 +1184,10 @@ class OnDemandActivity(Document):
 				self._create_input_transfer_tickets()
 			except Exception as e:
 				# Log error but don't block activity creation
-				error_msg = f"Error in after_insert creating transfer tickets for activity {self.name}: {str(e)}"
+				# Truncate error message to prevent CharacterLengthExceededError (max 140 chars for title)
+				# Keep message very short to avoid nested error log references causing overflow
+				error_str = str(e)[:60] if len(str(e)) > 60 else str(e)
+				error_msg = f"Transfer ticket creation error for {self.name}: {error_str}"
 				frappe.log_error(error_msg, "Transfer Ticket")
 				# Don't raise - allow activity to be created even if ticket creation fails
 
@@ -1132,7 +1203,10 @@ class OnDemandActivity(Document):
 					self._create_return_transfer_tickets()
 				except Exception as e:
 					# Log error but don't block activity update
-					error_msg = f"Error in on_update creating return transfer tickets for activity {self.name}: {str(e)}"
+					# Truncate error message to prevent CharacterLengthExceededError (max 140 chars for title)
+					# Keep message very short to avoid nested error log references causing overflow
+					error_str = str(e)[:60] if len(str(e)) > 60 else str(e)
+					error_msg = f"Return transfer ticket error for {self.name}: {error_str}"
 					frappe.log_error(error_msg, "Return Transfer Ticket")
 					# Don't raise - allow activity to be updated even if ticket creation fails
 				return  # Don't process forward transfers if status is Completed
@@ -1151,7 +1225,10 @@ class OnDemandActivity(Document):
 					self._create_input_transfer_tickets()
 				except Exception as e:
 					# Log error but don't block activity update
-					error_msg = f"Error in on_update creating transfer tickets for activity {self.name}: {str(e)}"
+					# Truncate error message to prevent CharacterLengthExceededError (max 140 chars for title)
+					# Keep message very short to avoid nested error log references causing overflow
+					error_str = str(e)[:60] if len(str(e)) > 60 else str(e)
+					error_msg = f"Transfer ticket error for {self.name}: {error_str}"
 					frappe.log_error(error_msg, "Transfer Ticket")
 					# Don't raise - allow activity to be updated even if ticket creation fails
 			# If status was already Scheduled, check if equipment was added
@@ -1197,7 +1274,10 @@ class OnDemandActivity(Document):
 						self._create_equipment_transfer_tickets()
 					except Exception as e:
 						# Log error but don't block activity update
-						error_msg = f"Error in on_update creating transfer tickets for activity {self.name} (equipment added): {str(e)}"
+						# Truncate error message to prevent CharacterLengthExceededError (max 140 chars for title)
+						# Keep message very short to avoid nested error log references causing overflow
+						error_str = str(e)[:60] if len(str(e)) > 60 else str(e)
+						error_msg = f"Equipment transfer ticket error for {self.name}: {error_str}"
 						frappe.log_error(error_msg, "Equipment Transfer Ticket")
 						# Don't raise - allow activity to be updated even if ticket creation fails
 				
@@ -1208,7 +1288,10 @@ class OnDemandActivity(Document):
 					self._create_input_transfer_tickets()
 				except Exception as e:
 					# Log error but don't block activity update
-					error_msg = f"Error in on_update creating input transfer tickets for activity {self.name}: {str(e)}"
+					# Truncate error message to prevent CharacterLengthExceededError (max 140 chars for title)
+					# Keep message very short to avoid nested error log references causing overflow
+					error_str = str(e)[:60] if len(str(e)) > 60 else str(e)
+					error_msg = f"Input transfer ticket error for {self.name}: {error_str}"
 					frappe.log_error(error_msg, "Input Transfer Ticket")
 					# Don't raise - allow activity to be updated even if ticket creation fails
 
