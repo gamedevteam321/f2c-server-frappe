@@ -563,3 +563,59 @@ def get_assets_for_warehouse(warehouse: str):
 	}
 
 
+@frappe.whitelist()
+def get_available_balance(item_code: str, warehouse: str):
+	"""
+	Get available stock balance for an item in a warehouse.
+	Returns balance as string, or "Not Available" if item is not a stock item or has no balance.
+	"""
+	if not item_code or not warehouse:
+		return "Not Available"
+	
+	try:
+		# Check if item is stock item
+		is_stock_item = frappe.db.get_value("Item", item_code, "is_stock_item")
+		
+		if not is_stock_item:
+			return "Not Available"
+		
+		# Get stock balance
+		from erpnext.stock.utils import get_stock_balance
+		balance = get_stock_balance(item_code, warehouse)
+		
+		if balance is not None and balance > 0:
+			return str(balance)
+		else:
+			return "0"
+	except Exception:
+		return "Not Available"
+
+
+@frappe.whitelist()
+def get_asset_availability(asset: str, warehouse: str):
+	"""
+	Check if an asset is available at the warehouse's location.
+	Returns "Available" if asset is at the warehouse location, "Not Available" otherwise.
+	"""
+	if not asset or not warehouse:
+		return "Not Available"
+	
+	try:
+		# Get warehouse location
+		location_result = get_location_for_warehouse(warehouse)
+		warehouse_location = location_result.get("location") if location_result else None
+		
+		if not warehouse_location:
+			return "Not Available"
+		
+		# Get asset location
+		asset_location = frappe.db.get_value("Asset", asset, "location")
+		
+		if asset_location == warehouse_location:
+			return "Available"
+		else:
+			return "Not Available"
+	except Exception:
+		return "Not Available"
+
+
