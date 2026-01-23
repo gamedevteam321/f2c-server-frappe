@@ -1766,7 +1766,9 @@ def get_available_assets_for_cluster(
 			loc_info = f" locations={location_list[:2]}" if location_list else " no locations"
 			wh_info = f" warehouses={warehouse_list[:2]}" if warehouse_list else ""
 			cluster_info = f" cluster={cluster}" if cluster else ""
-			frappe.log_error(f"get_available_assets_for_cluster: No assets found{cluster_info}{loc_info}{wh_info}{category_info}", "Asset Filter")
+			# Keep error log title short to avoid CharacterLengthExceededError (Error Log.title max is 140 chars)
+			msg = f"get_available_assets_for_cluster: No assets found{cluster_info}{loc_info}{wh_info}{category_info}"
+			frappe.log_error(msg[:130], "Asset Filter")
 		
 		# If time period is provided, filter out booked assets
 		if planned_start and planned_end:
