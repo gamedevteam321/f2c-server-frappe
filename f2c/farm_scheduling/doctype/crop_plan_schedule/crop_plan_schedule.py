@@ -677,6 +677,8 @@ class CropPlanSchedule(Document):
 		equipment_assets = self._collect_equipment_assets()
 		if not equipment_assets:
 			frappe.log_error(f"Schedule {self.name} has no equipment assets to transfer", "Equipment Transfer Ticket")
+			# Explicitly set flag to False so _create_input_transfer_tickets knows inputs weren't included
+			self._inputs_included_in_equipment_tickets = False
 			return  # No equipment to transfer
 		
 		frappe.log_error(f"Creating transfer tickets for schedule {self.name} with {len(equipment_assets)} assets: {equipment_assets}", "Equipment Transfer Ticket")
@@ -710,27 +712,65 @@ class CropPlanSchedule(Document):
 			frappe.msgprint(error_msg, indicator="orange", title="Transfer Ticket Creation Failed")
 			return  # No valid assets with source warehouses
 		
-		# Get input items and their source warehouse (to include in equipment tickets when source matches)
+		# Get input items (to always include in equipment tickets as suggestions)
 		input_items = self._collect_input_items()
-		input_source_warehouse = None
-		if input_items:
-			input_source_warehouse = self._get_source_warehouse_for_inputs()
 		
 		# Create transfer tickets for each source warehouse group
 		from f2c.inventory.logistics_transfer_ticket_api import create_logistics_transfer_ticket
 		created_tickets = []
 		errors = []
-		inputs_included_in_ticket = False
+		# Initialize flag - preserve existing value if already set (from previous call)
+		inputs_included_in_ticket = getattr(self, '_inputs_included_in_equipment_tickets', False)
 		
 		for from_warehouse, asset_list in assets_by_warehouse.items():
 			if from_warehouse == target_warehouse:
 				frappe.log_error(f"Asset(s) {asset_list} already at target warehouse {target_warehouse}, skipping", "Equipment Transfer Ticket")
 				continue  # Skip if already at target
 			
-			# Include inputs in this ticket if source warehouse matches input source warehouse
-			stock_items_for_ticket = None
-			if input_items and input_source_warehouse and from_warehouse == input_source_warehouse:
-				stock_items_for_ticket = input_items
+			# Check if a ticket already exists for this transfer (prevent duplicates)
+			# Only check for very recent tickets (last 5 seconds) to catch true duplicates from rapid multiple saves
+			from frappe.utils import add_to_date, now_datetime
+			recent_time = add_to_date(now_datetime(), seconds=-5)
+			
+			existing_tickets = frappe.get_all(
+				"Logistics Transfer Ticket",
+				filters={
+					"from_warehouse": from_warehouse,
+					"to_warehouse": target_warehouse,
+					"status": ["!=", "Cancelled"],
+					"creation": [">=", recent_time]
+				},
+				fields=["name"],
+				limit=10
+			)
+			
+			# Check if any existing ticket has the same assets
+			# Only consider tickets that have assets (not input-only tickets)
+			ticket_exists = False
+			for ticket_name in [t.name for t in existing_tickets]:
+				try:
+					ticket_doc = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
+					# Only check tickets that have assets (skip input-only tickets)
+					if ticket_doc.asset_items and len(ticket_doc.asset_items) > 0:
+						ticket_assets = {ai.asset for ai in ticket_doc.asset_items if ai.asset}
+						# Skip if no valid assets found
+						if not ticket_assets:
+							continue
+						asset_set = set(asset_list)
+						# If ticket has exactly the same assets, it's a duplicate
+						if ticket_assets == asset_set:
+							ticket_exists = True
+							frappe.log_error(f"Duplicate equipment transfer ticket already exists for schedule {self.name}: {ticket_name} (same assets and warehouses), skipping", "Equipment Transfer Ticket")
+							break
+				except Exception:
+					continue  # Skip if ticket can't be read
+			
+			if ticket_exists:
+				continue  # Skip creating duplicate ticket
+			
+			# Always include inputs in equipment tickets (as suggestions, regardless of source warehouse)
+			stock_items_for_ticket = input_items if input_items else None
+			if stock_items_for_ticket:
 				inputs_included_in_ticket = True
 				frappe.log_error(f"Including {len(input_items)} input item(s) in equipment transfer ticket from {from_warehouse}", "Equipment Transfer Ticket")
 			
@@ -826,7 +866,8 @@ class CropPlanSchedule(Document):
 
 	def _create_input_transfer_tickets(self):
 		"""Create Logistics Transfer Tickets for input items when schedule is saved with status Scheduled.
-		Note: If inputs were already included in equipment transfer tickets, this will skip creating a separate ticket."""
+		Note: If inputs were already included in equipment transfer tickets, this will skip creating a separate ticket.
+		This prevents duplicate inputs when equipment and inputs come from different source warehouses."""
 		if self.status != "Scheduled":
 			frappe.log_error(f"Schedule {self.name} status is not 'Scheduled' (current: {self.status}), skipping input ticket creation", "Input Transfer Ticket")
 			return
@@ -836,9 +877,38 @@ class CropPlanSchedule(Document):
 			return  # No field specified
 		
 		# Check if inputs were already included in equipment tickets
-		if getattr(self, '_inputs_included_in_equipment_tickets', False):
-			frappe.log_error(f"Input items for schedule {self.name} were already included in equipment transfer ticket(s), skipping separate input ticket", "Input Transfer Ticket")
+		# Look for recent equipment tickets that already include inputs to prevent duplicates
+		if not self.field:
 			return
+		
+		target_warehouse = self._get_target_warehouse_for_field(self.field)
+		if target_warehouse:
+			from frappe.utils import add_to_date, now_datetime
+			recent_time = add_to_date(now_datetime(), minutes=-5)
+			
+			# Find recent tickets to this target warehouse with assets (equipment tickets)
+			existing_equipment_tickets = frappe.get_all(
+				"Logistics Transfer Ticket",
+				filters={
+					"to_warehouse": target_warehouse,
+					"status": ["!=", "Cancelled"],
+					"creation": [">=", recent_time]
+				},
+				fields=["name"],
+				limit=10
+			)
+			
+			# Check if any ticket has both assets AND stock items (equipment + inputs ticket)
+			for ticket_name in [t.name for t in existing_equipment_tickets]:
+				try:
+					ticket_doc = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
+					# If ticket has assets and stock items, inputs were already included with equipment
+					if ticket_doc.asset_items and len(ticket_doc.asset_items) > 0:
+						if ticket_doc.stock_items and len(ticket_doc.stock_items) > 0:
+							frappe.log_error(f"Input items for schedule {self.name} were already included in equipment transfer ticket {ticket_name}, skipping separate input ticket to prevent duplicates", "Input Transfer Ticket")
+							return
+				except Exception:
+					continue
 		
 		# Collect input items
 		input_items = self._collect_input_items()
@@ -872,6 +942,46 @@ class CropPlanSchedule(Document):
 		if source_warehouse == target_warehouse:
 			frappe.log_error(f"Input items already at target warehouse {target_warehouse}, skipping", "Input Transfer Ticket")
 			return  # Skip if already at target
+		
+		# Check if a ticket already exists for the same transfer (prevent duplicates)
+		# Only check for very recent tickets (last 5 seconds) to catch true duplicates from rapid multiple saves
+		# Look for input-only tickets (no assets) with same warehouses and items
+		from frappe.utils import add_to_date, now_datetime
+		recent_time = add_to_date(now_datetime(), seconds=-5)
+		
+		existing_tickets = frappe.get_all(
+			"Logistics Transfer Ticket",
+			filters={
+				"from_warehouse": source_warehouse,
+				"to_warehouse": target_warehouse,
+				"status": ["!=", "Cancelled"],
+				"creation": [">=", recent_time]
+			},
+			fields=["name"],
+			limit=10
+		)
+		
+		# Check if any existing ticket has the same stock items AND no assets (input-only ticket)
+		for ticket_name in [t.name for t in existing_tickets]:
+			try:
+				ticket_doc = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
+				# Only consider tickets with no assets (input-only tickets) as potential duplicates
+				# Tickets with assets are from equipment transfer tickets and should be ignored
+				if ticket_doc.asset_items and len(ticket_doc.asset_items) > 0:
+					continue  # Skip tickets with assets - they're from equipment tickets
+				
+				# Check if stock items match
+				if ticket_doc.stock_items and len(ticket_doc.stock_items) == len(input_items):
+					# Compare items - check if all items match
+					ticket_items = {(si.item_code, flt(si.qty)) for si in ticket_doc.stock_items if si.item_code}
+					input_items_set = {(item.get("item_code"), flt(item.get("qty"))) for item in input_items if item.get("item_code")}
+					
+					if ticket_items == input_items_set:
+						# Duplicate ticket found - skip creation
+						frappe.log_error(f"Duplicate input transfer ticket already exists for schedule {self.name}: {ticket_name} (same items and warehouses), skipping", "Input Transfer Ticket")
+						return
+			except Exception:
+				continue  # Skip if ticket can't be read
 		
 		# Create transfer ticket for input items
 		from f2c.inventory.logistics_transfer_ticket_api import create_logistics_transfer_ticket
@@ -1102,8 +1212,20 @@ class CropPlanSchedule(Document):
 		"""Create transfer tickets when schedule is first created with status Scheduled."""
 		if self.status == "Scheduled":
 			try:
-				self._create_equipment_transfer_tickets()
-				self._create_input_transfer_tickets()
+				# Check if there are equipment assets
+				current_assets = set(self._collect_equipment_assets())
+				# MARKER: CODE_VERSION_2026_01_23_v2_AFTER_INSERT
+				frappe.log_error(f"🔧 NEW CODE (after_insert) for {self.name}: Found {len(current_assets)} assets", "Transfer Ticket Debug")
+				
+				if current_assets:
+					# If equipment exists, create equipment ticket (which includes inputs)
+					frappe.log_error(f"✅ Creating ONLY equipment ticket for {self.name} (includes inputs)", "Transfer Ticket Debug")
+					self._create_equipment_transfer_tickets()
+					# Don't call _create_input_transfer_tickets() - inputs are already in equipment ticket
+				else:
+					# No equipment, only create input tickets if there are inputs
+					frappe.log_error(f"📦 Creating ONLY input ticket for {self.name} (no equipment)", "Transfer Ticket Debug")
+					self._create_input_transfer_tickets()
 			except Exception as e:
 				# Log error but don't block schedule creation
 				# Truncate error message to prevent CharacterLengthExceededError (max 140 chars for title)
@@ -1143,8 +1265,20 @@ class CropPlanSchedule(Document):
 			if old_status != "Scheduled":
 				# Status just changed to Scheduled, create tickets
 				try:
-					self._create_equipment_transfer_tickets()
-					self._create_input_transfer_tickets()
+					# Check if there are equipment assets
+					current_assets = set(self._collect_equipment_assets())
+					# MARKER: CODE_VERSION_2026_01_23_v2
+					frappe.log_error(f"🔧 NEW CODE RUNNING for {self.name}: Found {len(current_assets)} assets", "Transfer Ticket Debug")
+					
+					if current_assets:
+						# If equipment exists, create equipment ticket (which includes inputs)
+						frappe.log_error(f"✅ Creating ONLY equipment ticket for {self.name} (includes inputs)", "Transfer Ticket Debug")
+						self._create_equipment_transfer_tickets()
+						# Don't call _create_input_transfer_tickets() - inputs are already in equipment ticket
+					else:
+						# No equipment, only create input tickets if there are inputs
+						frappe.log_error(f"📦 Creating ONLY input ticket for {self.name} (no equipment)", "Transfer Ticket Debug")
+						self._create_input_transfer_tickets()
 				except Exception as e:
 					# Log error but don't block schedule update
 					# Truncate error message to prevent CharacterLengthExceededError (max 140 chars for title)
@@ -1153,45 +1287,15 @@ class CropPlanSchedule(Document):
 					error_msg = f"Transfer ticket error for {self.name}: {error_str}"
 					frappe.log_error(error_msg, "Transfer Ticket")
 					# Don't raise - allow schedule to be updated even if ticket creation fails
-			# If status was already Scheduled, check if equipment was added
-			# by comparing current equipment with previous equipment
+			# If status was already Scheduled, check if equipment tickets need to be created
+			# Check if tickets already exist for this schedule's equipment
 			else:
-				# Get previous equipment assets
-				prev_assets = set()
-				try:
-					prev_machinery = frappe.get_all(
-						"Crop Plan Schedule Machinery",
-						filters={"parent": self.name},
-						fields=["asset"],
-						pluck="asset"
-					)
-					prev_implements = frappe.get_all(
-						"Crop Plan Schedule Implement",
-						filters={"parent": self.name},
-						fields=["asset"],
-						pluck="asset"
-					)
-					prev_hand_tools = frappe.get_all(
-						"Crop Plan Schedule Hand Tool",
-						filters={"parent": self.name},
-						fields=["asset"],
-						pluck="asset"
-					)
-					prev_other_tools = frappe.get_all(
-						"Crop Plan Schedule Other Tool",
-						filters={"parent": self.name},
-						fields=["asset"],
-						pluck="asset"
-					)
-					prev_assets = set(prev_machinery + prev_implements + prev_hand_tools + prev_other_tools)
-				except Exception:
-					prev_assets = set()
-				
 				# Get current equipment assets
 				current_assets = set(self._collect_equipment_assets())
 				
-				# If new equipment was added, create tickets
-				if current_assets and current_assets != prev_assets:
+				# If there are equipment assets, always try to create tickets
+				# The _create_equipment_transfer_tickets method will handle duplicate prevention internally
+				if current_assets:
 					try:
 						self._create_equipment_transfer_tickets()
 					except Exception as e:
@@ -1202,20 +1306,19 @@ class CropPlanSchedule(Document):
 						error_msg = f"Equipment transfer ticket error for {self.name}: {error_str}"
 						frappe.log_error(error_msg, "Equipment Transfer Ticket")
 						# Don't raise - allow schedule to be updated even if ticket creation fails
-				
-				# Check if inputs were added/changed and create tickets if needed
-				# Note: We create tickets if inputs exist, but don't check for duplicates here
-				# The create_logistics_transfer_ticket API should handle or we can add duplicate checking later
-				try:
-					self._create_input_transfer_tickets()
-				except Exception as e:
-					# Log error but don't block schedule update
-					# Truncate error message to prevent CharacterLengthExceededError (max 140 chars for title)
-					# Keep message very short to avoid nested error log references causing overflow
-					error_str = str(e)[:60] if len(str(e)) > 60 else str(e)
-					error_msg = f"Input transfer ticket error for {self.name}: {error_str}"
-					frappe.log_error(error_msg, "Input Transfer Ticket")
-					# Don't raise - allow schedule to be updated even if ticket creation fails
+				else:
+					# No equipment, only create input tickets if there are inputs
+					# This prevents duplicate input tickets when equipment exists
+					try:
+						self._create_input_transfer_tickets()
+					except Exception as e:
+						# Log error but don't block schedule update
+						# Truncate error message to prevent CharacterLengthExceededError (max 140 chars for title)
+						# Keep message very short to avoid nested error log references causing overflow
+						error_str = str(e)[:60] if len(str(e)) > 60 else str(e)
+						error_msg = f"Input transfer ticket error for {self.name}: {error_str}"
+						frappe.log_error(error_msg, "Input Transfer Ticket")
+						# Don't raise - allow schedule to be updated even if ticket creation fails
 
 
 def compute_total_qty(*, water_liters: float, total_acres: float, rate: float, unit: str) -> float:

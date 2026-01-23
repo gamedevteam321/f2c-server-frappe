@@ -202,40 +202,83 @@ def create_logistics_transfer_ticket(
 	to_loc = get_location_for_warehouse(to_warehouse).get("location")
 
 	stock_entry_name = None
+	available_items_for_entry = []
 	if stock_items:
-		items = []
+		# Check availability for each item before creating Stock Entry
+		# All items (available or not) will still be included in ticket.stock_items below
 		for row in stock_items:
 			item_code = row.get("item_code")
 			qty = flt(row.get("qty"))
 			if not item_code or qty <= 0:
 				continue
-			items.append(
-				{
+			
+			# Check if item is available at source warehouse
+			try:
+				from erpnext.stock.utils import get_stock_balance
+				from erpnext.stock.stock_ledger import is_negative_stock_allowed
+				
+				# Get item details to check if it's a stock item
+				is_stock_item = frappe.db.get_value("Item", item_code, "is_stock_item")
+				
+				if is_stock_item:
+					available_qty = get_stock_balance(item_code, from_warehouse)
+					allow_negative = is_negative_stock_allowed(item_code=item_code)
+					
+					# Include in Stock Entry if:
+					# - Item is available (qty > 0), OR
+					# - Negative stock is allowed (even if qty is 0 or negative)
+					if available_qty > 0 or allow_negative:
+						available_items_for_entry.append({
+							"doctype": "Stock Entry Detail",
+							"item_code": item_code,
+							"qty": min(qty, available_qty) if available_qty > 0 else qty,
+							"s_warehouse": from_warehouse,
+							"t_warehouse": to_warehouse,
+						})
+					# If item not available and negative stock not allowed, skip Stock Entry
+					# but item will still be in ticket.stock_items below
+				else:
+					# Non-stock item - include in Stock Entry (no availability check needed)
+					available_items_for_entry.append({
+						"doctype": "Stock Entry Detail",
+						"item_code": item_code,
+						"qty": qty,
+						"s_warehouse": from_warehouse,
+						"t_warehouse": to_warehouse,
+					})
+			except Exception as e:
+				# If stock check fails, log error but continue
+				# Include item anyway - let Stock Entry validation handle it
+				frappe.log_error(
+					f"Error checking stock for item {item_code} in warehouse {from_warehouse}: {str(e)}",
+					"Stock Check"
+				)
+				available_items_for_entry.append({
 					"doctype": "Stock Entry Detail",
 					"item_code": item_code,
 					"qty": qty,
 					"s_warehouse": from_warehouse,
 					"t_warehouse": to_warehouse,
+				})
+		
+		# Only create Stock Entry if there are available items
+		# Note: All items (available or not) are still included in ticket.stock_items below
+		if available_items_for_entry:
+			se = frappe.get_doc(
+				{
+					"doctype": "Stock Entry",
+					"company": company,
+					"purpose": "Material Transfer",
+					"stock_entry_type": "Material Transfer",
+					"from_warehouse": from_warehouse,
+					"to_warehouse": to_warehouse,
+					"posting_date": now_datetime().date(),
+					"posting_time": now_datetime().time().replace(microsecond=0).isoformat(),
+					"items": available_items_for_entry,
 				}
 			)
-		if not items:
-			frappe.throw(_("No valid stock items (qty > 0)"))
-
-		se = frappe.get_doc(
-			{
-				"doctype": "Stock Entry",
-				"company": company,
-				"purpose": "Material Transfer",
-				"stock_entry_type": "Material Transfer",
-				"from_warehouse": from_warehouse,
-				"to_warehouse": to_warehouse,
-				"posting_date": now_datetime().date(),
-				"posting_time": now_datetime().time().replace(microsecond=0).isoformat(),
-				"items": items,
-			}
-		)
-		se.insert(ignore_permissions=True)
-		stock_entry_name = se.name
+			se.insert(ignore_permissions=True)
+			stock_entry_name = se.name
 
 	asset_movement_name = None
 	asset_item_rows_for_ticket: list[dict] = []
