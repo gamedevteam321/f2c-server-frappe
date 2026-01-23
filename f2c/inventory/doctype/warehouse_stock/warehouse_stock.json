@@ -14,7 +14,9 @@
     "company",
     "last_refreshed_on",
     "section_break_items",
-    "items"
+    "items",
+    "section_break_assets",
+    "assets"
   ],
   "fields": [
     {
@@ -52,6 +54,17 @@
       "fieldtype": "Table",
       "label": "Items",
       "options": "Warehouse Stock Item"
+    },
+    {
+      "fieldname": "section_break_assets",
+      "fieldtype": "Section Break",
+      "label": "Assets"
+    },
+    {
+      "fieldname": "assets",
+      "fieldtype": "Table",
+      "label": "Assets",
+      "options": "Warehouse Stock Asset"
     }
   ],
   "permissions": [

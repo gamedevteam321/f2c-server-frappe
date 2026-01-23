@@ -2,6 +2,7 @@ import frappe
 from frappe.model.document import Document
 from frappe.query_builder.functions import Sum
 from frappe.utils import flt, now_datetime
+from f2c.inventory.logistics_transfer_ticket_api import get_location_for_warehouse
 
 
 class WarehouseStock(Document):
@@ -85,12 +86,19 @@ def refresh_from_ledger(warehouse_stock_name: str) -> str:
 			}
 		)
 
+	# Also get assets for the warehouse
+	snapshot_assets = _get_assets_for_warehouse(warehouse)
+
 	for attempt in range(2):
 		doc = frappe.get_doc("Warehouse Stock", warehouse_stock_name)
 		doc.company = company
 		doc.set("items", [])
 		for it in snapshot_items:
 			doc.append("items", it)
+		# Also refresh assets when refreshing items
+		doc.set("assets", [])
+		for asset in snapshot_assets:
+			doc.append("assets", asset)
 		doc.last_refreshed_on = now_datetime()
 		try:
 			doc.save(ignore_permissions=True)
@@ -103,12 +111,128 @@ def refresh_from_ledger(warehouse_stock_name: str) -> str:
 	return warehouse_stock_name
 
 
+def _get_assets_for_warehouse(warehouse: str) -> list[dict]:
+	"""
+	Get assets for a warehouse by querying Asset doctype filtered by warehouse location.
+	Returns a list of asset dictionaries ready to be appended to the assets child table.
+	"""
+	if not warehouse:
+		return []
+
+	# Get location for warehouse
+	location_result = get_location_for_warehouse(warehouse)
+	location = location_result.get("location") if location_result else None
+
+	if not location:
+		return []
+
+	# Query assets by location
+	assets = frappe.get_all(
+		"Asset",
+		fields=["name", "asset_name", "status", "location", "asset_category"],
+		filters=[["location", "=", location]],
+		limit=1000
+	)
+
+	# Build snapshot rows
+	snapshot_assets: list[dict] = []
+	for asset in assets:
+		snapshot_assets.append(
+			{
+				"asset": asset.get("name"),
+				"asset_name": asset.get("asset_name"),
+				"status": asset.get("status"),
+				"location": asset.get("location"),
+				"asset_category": asset.get("asset_category"),
+			}
+		)
+
+	return snapshot_assets
+
+
+@frappe.whitelist()
+def refresh_assets_from_location(warehouse_stock_name: str) -> str:
+	"""
+	Rebuild the assets child table rows by querying Asset doctype filtered by warehouse location.
+	"""
+	doc0 = frappe.get_doc("Warehouse Stock", warehouse_stock_name)
+	if not doc0.warehouse:
+		frappe.throw("Please set Warehouse before refreshing assets.")
+
+	warehouse = doc0.warehouse
+	snapshot_assets = _get_assets_for_warehouse(warehouse)
+
+	# Save with retry logic
+	for attempt in range(2):
+		doc = frappe.get_doc("Warehouse Stock", warehouse_stock_name)
+		doc.set("assets", [])
+		for asset in snapshot_assets:
+			doc.append("assets", asset)
+		try:
+			doc.save(ignore_permissions=True)
+			return doc.name
+		except frappe.TimestampMismatchError:
+			if attempt == 0:
+				continue
+			raise
+
+	return warehouse_stock_name
+
+
+def _get_warehouses_with_assets() -> list[str]:
+	"""
+	Return warehouses that have assets at their mapped location.
+	This includes field warehouses that may only have assets (no stock items).
+	"""
+	warehouses_with_assets = []
+	
+	# Get all non-group warehouses (field warehouses are ledger warehouses)
+	all_warehouses = frappe.get_all(
+		"Warehouse",
+		fields=["name"],
+		filters={"is_group": 0},
+		limit=1000
+	)
+	
+	# Check each warehouse for assets
+	for wh in all_warehouses:
+		warehouse_name = wh.get("name")
+		if not warehouse_name:
+			continue
+		
+		try:
+			# Get location for this warehouse
+			location_result = get_location_for_warehouse(warehouse_name)
+			location = location_result.get("location") if location_result else None
+			
+			if not location:
+				continue
+			
+			# Check if there are any assets at this location
+			assets = frappe.get_all(
+				"Asset",
+				fields=["name"],
+				filters=[["location", "=", location]],
+				limit=1
+			)
+			
+			if assets:
+				warehouses_with_assets.append(warehouse_name)
+		except Exception:
+			# Skip warehouses where location lookup fails
+			continue
+	
+	return warehouses_with_assets
+
+
 def _get_warehouses_with_positive_stock() -> list[str]:
 	"""
-	Return warehouses that have *any* item with net qty > 0, computed from Stock Ledger Entry.
-
-	We treat sum(actual_qty) per (warehouse, item_code) as the current balance for that item.
+	Return warehouses that have *any* item with net qty > 0, computed from Stock Ledger Entry,
+	OR warehouses that have assets at their mapped location.
+	
+	This ensures field warehouses with only assets (no stock items) are also included.
 	"""
+	# Get warehouses with stock items
 	rows = frappe.db.sql(
 		"""
 		select distinct t.warehouse
@@ -128,7 +252,14 @@ def _get_warehouses_with_positive_stock() -> list[str]:
 		""",
 		as_dict=True,
 	)
-	return [r["warehouse"] for r in rows if r.get("warehouse")]
+	warehouses_with_stock = [r["warehouse"] for r in rows if r.get("warehouse")]
+	
+	# Also get warehouses with assets (includes field warehouses)
+	warehouses_with_assets = _get_warehouses_with_assets()
+	
+	# Combine and deduplicate
+	all_warehouses = set(warehouses_with_stock + warehouses_with_assets)
+	return list(all_warehouses)
 
 
 @frappe.whitelist()
