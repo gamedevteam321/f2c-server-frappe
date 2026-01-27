@@ -25,7 +25,7 @@ def login_and_get_token(usr: str, pwd: str):
 
 	# Validate credentials without creating a session cookie.
 	user = check_password(usr, pwd)
-	if user in ("Guest", "Administrator"):
+	if user in ("Guest",):
 		frappe.throw(_("Not permitted"), frappe.PermissionError)
 
 	user_doc = frappe.get_doc("User", user)
