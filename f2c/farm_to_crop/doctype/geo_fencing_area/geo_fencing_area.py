@@ -1289,6 +1289,8 @@ class GeoFencingArea(Document):
 		else:
 			# Get old parent_area from database
 			self._old_parent_area = frappe.db.get_value("Geo Fencing Area", self.name, "parent_area")
+			# Keep is_group warehouse rows when UI sends only ledger warehouses (UI hides group warehouses)
+			self.preserve_group_warehouse_rows_on_save()
 		
 		self.set_level_sequence()
 		self.fetch_shape_type()
@@ -1300,6 +1302,88 @@ class GeoFencingArea(Document):
 		
 		# Create stock warehouses for newly linked Farm/Cluster warehouses
 		self.create_stock_warehouses_for_linked_warehouses()
+	
+	def preserve_group_warehouse_rows_on_save(self):
+		"""When saving from the UI, the frontend sends only ledger (non-group) warehouses.
+		Preserve existing warehouse rows that link to is_group=1 so they are not removed.
+		"""
+		if not self.has_warehouse:
+			return
+		incoming_warehouses = {None, ""}
+		for r in (self.warehouses or []):
+			wh = getattr(r, "warehouse", None)
+			if wh is not None and str(wh).strip():
+				incoming_warehouses.add(str(wh).strip())
+		existing_rows = frappe.get_all(
+			"Geo Fencing Area Warehouse",
+			filters={"parent": self.name, "parenttype": "Geo Fencing Area"},
+			fields=["warehouse", "center_latitude", "center_longitude", "radius", "images"],
+			order_by="idx asc",
+		)
+		for row in existing_rows:
+			wh_name = (row.get("warehouse") or "").strip()
+			if not wh_name or wh_name in incoming_warehouses:
+				continue
+			try:
+				is_group = frappe.db.get_value("Warehouse", wh_name, "is_group")
+			except Exception:
+				continue
+			if is_group:
+				self.append("warehouses", {
+					"warehouse": wh_name,
+					"center_latitude": row.get("center_latitude"),
+					"center_longitude": row.get("center_longitude"),
+					"radius": row.get("radius"),
+					"images": row.get("images"),
+				})
+				incoming_warehouses.add(wh_name)
+	
+	def ensure_warehouses_exist(self):
+		"""Create Warehouse documents for any warehouse name in the child table that does not exist yet.
+		When the user adds a new warehouse by name in Manage Area, create it so the link is valid.
+		"""
+		if not self.has_warehouse or not self.warehouses:
+			return
+		company = None
+		try:
+			company = frappe.defaults.get_global_default("company")
+		except Exception:
+			pass
+		if not company:
+			try:
+				company = frappe.db.get_single_value("Global Defaults", "default_company")
+			except Exception:
+				pass
+		if not company:
+			companies = frappe.get_all("Company", limit=1)
+			if companies:
+				company = companies[0].name
+		for row in self.warehouses:
+			if not getattr(row, "warehouse", None) or not str(row.warehouse).strip():
+				continue
+			name = str(row.warehouse).strip()
+			if frappe.db.exists("Warehouse", name):
+				continue
+			if not company:
+				frappe.throw(
+					frappe._("Cannot create warehouse '{0}': no Company set. Set default Company in Global Defaults or create the Warehouse manually first.").format(name)
+				)
+			# Create new warehouse
+			try:
+				wh_doc = frappe.get_doc({
+					"doctype": "Warehouse",
+					"warehouse_name": name,
+					"is_group": 0,
+					"company": company,
+				})
+				wh_doc.insert(ignore_permissions=True)
+				row.warehouse = wh_doc.name
+			except Exception as e:
+				frappe.log_error(
+					f"Geo Fencing Area: failed to create warehouse '{name}': {str(e)}",
+					"Geo Fencing Area Ensure Warehouse"
+				)
+				frappe.throw(frappe._("Could not create warehouse '{0}': {1}").format(name, str(e)))
 	
 	def create_stock_warehouses_for_linked_warehouses(self):
 		"""Create stock warehouses for newly linked Farm/Cluster group warehouses.
@@ -1475,7 +1559,18 @@ class GeoFencingArea(Document):
 								if wh_doc.parent_warehouse == warehouse_name:
 									existing_stock_warehouse = stock_warehouse_name
 					
-					# Create stock warehouse if it doesn't exist
+					# Final check: any ledger child of this parent is the stock warehouse (avoid duplicate creation)
+					if not existing_stock_warehouse:
+						children = frappe.get_all(
+							"Warehouse",
+							filters={"parent_warehouse": warehouse_name, "is_group": 0},
+							fields=["name"],
+							limit=1,
+						)
+						if children:
+							existing_stock_warehouse = children[0].name
+
+					# Create stock warehouse only if it really doesn't exist
 					if not existing_stock_warehouse:
 						# Get company from parent warehouse or default
 						if not company:
@@ -1518,7 +1613,9 @@ class GeoFencingArea(Document):
 						stock_warehouse_row = {
 							"warehouse": existing_stock_warehouse
 						}
-						
+						# Default radius for auto-created warehouses (meters)
+						default_warehouse_radius = 10
+
 						if parent_row:
 							if hasattr(parent_row, 'center_latitude') and parent_row.center_latitude is not None:
 								stock_warehouse_row["center_latitude"] = parent_row.center_latitude
@@ -1526,22 +1623,37 @@ class GeoFencingArea(Document):
 								stock_warehouse_row["center_longitude"] = parent_row.center_longitude
 							if hasattr(parent_row, 'radius') and parent_row.radius is not None:
 								stock_warehouse_row["radius"] = parent_row.radius
-						
+							else:
+								stock_warehouse_row["radius"] = default_warehouse_radius
+						else:
+							stock_warehouse_row["radius"] = default_warehouse_radius
+
 						self.append("warehouses", stock_warehouse_row)
 					
 				except Exception as e:
 					wh_short = warehouse_name[:20] if len(warehouse_name) > 20 else warehouse_name
-					frappe.log_error(
-						f"Error creating stock warehouse for {wh_short}: {str(e)}",
-						"Geo Fencing Area Create Stock Warehouses"
-					)
+					# If duplicate, the stock warehouse already exists - treat as success and continue
+					err_str = str(e).lower()
+					if "duplicate entry" in err_str or "1062" in err_str or "unique" in err_str:
+						pass  # Skip re-raise; stock warehouse already exists
+					else:
+						frappe.log_error(
+							f"Error creating stock warehouse for {wh_short}: {str(e)}",
+							"Geo Fencing Area Create Stock Warehouses"
+						)
 		
 		except Exception as e:
 			area_short = self.name[:20] if len(self.name) > 20 else self.name if self.name else "New"
-			frappe.log_error(
-				f"Error in create_stock_warehouses_for_linked_warehouses for {area_short}: {str(e)}",
-				"Geo Fencing Area Create Stock Warehouses"
-			)
+			err_str = str(e).lower()
+			if "duplicate entry" in err_str or "1062" in err_str:
+				# Don't log as error; stock warehouse already exists
+				pass
+			else:
+				frappe.log_error(
+					f"Error in create_stock_warehouses_for_linked_warehouses for {area_short}: {str(e)}",
+					"Geo Fencing Area Create Stock Warehouses"
+				)
+				raise
 	
 	def set_has_warehouse_from_type(self):
 		"""Set has_warehouse based on geo_fencing_type"""
@@ -1603,6 +1715,8 @@ class GeoFencingArea(Document):
 	
 	def validate(self):
 		"""Validate document based on shape type"""
+		# Create missing warehouses before link validation runs (so Link fields validate)
+		self.ensure_warehouses_exist()
 		# Fetch shape type from linked Geo Fencing Type if not set
 		if not self.shape_type and self.geo_fencing_type:
 			self.fetch_shape_type()
