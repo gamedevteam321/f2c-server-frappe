@@ -105,6 +105,17 @@ class FarmTaskExecution(Document):
 				except Exception as e:
 					frappe.log_error(f"Error updating On Demand Activity status to Aborted for {self.on_demand_activity_ref}: {str(e)}", "Farm Task Execution on_update Error")
 
+			# Create equipment transfer tickets when execution completes: same-cluster next field or return to cluster
+			if self.status == "Completed":
+				try:
+					from f2c.farm_execution.equipment_transfer_on_completion import create_equipment_transfer_tickets_for_execution
+					create_equipment_transfer_tickets_for_execution(self)
+				except Exception as e:
+					frappe.log_error(
+						f"Equipment transfer tickets on completion failed for {self.name}: {str(e)}",
+						"Farm Task Execution Equipment Transfer",
+					)
+
 	def _check_linked_schedule(self):
 		"""Check if this execution is linked to a Crop Plan Schedule."""
 		if self.schedule_ref:
@@ -525,25 +536,83 @@ def create_from_on_demand_activity(on_demand_activity_name: str, labour_list: st
 	return exec_doc.name
 
 
+def _apply_pre_execution_checklist(doc, equipment_checklist=None, input_checklist=None, equipment_photo=None):
+	"""Apply pre-execution checklist and photo to doc. Does not save."""
+	from frappe.utils import cint
+	import json
+	import base64
+
+	if equipment_checklist is not None:
+		if isinstance(equipment_checklist, str):
+			try:
+				equipment_checklist = json.loads(equipment_checklist) if equipment_checklist.strip() else None
+			except Exception:
+				equipment_checklist = None
+		if equipment_checklist and isinstance(equipment_checklist, (list, tuple)):
+			present_by_asset = {str(e.get("asset")): cint(e.get("present")) for e in equipment_checklist if e.get("asset") is not None}
+			for row in (doc.equipment or []):
+				if getattr(row, "asset", None) and row.asset in present_by_asset:
+					row.pre_execution_present = present_by_asset[row.asset]
+
+	if input_checklist is not None:
+		if isinstance(input_checklist, str):
+			try:
+				input_checklist = json.loads(input_checklist) if (input_checklist or "").strip() else None
+			except Exception:
+				input_checklist = None
+		if input_checklist and isinstance(input_checklist, (list, tuple)):
+			present_by_item = {str(i.get("item")): cint(i.get("present")) for i in input_checklist if i.get("item") is not None}
+			for row in (doc.inputs or []):
+				if getattr(row, "item", None) and row.item in present_by_item:
+					row.pre_execution_present = present_by_item[row.item]
+
+	if equipment_photo:
+		from frappe.utils.file_manager import save_file
+		from frappe.utils import get_datetime
+		b64 = equipment_photo
+		if isinstance(equipment_photo, str) and "," in equipment_photo and equipment_photo.strip().startswith("data:"):
+			b64 = equipment_photo.split(",", 1)[1]
+		try:
+			decoded = base64.b64decode(b64)
+		except Exception:
+			decoded = None
+		if decoded:
+			fname = f"pre_exec_equipment_{doc.name}_{get_datetime().strftime('%Y%m%d%H%M%S')}.png"
+			file_doc = save_file(
+				fname, decoded,
+				dt="Farm Task Execution", dn=doc.name,
+				folder=None, decode=False, is_private=0, df="pre_execution_equipment_photo"
+			)
+			if file_doc and getattr(file_doc, "file_url", None):
+				doc.pre_execution_equipment_photo = file_doc.file_url
+
+
 @frappe.whitelist()
-def start_execution(execution_name: str) -> str:
+def start_execution(
+	execution_name: str,
+	equipment_checklist: Optional[str] = None,
+	input_checklist: Optional[str] = None,
+	equipment_photo: Optional[str] = None,
+) -> str:
 	"""
 	Transition execution status from Started to In Progress.
+	Optionally persist pre-execution checklist (equipment/input present flags) and equipment photo.
 	Uses row locking to prevent concurrent modification errors.
 	"""
 	import time
 	max_retries = 3
-	
+
 	for attempt in range(max_retries):
 		try:
-			# Begin transaction and lock the row to prevent concurrent modifications
 			frappe.db.begin()
 			doc = frappe.get_doc("Farm Task Execution", execution_name, for_update=True)
-			
+
 			if doc.status != "Started":
 				frappe.db.rollback()
 				frappe.throw(f"Cannot start execution. Current status is {doc.status}. Only 'Started' executions can be moved to 'In Progress'.")
-			
+
+			_apply_pre_execution_checklist(doc, equipment_checklist=equipment_checklist, input_checklist=input_checklist, equipment_photo=equipment_photo)
+
 			doc.status = "In Progress"
 			doc.save(ignore_permissions=True)
 			frappe.db.commit()
@@ -551,13 +620,13 @@ def start_execution(execution_name: str) -> str:
 		except frappe.QueryDeadlockError:
 			frappe.db.rollback()
 			if attempt < max_retries - 1:
-				time.sleep(0.1 * (attempt + 1))  # Exponential backoff
+				time.sleep(0.1 * (attempt + 1))
 			else:
 				raise
 		except Exception:
 			frappe.db.rollback()
 			raise
-	
+
 	return execution_name
 
 

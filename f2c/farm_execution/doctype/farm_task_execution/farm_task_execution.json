@@ -38,6 +38,7 @@
     "return_stock_entry",
     "section_break_equipment",
     "equipment",
+    "pre_execution_equipment_photo",
     "section_break_labour",
     "planned_male_count",
     "planned_female_count",
@@ -237,6 +238,11 @@
       "fieldtype": "Table",
       "label": "Equipment",
       "options": "Farm Task Execution Equipment"
+    },
+    {
+      "fieldname": "pre_execution_equipment_photo",
+      "fieldtype": "Attach Image",
+      "label": "Pre-Execution Equipment Photo"
     },
     {
       "fieldname": "section_break_labour",

@@ -18,7 +18,8 @@
     "issued_qty",
     "returned_qty",
     "consumed_qty",
-    "batch_no"
+    "batch_no",
+    "pre_execution_present"
   ],
   "fields": [
     {
@@ -101,6 +102,12 @@
       "fieldtype": "Link",
       "label": "Batch No",
       "options": "Batch"
+    },
+    {
+      "fieldname": "pre_execution_present",
+      "fieldtype": "Check",
+      "label": "Pre-Execution Present",
+      "default": 0
     }
   ],
   "permissions": [],
