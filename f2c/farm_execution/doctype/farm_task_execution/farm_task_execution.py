@@ -342,8 +342,35 @@ def create_from_schedule(schedule_name: str, labour_list: str = None) -> str:
 				},
 			)
 
-		# Copy equipment (planned)
-		for eq in schedule.get("equipment") or []:
+		# Copy equipment (planned) from machinery, implements, hand_tools, other_tools
+		for eq in schedule.get("machinery") or []:
+			exec_doc.append(
+				"equipment",
+				{
+					"asset": eq.asset,
+					"asset_name": eq.asset_name,
+					"planned_hours": eq.planned_hours,
+				},
+			)
+		for eq in schedule.get("implements") or []:
+			exec_doc.append(
+				"equipment",
+				{
+					"asset": eq.asset,
+					"asset_name": eq.asset_name,
+					"planned_hours": eq.planned_hours,
+				},
+			)
+		for eq in schedule.get("hand_tools") or []:
+			exec_doc.append(
+				"equipment",
+				{
+					"asset": eq.asset,
+					"asset_name": eq.asset_name,
+					"planned_hours": eq.planned_hours,
+				},
+			)
+		for eq in schedule.get("other_tools") or []:
 			exec_doc.append(
 				"equipment",
 				{
@@ -628,6 +655,91 @@ def start_execution(
 			raise
 
 	return execution_name
+
+
+@frappe.whitelist()
+def get_pre_execution_availability(execution_name: str) -> Dict[str, List[Dict[str, Any]]]:
+	"""
+	Return equipment and inputs with an 'available' flag based on field warehouse.
+	Equipment: available if asset is at the field warehouse's location.
+	Inputs: available if stock at field warehouse >= required qty (planned_qty or qty_to_issue).
+	"""
+	doc = frappe.get_doc("Farm Task Execution", execution_name)
+	field = getattr(doc, "field", None) or ""
+	if not field:
+		return {"equipment": [], "inputs": []}
+
+	from f2c.farm_execution.equipment_transfer_on_completion import get_target_warehouse_for_field
+	from f2c.inventory.logistics_transfer_ticket_api import get_location_for_warehouse
+
+	field_warehouse = get_target_warehouse_for_field(field)
+	if not field_warehouse:
+		# No field warehouse: return structure with all not available
+		equipment = []
+		for row in (doc.equipment or []):
+			asset = getattr(row, "asset", None)
+			if asset:
+				equipment.append({"asset": asset, "asset_name": getattr(row, "asset_name") or asset, "available": False})
+		inputs = []
+		for row in (doc.inputs or []):
+			item = getattr(row, "item", None)
+			if item:
+				inputs.append({
+					"item": item,
+					"item_name": getattr(row, "item_name") or item,
+					"required_qty": flt(getattr(row, "planned_qty") or getattr(row, "qty_to_issue") or 0),
+					"available_qty": 0,
+					"available": False,
+				})
+		return {"equipment": equipment, "inputs": inputs}
+
+	location_result = get_location_for_warehouse(field_warehouse)
+	warehouse_location = (location_result or {}).get("location") if location_result else None
+
+	# Equipment: available if asset.location == warehouse_location
+	seen_assets = set()
+	equipment = []
+	for row in doc.equipment or []:
+		asset = (getattr(row, "asset", None) or "").strip()
+		if not asset or asset in seen_assets:
+			continue
+		seen_assets.add(asset)
+		available = False
+		if warehouse_location:
+			asset_location = frappe.db.get_value("Asset", asset, "location")
+			available = bool(asset_location and asset_location == warehouse_location)
+		equipment.append({
+			"asset": asset,
+			"asset_name": getattr(row, "asset_name") or asset,
+			"available": available,
+		})
+
+	# Inputs: available if get_stock_balance(item, field_warehouse) >= required
+	from erpnext.stock.utils import get_stock_balance
+
+	inputs = []
+	for row in doc.inputs or []:
+		item = getattr(row, "item", None)
+		if not item:
+			continue
+		required_qty = flt(getattr(row, "planned_qty") or getattr(row, "qty_to_issue") or 0)
+		available_qty = 0
+		try:
+			bal = get_stock_balance(item, field_warehouse)
+			if bal is not None:
+				available_qty = flt(bal)
+		except Exception:
+			pass
+		available = available_qty >= required_qty if required_qty else (available_qty > 0)
+		inputs.append({
+			"item": item,
+			"item_name": getattr(row, "item_name") or item,
+			"required_qty": required_qty,
+			"available_qty": available_qty,
+			"available": available,
+		})
+
+	return {"equipment": equipment, "inputs": inputs}
 
 
 @frappe.whitelist()

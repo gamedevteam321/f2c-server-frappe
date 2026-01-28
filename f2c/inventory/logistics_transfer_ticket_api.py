@@ -184,11 +184,13 @@ def create_logistics_transfer_ticket(
 	"""
 	if not from_warehouse or not to_warehouse:
 		frappe.throw(_("from_warehouse and to_warehouse are required"))
-	if from_warehouse == to_warehouse:
-		frappe.throw(_("From and To Warehouse cannot be same"))
-
+	# Allow same warehouse for input-only (stock_items, no assets) so pickable/receivable entries are always created for approved inputs
 	stock_items = stock_items or []
 	assets = assets or []
+	if from_warehouse == to_warehouse and assets:
+		frappe.throw(_("From and To Warehouse cannot be same"))
+	if from_warehouse == to_warehouse and not stock_items:
+		frappe.throw(_("From and To Warehouse cannot be same"))
 
 	if not stock_items and not assets:
 		frappe.throw(_("Select at least one stock item or asset"))
@@ -261,9 +263,9 @@ def create_logistics_transfer_ticket(
 					"t_warehouse": to_warehouse,
 				})
 		
-		# Only create Stock Entry if there are available items
+		# Only create Stock Entry if there are available items and from != to (same-warehouse transfer is invalid in ERPNext)
 		# Note: All items (available or not) are still included in ticket.stock_items below
-		if available_items_for_entry:
+		if available_items_for_entry and from_warehouse != to_warehouse:
 			se = frappe.get_doc(
 				{
 					"doctype": "Stock Entry",

@@ -77,11 +77,16 @@ def get_target_warehouse_for_field(field_name: str) -> Optional[str]:
 
 def get_cluster_warehouse_for_field(field_name: str) -> Optional[str]:
 	"""
-	Get cluster warehouse (parent warehouse) for a field.
-	Warehouse hierarchy: Farm -> Cluster -> Field. Returns the Cluster Warehouse.
+	Get cluster ledger warehouse (stock-holding) for a field.
+	Warehouse hierarchy: Farm -> Cluster -> Field. Returns the ledger warehouse for the cluster.
 	"""
 	if not field_name:
 		return None
+
+	try:
+		from f2c.inventory.warehouse_utils import get_ledger_warehouse
+	except Exception:
+		get_ledger_warehouse = None
 
 	try:
 		field_warehouse = get_target_warehouse_for_field(field_name)
@@ -90,7 +95,7 @@ def get_cluster_warehouse_for_field(field_name: str) -> Optional[str]:
 
 		parent_warehouse = frappe.db.get_value("Warehouse", field_warehouse, "parent_warehouse")
 		if parent_warehouse:
-			return parent_warehouse
+			return (get_ledger_warehouse(parent_warehouse) or parent_warehouse) if get_ledger_warehouse else parent_warehouse
 
 		cluster = get_cluster_for_field(field_name)
 		if not cluster:
@@ -103,7 +108,8 @@ def get_cluster_warehouse_for_field(field_name: str) -> Optional[str]:
 			limit=1,
 		)
 		if cluster_warehouses and cluster_warehouses[0].get("warehouse"):
-			return cluster_warehouses[0].warehouse
+			raw = cluster_warehouses[0].warehouse
+			return (get_ledger_warehouse(raw) or raw) if get_ledger_warehouse else raw
 		return None
 	except Exception as e:
 		frappe.log_error(

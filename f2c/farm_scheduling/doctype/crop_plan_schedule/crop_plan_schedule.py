@@ -201,14 +201,27 @@ class CropPlanSchedule(Document):
 			frappe.throw("Water to be Used (Liters) must be greater than 0 for Spray activities.")
 
 	def _recompute_input_totals_if_needed(self):
-		# For spray activities, compute total quantity for items based on water_to_be_used_liters
+		# For spray activities, compute total quantity for items based on water_to_be_used_liters.
+		# For non-spray, use rate × total_acres for Bags/Acre and rate_quantity as fallback for other units.
 		if not self.get("inputs"):
 			return
 
 		if not self.is_spray:
+			total_acres = flt(self.total_acres)
 			for row in self.inputs:
-				row.total_quantity_to_use = flt(0, 3)
-				row.quantity_to_use_display = ""
+				total = compute_total_qty(
+					water_liters=0,
+					total_acres=total_acres,
+					rate=flt(row.rate_quantity),
+					unit=(row.unit or "").strip(),
+				)
+				if total <= 0 and flt(row.rate_quantity) > 0:
+					total = flt(row.rate_quantity, 3)
+				row.total_quantity_to_use = total
+				if total and (row.unit or "").strip():
+					row.quantity_to_use_display = f"{flt(total, 3)} {(row.unit or '').strip()}"
+				else:
+					row.quantity_to_use_display = ""
 			return
 
 		water_liters = flt(self.water_to_be_used_liters)
@@ -567,14 +580,17 @@ class CropPlanSchedule(Document):
 			return None
 
 	def _get_cluster_warehouse_for_field(self, field_name: str) -> str | None:
-		"""Get cluster warehouse (parent warehouse) for a field.
+		"""Get cluster ledger warehouse (stock-holding) for a field.
 		
 		Warehouse hierarchy: Farm Warehouse (top) -> Cluster Warehouse (middle) -> Field Warehouse (bottom)
-		This method returns the Cluster Warehouse, which is the direct parent of the Field Warehouse.
+		Returns the ledger (stock) warehouse for the cluster, not the group.
 		"""
 		if not field_name:
 			return None
-		
+		try:
+			from f2c.inventory.warehouse_utils import get_ledger_warehouse
+		except Exception:
+			get_ledger_warehouse = None
 		try:
 			# Get field warehouse first
 			field_warehouse = self._get_target_warehouse_for_field(field_name)
@@ -586,7 +602,7 @@ class CropPlanSchedule(Document):
 			# Hierarchy: Farm -> Cluster -> Field
 			parent_warehouse = frappe.db.get_value("Warehouse", field_warehouse, "parent_warehouse")
 			if parent_warehouse:
-				return parent_warehouse
+				return (get_ledger_warehouse(parent_warehouse) or parent_warehouse) if get_ledger_warehouse else parent_warehouse
 			
 			# Fallback: Get cluster from Geo Fencing Area and find its warehouse
 			cluster = self._get_cluster_for_field(field_name)
@@ -603,7 +619,8 @@ class CropPlanSchedule(Document):
 			)
 			
 			if cluster_warehouses and cluster_warehouses[0].warehouse:
-				return cluster_warehouses[0].warehouse
+				raw = cluster_warehouses[0].warehouse
+				return (get_ledger_warehouse(raw) or raw) if get_ledger_warehouse else raw
 			
 			return None
 		except Exception as e:
@@ -804,20 +821,45 @@ class CropPlanSchedule(Document):
 			frappe.msgprint("Failed to create transfer tickets. Please check Error Log for details.", indicator="red", title="Transfer Ticket Creation Failed")
 
 	def _collect_input_items(self) -> List[Dict[str, Any]]:
-		"""Helper to collect input items from inputs table."""
+		"""Helper to collect input items from inputs table.
+		Uses total_quantity_to_use when > 0; for non-spray or legacy rows, falls back to rate*acres for Bags/Acre or rate_quantity."""
 		input_items = []
 		for inp in self.get("inputs") or []:
-			if inp.item and inp.total_quantity_to_use and flt(inp.total_quantity_to_use) > 0:
-				input_items.append({
-					"item_code": inp.item,
-					"qty": flt(inp.total_quantity_to_use, 3)
-				})
+			if not inp.item:
+				continue
+			qty = flt(inp.total_quantity_to_use, 3)
+			if qty <= 0 and flt(inp.rate_quantity) > 0:
+				unit = (inp.unit or "").strip().lower()
+				if unit == "bags/acre":
+					qty = flt(inp.rate_quantity, 3) * flt(self.total_acres, 3)
+				else:
+					qty = flt(inp.rate_quantity, 3)
+			if qty > 0:
+				input_items.append({"item_code": inp.item, "qty": qty})
 		return input_items
 
 	def _get_source_warehouse_for_inputs(self) -> str | None:
-		"""Get source warehouse for input items. Uses cluster warehouse (matching equipment transfer pattern), falls back to company default warehouse."""
-		# First, try to get cluster warehouse (matching equipment transfer behavior)
+		"""Get source warehouse for input items. Chooses cluster ledger warehouse where items have stock (by location); else first cluster ledger or company default."""
 		if self.field:
+			try:
+				from f2c.inventory.warehouse_utils import (
+					get_ledger_warehouses_for_areas,
+					get_source_warehouse_by_item_location,
+				)
+			except Exception:
+				pass
+			else:
+				cluster = self._get_cluster_for_field(self.field)
+				if cluster:
+					ledger_list = get_ledger_warehouses_for_areas([cluster])
+					if ledger_list:
+						items = self._collect_input_items()
+						best = get_source_warehouse_by_item_location(items, ledger_list)
+						if best:
+							return best
+						# No stock in any cluster ledger: use first ledger as fallback
+						return ledger_list[0]
+			# Fallback: cluster ledger warehouse (single) or company default
 			cluster_warehouse = self._get_cluster_warehouse_for_field(self.field)
 			if cluster_warehouse:
 				return cluster_warehouse
@@ -939,9 +981,53 @@ class CropPlanSchedule(Document):
 			frappe.msgprint(error_msg, indicator="orange", title="Input Transfer Ticket Creation Failed")
 			return
 		
-		if source_warehouse == target_warehouse:
-			frappe.log_error(f"Input items already at target warehouse {target_warehouse}, skipping", "Input Transfer Ticket")
-			return  # Skip if already at target
+		# Always create pickable/receivable entries for approved inputs; do not skip when items are at field (source==target handled by API).
+		
+		# Check quantity sufficiency at source; create Material Request for shortfalls
+		try:
+			from erpnext.stock.utils import get_stock_balance
+			from erpnext.stock.stock_ledger import is_negative_stock_allowed
+			shortfall_items = []
+			for item in input_items:
+				item_code = item.get("item_code")
+				required = flt(item.get("qty"), 3)
+				if not item_code or required <= 0:
+					continue
+				is_stock_item = frappe.db.get_value("Item", item_code, "is_stock_item")
+				if not is_stock_item:
+					continue
+				allow_negative = is_negative_stock_allowed(item_code=item_code)
+				if allow_negative:
+					continue
+				available = flt(get_stock_balance(item_code, source_warehouse), 3)
+				if available is None:
+					available = 0
+				if available < required:
+					shortfall_items.append({
+						"item_code": item_code,
+						"qty": flt(required - available, 3),
+					})
+			if shortfall_items:
+				company = None
+				if self.crop_plan:
+					company = frappe.db.get_value("Crop Plan", self.crop_plan, "company")
+				if not company:
+					company = frappe.db.get_value("Warehouse", source_warehouse, "company")
+				from f2c.inventory.material_request_api import create_material_request
+				create_material_request(
+					warehouse=source_warehouse,
+					items=shortfall_items,
+					material_request_type="Material Transfer",
+					company=company,
+					notes=f"Shortfall for schedule {self.name}. Request transfer to cluster/source.",
+				)
+				frappe.msgprint(
+					f"Created Material Request for {len(shortfall_items)} item(s) with insufficient stock at source.",
+					indicator="orange",
+					title="Shortfall",
+				)
+		except Exception as e:
+			frappe.log_error(f"Shortfall check/MR for schedule {self.name}: {str(e)}", "Input Transfer Ticket")
 		
 		# Check if a ticket already exists for the same transfer (prevent duplicates)
 		# Only check for very recent tickets (last 5 seconds) to catch true duplicates from rapid multiple saves
@@ -1214,18 +1300,15 @@ class CropPlanSchedule(Document):
 			try:
 				# Check if there are equipment assets
 				current_assets = set(self._collect_equipment_assets())
-				# MARKER: CODE_VERSION_2026_01_23_v2_AFTER_INSERT
-				frappe.log_error(f"🔧 NEW CODE (after_insert) for {self.name}: Found {len(current_assets)} assets", "Transfer Ticket Debug")
-				
+				frappe.log_error(f"after_insert for {self.name}: {len(current_assets)} assets", "Transfer Ticket Debug")
 				if current_assets:
-					# If equipment exists, create equipment ticket (which includes inputs)
-					frappe.log_error(f"✅ Creating ONLY equipment ticket for {self.name} (includes inputs)", "Transfer Ticket Debug")
 					self._create_equipment_transfer_tickets()
-					# Don't call _create_input_transfer_tickets() - inputs are already in equipment ticket
-				else:
-					# No equipment, only create input tickets if there are inputs
-					frappe.log_error(f"📦 Creating ONLY input ticket for {self.name} (no equipment)", "Transfer Ticket Debug")
-					self._create_input_transfer_tickets()
+				# Always create input tickets when schedule has inputs (duplicate check inside skips if already in equipment ticket)
+				if self._collect_input_items():
+					try:
+						self._create_input_transfer_tickets()
+					except Exception as inp_e:
+						frappe.log_error(f"Input ticket error for {self.name}: {str(inp_e)[:60]}", "Input Transfer Ticket")
 			except Exception as e:
 				# Log error but don't block schedule creation
 				# Truncate error message to prevent CharacterLengthExceededError (max 140 chars for title)
@@ -1238,11 +1321,13 @@ class CropPlanSchedule(Document):
 	def on_update(self):
 		"""Create transfer tickets when schedule status changes to Scheduled or equipment is added.
 		Create return transfer tickets when status changes to Completed."""
+		# Use doc-before-save for old status; on_update runs after DB commit so get_value would return new value
+		old_doc = self.get_doc_before_save() if not self.is_new() else None
+		old_status = old_doc.get("status") if old_doc else None
+
 		if not self.is_new():
-			old_status = frappe.db.get_value(self.doctype, self.name, "status")
-			
 			# Check if status changed to Completed - create return transfer tickets
-			if old_status != "Completed" and self.status == "Completed":
+			if (old_status or "") != "Completed" and self.status == "Completed":
 				try:
 					self._create_return_transfer_tickets()
 				except Exception as e:
@@ -1259,10 +1344,9 @@ class CropPlanSchedule(Document):
 		if self.status != "Scheduled":
 			return
 		
-		# Check if status changed to Scheduled
+		# Check if status changed to Scheduled (use old_status from doc-before-save, not DB)
 		if not self.is_new():
-			old_status = frappe.db.get_value(self.doctype, self.name, "status")
-			if old_status != "Scheduled":
+			if (old_status or "") != "Scheduled":
 				# Status just changed to Scheduled, create tickets
 				try:
 					# Check if there are equipment assets
@@ -1271,14 +1355,17 @@ class CropPlanSchedule(Document):
 					frappe.log_error(f"🔧 NEW CODE RUNNING for {self.name}: Found {len(current_assets)} assets", "Transfer Ticket Debug")
 					
 					if current_assets:
-						# If equipment exists, create equipment ticket (which includes inputs)
-						frappe.log_error(f"✅ Creating ONLY equipment ticket for {self.name} (includes inputs)", "Transfer Ticket Debug")
+						# If equipment exists, create equipment ticket (which may include inputs)
+						frappe.log_error(f"✅ Creating equipment ticket for {self.name} (includes inputs)", "Transfer Ticket Debug")
 						self._create_equipment_transfer_tickets()
-						# Don't call _create_input_transfer_tickets() - inputs are already in equipment ticket
-					else:
-						# No equipment, only create input tickets if there are inputs
-						frappe.log_error(f"📦 Creating ONLY input ticket for {self.name} (no equipment)", "Transfer Ticket Debug")
-						self._create_input_transfer_tickets()
+					# Always create input tickets when schedule has inputs; duplicate check inside will skip if already in equipment ticket
+					if self._collect_input_items():
+						frappe.log_error(f"📦 Creating input ticket for {self.name} (approved inputs)", "Transfer Ticket Debug")
+						try:
+							self._create_input_transfer_tickets()
+						except Exception as inp_e:
+							err_str = str(inp_e)[:60] if len(str(inp_e)) > 60 else str(inp_e)
+							frappe.log_error(f"Input ticket error for {self.name}: {err_str}", "Input Transfer Ticket")
 				except Exception as e:
 					# Log error but don't block schedule update
 					# Truncate error message to prevent CharacterLengthExceededError (max 140 chars for title)
@@ -1306,9 +1393,8 @@ class CropPlanSchedule(Document):
 						error_msg = f"Equipment transfer ticket error for {self.name}: {error_str}"
 						frappe.log_error(error_msg, "Equipment Transfer Ticket")
 						# Don't raise - allow schedule to be updated even if ticket creation fails
-				else:
-					# No equipment, only create input tickets if there are inputs
-					# This prevents duplicate input tickets when equipment exists
+				# Always create input tickets when schedule has inputs (duplicate check inside skips if already in equipment ticket)
+				if self._collect_input_items():
 					try:
 						self._create_input_transfer_tickets()
 					except Exception as e:
@@ -1384,13 +1470,18 @@ def get_block_details(crop_plan: str, block: str) -> Dict[str, Any]:
 
 @frappe.whitelist()
 def create_transfer_tickets_for_schedule(schedule_name: str):
-	"""Manually trigger transfer ticket creation for a schedule (for debugging)."""
+	"""Manually trigger transfer ticket creation for a schedule (equipment + input tickets)."""
 	try:
 		schedule = frappe.get_doc("Crop Plan Schedule", schedule_name)
-		schedule._create_equipment_transfer_tickets()
+		if schedule.status != "Scheduled":
+			return {"success": False, "error": "Schedule status must be Scheduled"}
+		if set(schedule._collect_equipment_assets()):
+			schedule._create_equipment_transfer_tickets()
+		if schedule._collect_input_items():
+			schedule._create_input_transfer_tickets()
 		return {"success": True, "message": "Transfer ticket creation triggered"}
 	except Exception as e:
-		frappe.log_error(f"Error in create_transfer_tickets_for_schedule for {schedule_name}: {str(e)}", "Equipment Transfer Ticket")
+		frappe.log_error(f"Error in create_transfer_tickets_for_schedule for {schedule_name}: {str(e)}", "Transfer Ticket")
 		return {"success": False, "error": str(e)}
 
 
@@ -1417,8 +1508,50 @@ def get_transfer_tickets_for_schedule(schedule_name: str) -> Dict[str, Any]:
 		# Get all equipment assets from the schedule
 		schedule_assets = set(schedule._collect_equipment_assets())
 		
-		# If schedule has no equipment assets, return empty ticket list
+		# If schedule has no equipment assets, try to return input-only tickets for pickable/receivable
 		if not schedule_assets:
+			from frappe.utils import add_to_date, now_datetime
+			source_warehouse = schedule._get_source_warehouse_for_inputs()
+			has_inputs = bool(schedule.get("inputs"))
+			if has_inputs and target_warehouse:
+				recent = add_to_date(now_datetime(), days=-7)
+				filters = {
+					"to_warehouse": target_warehouse,
+					"status": ["!=", "Cancelled"],
+					"creation": [">=", recent]
+				}
+				if source_warehouse:
+					filters["from_warehouse"] = source_warehouse
+				all_input_tickets = frappe.get_all(
+					"Logistics Transfer Ticket",
+					filters=filters,
+					fields=["name", "status", "creation"],
+					order_by="creation desc",
+					limit=20
+				)
+				matched_tickets = []
+				linked_stock_entries = []
+				for t in all_input_tickets:
+					try:
+						td = frappe.get_doc("Logistics Transfer Ticket", t.name)
+						if td.asset_items and len(td.asset_items) > 0:
+							continue
+						matched_tickets.append(t)
+						if td.stock_entry:
+							linked_stock_entries.append(td.stock_entry)
+					except Exception:
+						continue
+				se_list = []
+				if linked_stock_entries:
+					se_list = frappe.get_all(
+						"Stock Entry",
+						filters={"name": ["in", linked_stock_entries], "docstatus": ["<", 2]},
+						fields=["name", "docstatus", "posting_date", "posting_time"]
+					)
+				return {
+					"logistics_tickets": [{"name": t.name, "status": t.status, "creation": t.creation} for t in matched_tickets],
+					"stock_entries": [{"name": se.name, "docstatus": se.docstatus, "posting_date": se.posting_date} for se in se_list]
+				}
 			return {"logistics_tickets": [], "stock_entries": []}
 		
 		# Get the location for the target warehouse

@@ -15,6 +15,9 @@ frappe.ui.form.on("Logistics Transfer Ticket", {
 		
 		// Check for low stock and show warning
 		check_low_stock_and_show_warning(frm);
+		
+		// When Assets table is empty, show message that equipment may already be at the field
+		show_assets_section_message_when_empty(frm);
 	},
 	
 	from_warehouse: function(frm) {
@@ -34,6 +37,26 @@ frappe.ui.form.on("Logistics Transfer Ticket", {
 		}, 500);
 	}
 });
+
+function show_assets_section_message_when_empty(frm) {
+	const selector = ".ltt-assets-empty-msg";
+	const $aw = frm.fields_dict.asset_items && frm.fields_dict.asset_items.$wrapper;
+	if (!$aw) return;
+
+	$aw.prevAll(selector).remove();
+	if (frm.doc.asset_items && frm.doc.asset_items.length > 0) return;
+
+	const to_wh = (frm.doc.to_warehouse || "");
+	const is_field = (/-f-\d+/.test(to_wh) || to_wh.toLowerCase().indexOf("field") !== -1);
+	const msg = is_field
+		? __("Equipment for this task is already at the field. This ticket is for inputs only.")
+		: __("No equipment on this ticket. Equipment may already be at the destination, or this transfer is for inputs only.");
+
+	const html = `<div class="ltt-assets-empty-msg" style="margin: 0 0 10px 0; padding: 10px 12px; background: #e7f3ff; border: 1px solid #b8daff; border-radius: 4px; color: #004085; font-size: 12px;">
+		<span class="fa fa-info-circle"></span> ${msg}
+	</div>`;
+	$aw.before(html);
+}
 
 frappe.ui.form.on("Logistics Transfer Stock Item", {
 	item_code: function(frm, cdt, cdn) {

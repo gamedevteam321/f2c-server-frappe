@@ -8,13 +8,24 @@ from frappe.utils import flt, nowdate
 from typing import List, Dict, Any, Optional
 
 
+def _ledger_warehouse(warehouse: Optional[str]) -> Optional[str]:
+	"""Return ledger (stock) warehouse for the given warehouse, if available."""
+	if not warehouse:
+		return None
+	try:
+		from f2c.inventory.warehouse_utils import get_ledger_warehouse
+		return get_ledger_warehouse(warehouse) or warehouse
+	except Exception:
+		return warehouse
+
+
 @frappe.whitelist()
 def get_cluster_warehouse_for_warehouse(warehouse: str) -> Optional[str]:
 	"""
-	Get cluster warehouse (parent warehouse) for a given warehouse.
+	Get cluster ledger warehouse (stock-holding) for a given warehouse.
 	
 	Warehouse hierarchy: Farm Warehouse (top) -> Cluster Warehouse (middle) -> Field Warehouse (bottom)
-	This method returns the Cluster Warehouse, which is the direct parent of the Field Warehouse.
+	Returns the ledger warehouse for the cluster, not the group.
 	"""
 	if not warehouse:
 		return None
@@ -36,7 +47,7 @@ def get_cluster_warehouse_for_warehouse(warehouse: str) -> Optional[str]:
 				geo_area = geo_area_warehouses[0].parent
 				area_type = frappe.db.get_value("Geo Fencing Area", geo_area, "geo_fencing_type")
 				if area_type == "Cluster":
-					return parent_warehouse
+					return _ledger_warehouse(parent_warehouse)
 			
 			# If parent exists but not linked to cluster, check if it's a cluster warehouse by name pattern
 			# or check its parent (could be farm -> cluster -> field)
@@ -53,7 +64,7 @@ def get_cluster_warehouse_for_warehouse(warehouse: str) -> Optional[str]:
 					grandparent_area_type = frappe.db.get_value("Geo Fencing Area", grandparent_geo[0].parent, "geo_fencing_type")
 					if grandparent_area_type == "Farm":
 						# Parent is likely cluster
-						return parent_warehouse
+						return _ledger_warehouse(parent_warehouse)
 		
 		# Fallback: Get cluster from Geo Fencing Area linked to warehouse
 		warehouse_geo_areas = frappe.get_all(
@@ -77,7 +88,7 @@ def get_cluster_warehouse_for_warehouse(warehouse: str) -> Optional[str]:
 						limit=1
 					)
 					if cluster_warehouses and cluster_warehouses[0].warehouse:
-						return cluster_warehouses[0].warehouse
+						return _ledger_warehouse(cluster_warehouses[0].warehouse)
 					break
 				if current_area.parent_area:
 					current_area = frappe.get_doc("Geo Fencing Area", current_area.parent_area)
@@ -93,9 +104,10 @@ def get_cluster_warehouse_for_warehouse(warehouse: str) -> Optional[str]:
 @frappe.whitelist()
 def get_farm_warehouse_for_warehouse(warehouse: str) -> Optional[str]:
 	"""
-	Get farm warehouse (top-level parent) for a given warehouse.
+	Get farm ledger warehouse (stock-holding) for a given warehouse.
 	
 	Warehouse hierarchy: Farm Warehouse (top) -> Cluster Warehouse (middle) -> Field Warehouse (bottom)
+	Returns the ledger warehouse for the farm, not the group.
 	"""
 	if not warehouse:
 		return None
@@ -128,7 +140,7 @@ def get_farm_warehouse_for_warehouse(warehouse: str) -> Optional[str]:
 						limit=1
 					)
 					if farm_warehouses and farm_warehouses[0].warehouse:
-						return farm_warehouses[0].warehouse
+						return _ledger_warehouse(farm_warehouses[0].warehouse)
 			
 			# Move to parent warehouse
 			parent = frappe.db.get_value("Warehouse", current_warehouse, "parent_warehouse")
