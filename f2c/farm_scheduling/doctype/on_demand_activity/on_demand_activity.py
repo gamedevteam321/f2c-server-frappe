@@ -999,11 +999,11 @@ class OnDemandActivity(Document):
 			frappe.log_error(f"Activity {self.name} has no field specified, skipping input ticket creation", "Input Transfer Ticket")
 			return  # No field specified
 		
-		# Check if inputs were already included in equipment tickets
-		# Look for recent equipment tickets that already include inputs to prevent duplicates
-		if not self.field:
+		# If inputs were already included in equipment tickets in this same save, skip (avoids duplicate LTT)
+		if getattr(self, "_inputs_included_in_equipment_tickets", False):
 			return
 		
+		# Check if inputs were already included in equipment tickets (DB lookup for tickets created earlier)
 		target_warehouse = self._get_target_warehouse_for_field(self.field)
 		if target_warehouse:
 			from frappe.utils import add_to_date, now_datetime

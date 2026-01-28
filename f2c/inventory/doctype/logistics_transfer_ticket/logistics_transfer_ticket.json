@@ -25,8 +25,10 @@
     "asset_items",
     "section_break_timestamps",
     "dispatched_on",
+    "dispatch_photo",
     "column_break_3",
     "received_on",
+    "receive_photo",
     "section_break_report",
     "report_reason"
   ],
@@ -134,6 +136,11 @@
       "read_only": 1
     },
     {
+      "fieldname": "dispatch_photo",
+      "fieldtype": "Attach Image",
+      "label": "Dispatch Photo"
+    },
+    {
       "fieldname": "column_break_3",
       "fieldtype": "Column Break"
     },
@@ -142,6 +149,11 @@
       "fieldtype": "Datetime",
       "label": "Received On",
       "read_only": 1
+    },
+    {
+      "fieldname": "receive_photo",
+      "fieldtype": "Attach Image",
+      "label": "Receive Photo"
     },
     {
       "fieldname": "section_break_report",

@@ -1,6 +1,29 @@
+import json
 import frappe
 from frappe import _
 from frappe.utils import cint, flt, now_datetime
+
+
+def _normalize_photo_urls(value):
+	"""Accept single URL string, list of URLs, or JSON string; return JSON string of list of URL strings."""
+	if value is None:
+		return None
+	if isinstance(value, list):
+		urls = [str(u).strip() for u in value if u]
+		return json.dumps(urls) if urls else None
+	if isinstance(value, str):
+		val = value.strip()
+		if not val:
+			return None
+		try:
+			parsed = json.loads(val)
+			if isinstance(parsed, list):
+				urls = [str(u).strip() for u in parsed if u]
+				return json.dumps(urls) if urls else None
+		except (json.JSONDecodeError, TypeError):
+			pass
+		return json.dumps([val])
+	return None
 
 
 def _geo_area_path_names(geo_area_name: str) -> list[str]:
@@ -166,6 +189,18 @@ def get_warehouses_for_geo_area(geo_area: str, strict_geo_area: int = 0):
 				# best-effort filter; keep it out if it can't be resolved
 				continue
 		combined = filtered
+
+	# Only ledger warehouses (is_group = 0) are valid for transfer; exclude group warehouses from the select list.
+	if combined:
+		ledger_names = set(
+			frappe.get_all(
+				"Warehouse",
+				filters={"name": ["in", combined], "is_group": 0},
+				pluck="name",
+				limit_page_length=0,
+			)
+		)
+		combined = [w for w in combined if w in ledger_names]
 
 	return {"geo_area": geo_area, "warehouses": combined}
 
@@ -398,7 +433,8 @@ def create_logistics_transfer_ticket(
 
 
 @frappe.whitelist()
-def mark_dispatched(ticket_name: str):
+def mark_dispatched(ticket_name: str, dispatch_photo_url=None):
+	"""dispatch_photo_url can be a single URL string, list of URLs, or JSON string of URLs."""
 	if not ticket_name:
 		frappe.throw(_("ticket_name is required"))
 	ticket = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
@@ -406,12 +442,16 @@ def mark_dispatched(ticket_name: str):
 		frappe.throw(_("Only Pending Pickup tickets can be dispatched"))
 	ticket.status = "In Transit"
 	ticket.dispatched_on = now_datetime()
+	photo_json = _normalize_photo_urls(dispatch_photo_url)
+	if photo_json:
+		ticket.dispatch_photo = photo_json
 	ticket.save(ignore_permissions=True)
 	return {"ticket": ticket.name, "status": ticket.status}
 
 
 @frappe.whitelist()
-def mark_received(ticket_name: str):
+def mark_received(ticket_name: str, receive_photo_url=None):
+	"""receive_photo_url can be a single URL string, list of URLs, or JSON string of URLs."""
 	if not ticket_name:
 		frappe.throw(_("ticket_name is required"))
 	ticket = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
@@ -430,6 +470,9 @@ def mark_received(ticket_name: str):
 
 	ticket.status = "Received"
 	ticket.received_on = now_datetime()
+	photo_json = _normalize_photo_urls(receive_photo_url)
+	if photo_json:
+		ticket.receive_photo = photo_json
 	ticket.save(ignore_permissions=True)
 	return {"ticket": ticket.name, "status": ticket.status, "stock_entry": ticket.stock_entry, "asset_movement": ticket.asset_movement}
 

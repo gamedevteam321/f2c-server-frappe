@@ -241,8 +241,9 @@
     },
     {
       "fieldname": "pre_execution_equipment_photo",
-      "fieldtype": "Attach Image",
-      "label": "Pre-Execution Equipment Photo"
+      "fieldtype": "Text",
+      "label": "Pre-Execution Equipment Photos",
+      "description": "JSON array of file URLs from pre-execution checklist (multiple images supported)"
     },
     {
       "fieldname": "section_break_labour",

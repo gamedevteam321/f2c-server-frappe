@@ -563,8 +563,10 @@ def create_from_on_demand_activity(on_demand_activity_name: str, labour_list: st
 	return exec_doc.name
 
 
-def _apply_pre_execution_checklist(doc, equipment_checklist=None, input_checklist=None, equipment_photo=None):
-	"""Apply pre-execution checklist and photo to doc. Does not save."""
+def _apply_pre_execution_checklist(doc, equipment_checklist=None, input_checklist=None, equipment_photo=None, equipment_photo_urls=None):
+	"""Apply pre-execution checklist and photos to doc. Does not save.
+	equipment_photo_urls: list of file URLs (preferred when multiple images).
+	equipment_photo: legacy single base64 data URL. Stored field holds JSON array of URLs."""
 	from frappe.utils import cint
 	import json
 	import base64
@@ -593,6 +595,20 @@ def _apply_pre_execution_checklist(doc, equipment_checklist=None, input_checklis
 				if getattr(row, "item", None) and row.item in present_by_item:
 					row.pre_execution_present = present_by_item[row.item]
 
+	urls = []
+	if equipment_photo_urls is not None:
+		if isinstance(equipment_photo_urls, str):
+			try:
+				parsed = json.loads(equipment_photo_urls) if (equipment_photo_urls or "").strip() else []
+				urls = [str(u) for u in parsed] if isinstance(parsed, (list, tuple)) else []
+			except Exception:
+				urls = [s for s in (equipment_photo_urls or "").strip().split(",") if s.strip()]
+		elif isinstance(equipment_photo_urls, (list, tuple)):
+			urls = [str(u) for u in equipment_photo_urls if u]
+	if urls:
+		doc.pre_execution_equipment_photo = json.dumps(urls)
+		return
+
 	if equipment_photo:
 		from frappe.utils.file_manager import save_file
 		from frappe.utils import get_datetime
@@ -611,7 +627,7 @@ def _apply_pre_execution_checklist(doc, equipment_checklist=None, input_checklis
 				folder=None, decode=False, is_private=0, df="pre_execution_equipment_photo"
 			)
 			if file_doc and getattr(file_doc, "file_url", None):
-				doc.pre_execution_equipment_photo = file_doc.file_url
+				doc.pre_execution_equipment_photo = json.dumps([file_doc.file_url])
 
 
 @frappe.whitelist()
@@ -620,10 +636,12 @@ def start_execution(
 	equipment_checklist: Optional[str] = None,
 	input_checklist: Optional[str] = None,
 	equipment_photo: Optional[str] = None,
+	equipment_photo_urls=None,
 ) -> str:
 	"""
 	Transition execution status from Started to In Progress.
-	Optionally persist pre-execution checklist (equipment/input present flags) and equipment photo.
+	Optionally persist pre-execution checklist (equipment/input present flags) and equipment photos.
+	equipment_photo_urls: list of file URLs (multiple images). equipment_photo: legacy single base64.
 	Uses row locking to prevent concurrent modification errors.
 	"""
 	import time
@@ -638,7 +656,13 @@ def start_execution(
 				frappe.db.rollback()
 				frappe.throw(f"Cannot start execution. Current status is {doc.status}. Only 'Started' executions can be moved to 'In Progress'.")
 
-			_apply_pre_execution_checklist(doc, equipment_checklist=equipment_checklist, input_checklist=input_checklist, equipment_photo=equipment_photo)
+			_apply_pre_execution_checklist(
+				doc,
+				equipment_checklist=equipment_checklist,
+				input_checklist=input_checklist,
+				equipment_photo=equipment_photo,
+				equipment_photo_urls=equipment_photo_urls,
+			)
 
 			doc.status = "In Progress"
 			doc.save(ignore_permissions=True)
@@ -740,6 +764,102 @@ def get_pre_execution_availability(execution_name: str) -> Dict[str, List[Dict[s
 		})
 
 	return {"equipment": equipment, "inputs": inputs}
+
+
+@frappe.whitelist()
+def update_execution_data(
+	execution_name: str,
+	inputs: List[Dict[str, Any]] | str | None = None,
+	equipment: List[Dict[str, Any]] | str | None = None,
+	labour_attendance: List[Dict[str, Any]] | str | None = None,
+	planned_male_count: int | None = None,
+	planned_female_count: int | None = None,
+) -> str:
+	"""
+	Update execution child tables (inputs, equipment, labour_attendance) and optional planned counts.
+	Used by the Update Activity modal before or when submitting for review.
+	Only allowed for In Progress executions. Updates only writable fields; preserves row identity by index.
+	"""
+	import json
+	if isinstance(inputs, str):
+		inputs = json.loads(inputs) if inputs else None
+	if isinstance(equipment, str):
+		equipment = json.loads(equipment) if equipment else None
+	if isinstance(labour_attendance, str):
+		labour_attendance = json.loads(labour_attendance) if labour_attendance else None
+
+	doc = frappe.get_doc("Farm Task Execution", execution_name)
+	if doc.status != "In Progress":
+		frappe.throw(f"Cannot update execution data. Current status is {doc.status}. Only 'In Progress' executions can be updated.")
+
+	if inputs is not None and isinstance(inputs, list):
+		doc_inputs = doc.get("inputs") or []
+		for i, row in enumerate(inputs):
+			child = None
+			if row.get("item"):
+				for c in doc_inputs:
+					if c.get("item") == row.get("item"):
+						child = c
+						break
+			if child is None and isinstance(row.get("_idx"), (int, float)):
+				idx = int(row["_idx"])
+				if 0 <= idx < len(doc_inputs):
+					child = doc_inputs[idx]
+			if child is None and i < len(doc_inputs):
+				child = doc_inputs[i]
+			if child is None:
+				continue
+			if "issued_qty" in row and row["issued_qty"] is not None:
+				child.issued_qty = flt(row["issued_qty"], 3)
+			if "returned_qty" in row and row["returned_qty"] is not None:
+				child.returned_qty = flt(row["returned_qty"], 3)
+			if "consumed_qty" in row and row["consumed_qty"] is not None:
+				child.consumed_qty = flt(row["consumed_qty"], 3)
+
+	if equipment is not None and isinstance(equipment, list):
+		doc_equipment = doc.get("equipment") or []
+		for i, row in enumerate(equipment):
+			child = None
+			if row.get("asset"):
+				for c in doc_equipment:
+					if c.get("asset") == row.get("asset"):
+						child = c
+						break
+			if child is None and isinstance(row.get("_idx"), (int, float)):
+				idx = int(row["_idx"])
+				if 0 <= idx < len(doc_equipment):
+					child = doc_equipment[idx]
+			if child is None and i < len(doc_equipment):
+				child = doc_equipment[i]
+			if child is None:
+				continue
+			if "actual_hours" in row and row["actual_hours"] is not None:
+				child.actual_hours = flt(row["actual_hours"], 2)
+			if "remarks" in row:
+				child.remarks = str(row["remarks"]) if row["remarks"] is not None else ""
+
+	if labour_attendance is not None and isinstance(labour_attendance, list):
+		for i, row in enumerate(labour_attendance):
+			if i >= len(doc.labour_attendance):
+				break
+			child = doc.labour_attendance[i]
+			if "role" in row:
+				child.role = str(row["role"]) if row["role"] is not None else ""
+
+	if planned_male_count is not None and str(planned_male_count).strip() != "":
+		try:
+			doc.planned_male_count = int(planned_male_count)
+		except (TypeError, ValueError):
+			pass
+	if planned_female_count is not None and str(planned_female_count).strip() != "":
+		try:
+			doc.planned_female_count = int(planned_female_count)
+		except (TypeError, ValueError):
+			pass
+
+	doc.save(ignore_permissions=True)
+	frappe.db.commit()
+	return doc.name
 
 
 @frappe.whitelist()
