@@ -15,6 +15,18 @@ frappe.ui.form.on("Geo Fencing Area", {
             open_combined_map_view(frm);
         }, __('Map Tools'));
         
+        // Add button to fetch weather data for this field
+        if (!frm.is_new()) {
+            frm.add_custom_button(__('🌤️ Fetch Weather Data'), function() {
+                fetch_weather_for_this_field(frm);
+            }, __('Weather'));
+            
+            // Add button to view latest weather report
+            frm.add_custom_button(__('📊 View Latest Weather'), function() {
+                view_latest_weather(frm);
+            }, __('Weather'));
+        }
+        
         // Add map picker buttons to warehouse child table (only if not already added)
         if (!frm._warehouse_map_setup_done) {
             frm._warehouse_map_setup_done = true;
@@ -1085,4 +1097,148 @@ function initialize_combined_map(frm) {
             }
         });
     }
+}
+
+// Function to fetch weather data for this field
+function fetch_weather_for_this_field(frm) {
+    frappe.call({
+        method: 'f2c.weather.scheduler.fetch_weather_for_field',
+        args: {
+            geo_area_name: frm.doc.name
+        },
+        freeze: true,
+        freeze_message: __('Fetching weather data...'),
+        callback: function(r) {
+            if (r.message && r.message.status === 'success') {
+                frappe.msgprint({
+                    title: __('Weather Data Fetched'),
+                    indicator: 'green',
+                    message: __('Weather report created: {0}', [
+                        `<a href="/app/weather-report/${r.message.weather_report}">${r.message.weather_report}</a>`
+                    ])
+                });
+            }
+        },
+        error: function(r) {
+            frappe.msgprint({
+                title: __('Error'),
+                indicator: 'red',
+                message: __('Failed to fetch weather data. Please check if coordinates are set for this field.')
+            });
+        }
+    });
+}
+
+// Function to view latest weather report for this field
+function view_latest_weather(frm) {
+    frappe.call({
+        method: 'f2c.weather.scheduler.get_latest_weather_for_field',
+        args: {
+            geo_area_name: frm.doc.name
+        },
+        callback: function(r) {
+            if (r.message) {
+                let weather = r.message;
+                let d = new frappe.ui.Dialog({
+                    title: __('Latest Weather for {0}', [frm.doc.area_name || frm.doc.name]),
+                    size: 'large',
+                    fields: [
+                        {
+                            fieldtype: 'HTML',
+                            fieldname: 'weather_html'
+                        }
+                    ],
+                    primary_action_label: __('Open Full Report'),
+                    primary_action: function() {
+                        frappe.set_route('Form', 'Weather Report', weather.name);
+                        d.hide();
+                    }
+                });
+                
+                let condition_icon = get_weather_icon(weather.weather_condition);
+                
+                let html = `
+                    <div style="padding: 20px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                            <div>
+                                <h3 style="margin: 0; color: #2d3748;">${weather.report_date}</h3>
+                                <p style="margin: 5px 0 0 0; color: #718096;">Report: ${weather.name}</p>
+                            </div>
+                            <div style="text-align: right;">
+                                <span style="font-size: 48px;">${condition_icon}</span>
+                                <p style="margin: 0; color: #4a5568; font-weight: 500;">${weather.weather_condition || 'N/A'}</p>
+                            </div>
+                        </div>
+                        
+                        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px;">
+                            <div style="background: #f7fafc; padding: 15px; border-radius: 8px; text-align: center;">
+                                <p style="margin: 0; color: #718096; font-size: 12px;">Temperature</p>
+                                <p style="margin: 5px 0 0 0; font-size: 24px; font-weight: 600; color: #2d3748;">${weather.temperature !== null ? weather.temperature + '°C' : 'N/A'}</p>
+                                <p style="margin: 0; color: #a0aec0; font-size: 11px;">Feels like ${weather.feels_like !== null ? weather.feels_like + '°C' : 'N/A'}</p>
+                            </div>
+                            
+                            <div style="background: #f7fafc; padding: 15px; border-radius: 8px; text-align: center;">
+                                <p style="margin: 0; color: #718096; font-size: 12px;">Humidity</p>
+                                <p style="margin: 5px 0 0 0; font-size: 24px; font-weight: 600; color: #2d3748;">${weather.humidity !== null ? weather.humidity + '%' : 'N/A'}</p>
+                            </div>
+                            
+                            <div style="background: #f7fafc; padding: 15px; border-radius: 8px; text-align: center;">
+                                <p style="margin: 0; color: #718096; font-size: 12px;">Wind Speed</p>
+                                <p style="margin: 5px 0 0 0; font-size: 24px; font-weight: 600; color: #2d3748;">${weather.wind_speed !== null ? weather.wind_speed + ' km/h' : 'N/A'}</p>
+                                <p style="margin: 0; color: #a0aec0; font-size: 11px;">${weather.wind_direction || ''}</p>
+                            </div>
+                            
+                            <div style="background: #f7fafc; padding: 15px; border-radius: 8px; text-align: center;">
+                                <p style="margin: 0; color: #718096; font-size: 12px;">Precipitation</p>
+                                <p style="margin: 5px 0 0 0; font-size: 24px; font-weight: 600; color: #2d3748;">${weather.precipitation !== null ? weather.precipitation + ' mm' : 'N/A'}</p>
+                            </div>
+                            
+                            <div style="background: #f7fafc; padding: 15px; border-radius: 8px; text-align: center;">
+                                <p style="margin: 0; color: #718096; font-size: 12px;">Pressure</p>
+                                <p style="margin: 5px 0 0 0; font-size: 24px; font-weight: 600; color: #2d3748;">${weather.pressure !== null ? weather.pressure + ' hPa' : 'N/A'}</p>
+                            </div>
+                            
+                            <div style="background: #f7fafc; padding: 15px; border-radius: 8px; text-align: center;">
+                                <p style="margin: 0; color: #718096; font-size: 12px;">UV Index</p>
+                                <p style="margin: 5px 0 0 0; font-size: 24px; font-weight: 600; color: #2d3748;">${weather.uv_index !== null ? weather.uv_index : 'N/A'}</p>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                d.fields_dict.weather_html.$wrapper.html(html);
+                d.show();
+            } else {
+                frappe.msgprint({
+                    title: __('No Weather Data'),
+                    indicator: 'orange',
+                    message: __('No weather report found for this field. Click "Fetch Weather Data" to create one.')
+                });
+            }
+        }
+    });
+}
+
+// Helper function to get weather icon based on condition
+function get_weather_icon(condition) {
+    const icons = {
+        'Clear': '☀️',
+        'Partly Cloudy': '⛅',
+        'Cloudy': '☁️',
+        'Overcast': '☁️',
+        'Fog': '🌫️',
+        'Mist': '🌫️',
+        'Light Rain': '🌦️',
+        'Rain': '🌧️',
+        'Heavy Rain': '🌧️',
+        'Thunderstorm': '⛈️',
+        'Drizzle': '🌦️',
+        'Snow': '❄️',
+        'Sleet': '🌨️',
+        'Hail': '🌨️',
+        'Windy': '💨',
+        'Dust': '🌪️',
+        'Sandstorm': '🌪️'
+    };
+    return icons[condition] || '🌡️';
 }

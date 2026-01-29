@@ -190,7 +190,13 @@ scheduler_events = {
 	"daily": [
 		# Auto-create Warehouse Stock docs for warehouses that have stock available
 		"f2c.inventory.doctype.warehouse_stock.warehouse_stock.sync_warehouse_stock",
-	]
+	],
+	"cron": {
+		# Fetch weather data for all fields daily at 6 AM
+		"0 6 * * *": [
+			"f2c.weather.scheduler.fetch_weather_for_all_fields"
+		]
+	}
 }
 
 # Testing

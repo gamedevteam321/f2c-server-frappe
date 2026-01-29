@@ -6,3 +6,4 @@ Farm Execution
 Farm Worker
 Farm Report
 Inventory
+Weather
