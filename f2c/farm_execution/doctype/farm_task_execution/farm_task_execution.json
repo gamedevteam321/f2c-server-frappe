@@ -36,6 +36,7 @@
     "target_warehouse",
     "issue_stock_entry",
     "return_stock_entry",
+    "consumption_stock_entry",
     "section_break_equipment",
     "equipment",
     "pre_execution_equipment_photo",
@@ -225,6 +226,13 @@
       "fieldname": "return_stock_entry",
       "fieldtype": "Link",
       "label": "Return Stock Entry",
+      "options": "Stock Entry",
+      "read_only": 1
+    },
+    {
+      "fieldname": "consumption_stock_entry",
+      "fieldtype": "Link",
+      "label": "Consumption Stock Entry",
       "options": "Stock Entry",
       "read_only": 1
     },

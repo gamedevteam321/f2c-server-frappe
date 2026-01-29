@@ -9,6 +9,10 @@ from frappe.model.document import Document
 from frappe.utils import flt, now_datetime
 
 from f2c.farm_scheduling.doctype.crop_plan_schedule.crop_plan_schedule import compute_total_qty
+from f2c.inventory.doctype.warehouse_stock.warehouse_stock import (
+	_get_ws_docname_for_warehouse,
+	refresh_from_ledger,
+)
 
 
 def _insert_with_retry(exec_doc, max_retries=3):
@@ -115,6 +119,18 @@ class FarmTaskExecution(Document):
 						f"Equipment transfer tickets on completion failed for {self.name}: {str(e)}",
 						"Farm Task Execution Equipment Transfer",
 					)
+
+			# Create Material Issue (consumption) from target warehouse when execution completes and used approved inputs
+			if self.status == "Completed":
+				try:
+					_create_consumption_stock_entry_if_applicable(self)
+				except Exception as e:
+					# Title must be <= 140 chars (Error Log doctype)
+					frappe.log_error(
+						message=f"Consumption stock entry on completion failed for {self.name}: {str(e)}",
+						title="Execution consumption stock entry failed",
+					)
+					raise
 
 	def _check_linked_schedule(self):
 		"""Check if this execution is linked to a Crop Plan Schedule."""
@@ -927,6 +943,8 @@ def approve_execution(execution_name: str) -> str:
 			# Ensure actual_end is set
 			if not doc.actual_end:
 				doc.actual_end = now_datetime()
+			# Recompute consumed_qty (issued - returned) for all approved inputs so consumption stock entry uses correct values
+			doc._compute_consumed_qty()
 			doc.save(ignore_permissions=True)
 			
 			# Explicitly update linked On Demand Activity status after save
@@ -993,6 +1011,102 @@ def recalculate_inputs(execution_name: str, use_actual_water: int = 0) -> str:
 def _require_warehouses(doc: Document):
 	if not doc.source_warehouse or not doc.target_warehouse:
 		frappe.throw("Please set Source Warehouse and Target Warehouse before creating Stock Entries.")
+
+
+def _create_consumption_stock_entry_if_applicable(doc: Document) -> None:
+	"""
+	When execution is completed and used approved inputs (consumed_qty > 0),
+	create a Material Issue Stock Entry from target_warehouse to reduce stock.
+	Only runs once per execution (idempotent via consumption_stock_entry).
+	"""
+	if not doc.approved_input_mix:
+		return
+	if doc.get("consumption_stock_entry"):
+		return
+
+	items = []
+	for row in doc.get("inputs") or []:
+		qty = flt(row.consumed_qty)
+		if qty <= 0:
+			continue
+		items.append(
+			{
+				"item_code": row.item,
+				"qty": qty,
+				"s_warehouse": doc.target_warehouse,
+				"batch_no": row.batch_no,
+			}
+		)
+	if not items:
+		return
+
+	# Auto-resolve target warehouse from field if not set (so consumption always runs for field warehouse)
+	if not doc.target_warehouse and getattr(doc, "field", None):
+		from f2c.farm_execution.equipment_transfer_on_completion import get_target_warehouse_for_field
+
+		resolved = get_target_warehouse_for_field(doc.field)
+		if resolved:
+			doc.target_warehouse = resolved
+			frappe.db.set_value(
+				"Farm Task Execution",
+				doc.name,
+				"target_warehouse",
+				resolved,
+				update_modified=False,
+			)
+
+	if not doc.target_warehouse:
+		frappe.log_error(
+			message=f"Execution {doc.name}: Target Warehouse not set. Consumption stock entry skipped. Set Target Warehouse and create Material Issue manually if needed.",
+			title="Execution consumption skipped (no target warehouse)",
+		)
+		return
+	company = frappe.db.get_value("Warehouse", doc.target_warehouse, "company")
+	if not company:
+		frappe.log_error(
+			message=f"Execution {doc.name}: Warehouse {doc.target_warehouse} has no Company. Consumption stock entry skipped.",
+			title="Execution consumption skipped (no company on warehouse)",
+		)
+		return
+
+	se = frappe.get_doc(
+		{
+			"doctype": "Stock Entry",
+			"stock_entry_type": "Material Issue",
+			"company": company,
+			"from_warehouse": doc.target_warehouse,
+			"items": items,
+		}
+	)
+	se.insert(ignore_permissions=True)
+	se.submit()
+
+	frappe.db.set_value(
+		"Farm Task Execution",
+		doc.name,
+		"consumption_stock_entry",
+		se.name,
+		update_modified=False,
+	)
+
+	try:
+		# Refresh warehouse stock snapshot immediately so Warehouse Inventory shows reduced stock
+		ws_docname = _get_ws_docname_for_warehouse(doc.target_warehouse)
+		if ws_docname:
+			refresh_from_ledger(ws_docname)
+		else:
+			# Create Warehouse Stock doc if it doesn't exist
+			from f2c.inventory.doctype.warehouse_stock.warehouse_stock import sync_warehouse_stock
+
+			sync_warehouse_stock(refresh_existing=0)
+			ws_docname = _get_ws_docname_for_warehouse(doc.target_warehouse)
+			if ws_docname:
+				refresh_from_ledger(ws_docname)
+	except Exception as e:
+		frappe.log_error(
+			message=f"Failed to refresh warehouse stock for {doc.target_warehouse} after consumption: {str(e)}",
+			title="Warehouse Stock Refresh Error",
+		)
 
 
 @frappe.whitelist()
