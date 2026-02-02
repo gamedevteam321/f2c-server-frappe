@@ -93,7 +93,7 @@
       "fieldname": "status",
       "fieldtype": "Select",
       "label": "Status",
-      "options": "Started\nIn Progress\nIn Review\nReported\nRescheduled\nCompleted\nAborted",
+      "options": "Ready\nIn Progress\nIn Review\nReported\nRescheduled\nCompleted\nAborted",
       "default": "In Progress",
       "in_list_view": 1,
       "in_standard_filter": 1

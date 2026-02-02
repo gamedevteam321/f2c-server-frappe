@@ -201,7 +201,7 @@ class FarmTaskExecution(Document):
 				self.planned_spray_water_liters = flt(activity.water_to_be_used_liters or 0, 3)
 
 	def _validate_status_rules(self):
-		if self.status == "Started" and not self.actual_start:
+		if self.status == "Ready" and not self.actual_start:
 			self.actual_start = now_datetime()
 
 		# When transitioning to In Review, set actual_end if not already set
@@ -253,7 +253,7 @@ class FarmTaskExecution(Document):
 			
 			# Only allow specific transitions
 			valid_transitions = {
-				"Started": ["In Progress", "Reported", "Aborted"],
+				"Ready": ["In Progress", "Reported", "Aborted"],
 				"In Progress": ["In Review", "Reported", "Aborted"],
 				"In Review": ["Completed", "Reported", "Aborted"],
 				"Reported": ["Rescheduled", "Aborted"],
@@ -333,7 +333,7 @@ def create_from_schedule(schedule_name: str, labour_list: str = None) -> str:
 
 		exec_doc = frappe.get_doc({"doctype": "Farm Task Execution"})
 		exec_doc.schedule_ref = schedule.name
-		exec_doc.status = "Started"
+		exec_doc.status = "Ready"
 		exec_doc.actual_start = now_datetime()
 
 		# Snapshot planned context
@@ -472,7 +472,7 @@ def create_from_on_demand_activity(on_demand_activity_name: str, labour_list: st
 
 	exec_doc = frappe.get_doc({"doctype": "Farm Task Execution"})
 	exec_doc.on_demand_activity_ref = activity.name
-	exec_doc.status = "Started"
+	exec_doc.status = "Ready"
 	exec_doc.actual_start = now_datetime()
 
 	# Snapshot planned context
@@ -655,7 +655,7 @@ def start_execution(
 	equipment_photo_urls=None,
 ) -> str:
 	"""
-	Transition execution status from Started to In Progress.
+	Transition execution status from Ready to In Progress.
 	Optionally persist pre-execution checklist (equipment/input present flags) and equipment photos.
 	equipment_photo_urls: list of file URLs (multiple images). equipment_photo: legacy single base64.
 	Uses row locking to prevent concurrent modification errors.
@@ -668,9 +668,9 @@ def start_execution(
 			frappe.db.begin()
 			doc = frappe.get_doc("Farm Task Execution", execution_name, for_update=True)
 
-			if doc.status != "Started":
+			if doc.status != "Ready":
 				frappe.db.rollback()
-				frappe.throw(f"Cannot start execution. Current status is {doc.status}. Only 'Started' executions can be moved to 'In Progress'.")
+				frappe.throw(f"Cannot start execution. Current status is {doc.status}. Only 'Ready' executions can be moved to 'In Progress'.")
 
 			_apply_pre_execution_checklist(
 				doc,
