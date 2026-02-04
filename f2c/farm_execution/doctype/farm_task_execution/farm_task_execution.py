@@ -1725,3 +1725,24 @@ def sync_on_demand_activity_statuses() -> Dict[str, Any]:
 	}
 
 
+@frappe.whitelist()
+def get_labour_checkin_times(checkin_names: str) -> dict:
+	"""
+	Return a map of Employee Checkin name -> time (datetime string) for display.
+	Used by the frontend to show check-in/check-out time values in the Labour table.
+	"""
+	names = json.loads(checkin_names) if isinstance(checkin_names, str) else (checkin_names or [])
+	names = [n for n in names if n and isinstance(n, str)]
+	if not names:
+		return {}
+	try:
+		rows = frappe.db.get_all(
+			"Employee Checkin",
+			filters={"name": ["in", names]},
+			fields=["name", "time"]
+		)
+		return {r["name"]: (r.get("time") and str(r["time"])) or "" for r in (rows or [])}
+	except Exception:
+		return {}
+
+
