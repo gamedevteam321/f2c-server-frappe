@@ -49,6 +49,7 @@
     "section_break_progress_images",
     "progress_image_count",
     "progress_images",
+    "remark",
     "section_break_abort",
     "abort_category",
     "abort_reason",
@@ -302,6 +303,11 @@
       "fieldtype": "Table",
       "label": "Progress Images",
       "options": "Farm Task Execution Progress Image"
+    },
+    {
+      "fieldname": "remark",
+      "fieldtype": "Small Text",
+      "label": "Remark"
     },
     {
       "fieldname": "section_break_abort",

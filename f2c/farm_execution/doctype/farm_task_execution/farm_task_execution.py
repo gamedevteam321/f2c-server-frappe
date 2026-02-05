@@ -790,9 +790,10 @@ def update_execution_data(
 	labour_attendance: List[Dict[str, Any]] | str | None = None,
 	planned_male_count: int | None = None,
 	planned_female_count: int | None = None,
+	remark: str | None = None,
 ) -> str:
 	"""
-	Update execution child tables (inputs, equipment, labour_attendance) and optional planned counts.
+	Update execution child tables (inputs, equipment, labour_attendance), optional planned counts, and optional remark.
 	Used by the Update Activity modal before or when submitting for review.
 	Only allowed for In Progress executions. Updates only writable fields; preserves row identity by index.
 	"""
@@ -872,6 +873,9 @@ def update_execution_data(
 			doc.planned_female_count = int(planned_female_count)
 		except (TypeError, ValueError):
 			pass
+
+	if remark is not None:
+		doc.remark = str(remark).strip() if remark else ""
 
 	doc.save(ignore_permissions=True)
 	frappe.db.commit()
