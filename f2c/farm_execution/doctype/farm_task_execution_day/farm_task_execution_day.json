@@ -1,0 +1,142 @@
+{
+  "doctype": "DocType",
+  "name": "Farm Task Execution Day",
+  "module": "Farm Execution",
+  "document_type": "Document",
+  "autoname": "format:FTED-{####}",
+  "allow_rename": 1,
+  "track_changes": 1,
+  "field_order": [
+    "execution",
+    "date",
+    "column_break_1",
+    "actual_spray_water_liters",
+    "actual_irrigation_water_liters",
+    "section_break_remark",
+    "remark",
+    "section_break_labour",
+    "labour",
+    "section_break_inputs",
+    "inputs",
+    "section_break_equipment",
+    "equipment",
+    "section_break_progress_images",
+    "progress_images"
+  ],
+  "fields": [
+    {
+      "fieldname": "execution",
+      "fieldtype": "Link",
+      "label": "Execution",
+      "options": "Farm Task Execution",
+      "reqd": 1,
+      "in_list_view": 1,
+      "in_standard_filter": 1
+    },
+    {
+      "fieldname": "date",
+      "fieldtype": "Date",
+      "label": "Date",
+      "reqd": 1,
+      "in_list_view": 1,
+      "in_standard_filter": 1
+    },
+    {
+      "fieldname": "column_break_1",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "actual_spray_water_liters",
+      "fieldtype": "Float",
+      "label": "Actual Spray Water (Liters)",
+      "precision": "3"
+    },
+    {
+      "fieldname": "actual_irrigation_water_liters",
+      "fieldtype": "Float",
+      "label": "Actual Irrigation Water (Liters)",
+      "precision": "3"
+    },
+    {
+      "fieldname": "section_break_remark",
+      "fieldtype": "Section Break",
+      "label": "Remark"
+    },
+    {
+      "fieldname": "remark",
+      "fieldtype": "Small Text",
+      "label": "Remark"
+    },
+    {
+      "fieldname": "section_break_labour",
+      "fieldtype": "Section Break",
+      "label": "Labour"
+    },
+    {
+      "fieldname": "labour",
+      "fieldtype": "Table",
+      "label": "Labour",
+      "options": "Farm Task Execution Day Labour"
+    },
+    {
+      "fieldname": "section_break_inputs",
+      "fieldtype": "Section Break",
+      "label": "Inputs"
+    },
+    {
+      "fieldname": "inputs",
+      "fieldtype": "Table",
+      "label": "Inputs",
+      "options": "Farm Task Execution Day Input"
+    },
+    {
+      "fieldname": "section_break_equipment",
+      "fieldtype": "Section Break",
+      "label": "Equipment"
+    },
+    {
+      "fieldname": "equipment",
+      "fieldtype": "Table",
+      "label": "Equipment",
+      "options": "Farm Task Execution Day Equipment"
+    },
+    {
+      "fieldname": "section_break_progress_images",
+      "fieldtype": "Section Break",
+      "label": "Progress Images"
+    },
+    {
+      "fieldname": "progress_images",
+      "fieldtype": "Table",
+      "label": "Progress Images",
+      "options": "Farm Task Execution Day Progress Image"
+    }
+  ],
+  "permissions": [
+    {
+      "role": "System Manager",
+      "read": 1,
+      "write": 1,
+      "create": 1,
+      "delete": 1,
+      "report": 1,
+      "export": 1,
+      "print": 1,
+      "email": 1,
+      "share": 1
+    },
+    {
+      "role": "All",
+      "read": 1,
+      "write": 1,
+      "create": 1,
+      "report": 1,
+      "export": 1,
+      "print": 1,
+      "email": 1,
+      "share": 1
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC"
+}

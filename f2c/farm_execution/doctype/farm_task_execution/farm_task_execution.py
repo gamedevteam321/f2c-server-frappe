@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 
 import frappe
 from frappe.model.document import Document
-from frappe.utils import flt, now_datetime
+from frappe.utils import flt, getdate, now_datetime
 
 from f2c.farm_scheduling.doctype.crop_plan_schedule.crop_plan_schedule import compute_total_qty
 from f2c.inventory.doctype.warehouse_stock.warehouse_stock import (
@@ -211,7 +211,7 @@ class FarmTaskExecution(Document):
 		if self.status in ("Completed", "Aborted") and not self.actual_end:
 			self.actual_end = now_datetime()
 
-		# Get old status for transition validation
+		# Get old status for transition validation (needed for paused_at/resumed_at and transitions)
 		old_status = None
 		if self.has_value_changed("status"):
 			if hasattr(self, "_doc_before_save") and self._doc_before_save:
@@ -219,6 +219,14 @@ class FarmTaskExecution(Document):
 			elif not self.is_new():
 				# Fallback: fetch from database if _doc_before_save is not available
 				old_status = frappe.db.get_value(self.doctype, self.name, "status")
+
+		# When transitioning to Paused, set paused_at
+		if self.has_value_changed("status") and self.status == "Paused":
+			self.paused_at = now_datetime()
+
+		# When transitioning from Paused to In Progress, set resumed_at
+		if self.has_value_changed("status") and old_status == "Paused" and self.status == "In Progress":
+			self.resumed_at = now_datetime()
 
 		# For spray activities, validate actual_spray_water_liters
 		# If transitioning from In Review to Completed, use planned value as fallback if actual is not set
@@ -243,18 +251,30 @@ class FarmTaskExecution(Document):
 			# old_status already retrieved above
 			new_status = self.status
 
-			# Require at least 3 progress images before submitting for review
+			# Require at least 3 progress images before submitting for review (aggregate across all Days if using per-day model)
 			if new_status == "In Review":
 				# Allow explicit skip from API when user chooses "Submit for review without images"
 				if not getattr(frappe.flags, "skip_progress_image_min", False):
-					rows = self.get("progress_images") or []
-					if len(rows) < 3:
-						frappe.throw("Please upload at least 3 progress images before submitting for review.")
+					total_images = 0
+					day_names = frappe.get_all(
+						"Farm Task Execution Day",
+						filters={"execution": self.name},
+						pluck="name",
+					)
+					if day_names:
+						for day_name in day_names:
+							count = frappe.db.count("Farm Task Execution Day Progress Image", {"parent": day_name})
+							total_images += count
+					else:
+						total_images = len(self.get("progress_images") or [])
+					if total_images < 3:
+						frappe.throw("Please upload at least 3 progress images before submitting for review (total across all days).")
 			
 			# Only allow specific transitions
 			valid_transitions = {
 				"Ready": ["In Progress", "Reported", "Aborted"],
-				"In Progress": ["In Review", "Reported", "Aborted"],
+				"In Progress": ["In Review", "Reported", "Aborted", "Paused"],
+				"Paused": ["In Progress", "Aborted"],
 				"In Review": ["Completed", "Reported", "Aborted"],
 				"Reported": ["Rescheduled", "Aborted"],
 				"Rescheduled": [],  # Terminal-ish state for this execution
@@ -335,6 +355,13 @@ def create_from_schedule(schedule_name: str, labour_list: str = None) -> str:
 		exec_doc.schedule_ref = schedule.name
 		exec_doc.status = "Ready"
 		exec_doc.actual_start = now_datetime()
+		# Set execution_type from planned span (Single Day vs Multi Day)
+		if schedule.planned_start and schedule.planned_end:
+			d1 = getdate(schedule.planned_start)
+			d2 = getdate(schedule.planned_end)
+			exec_doc.execution_type = "Multi Day" if d1 != d2 else "Single Day"
+		else:
+			exec_doc.execution_type = "Single Day"
 
 		# Snapshot planned context
 		exec_doc.farm_activity = schedule.farm_activity
@@ -474,6 +501,13 @@ def create_from_on_demand_activity(on_demand_activity_name: str, labour_list: st
 	exec_doc.on_demand_activity_ref = activity.name
 	exec_doc.status = "Ready"
 	exec_doc.actual_start = now_datetime()
+	# Set execution_type from planned span (Single Day vs Multi Day)
+	if activity.planned_start and activity.planned_end:
+		d1 = getdate(activity.planned_start)
+		d2 = getdate(activity.planned_end)
+		exec_doc.execution_type = "Multi Day" if d1 != d2 else "Single Day"
+	else:
+		exec_doc.execution_type = "Single Day"
 
 	# Snapshot planned context
 	exec_doc.farm_activity = activity.activity
@@ -698,6 +732,352 @@ def start_execution(
 
 
 @frappe.whitelist()
+def pause_execution(execution_name: str) -> str:
+	"""
+	Transition execution status from In Progress to Paused (put on hold).
+	Only allowed when status is In Progress. Sets paused_at on the document.
+	"""
+	import time
+	max_retries = 3
+	for attempt in range(max_retries):
+		try:
+			frappe.db.begin()
+			doc = frappe.get_doc("Farm Task Execution", execution_name, for_update=True)
+			if doc.status != "In Progress":
+				frappe.db.rollback()
+				frappe.throw(f"Cannot put on hold. Current status is {doc.status}. Only 'In Progress' executions can be put on hold.")
+			doc.status = "Paused"
+			doc.paused_at = now_datetime()
+			doc.save(ignore_permissions=True)
+			frappe.db.commit()
+			return doc.name
+		except frappe.QueryDeadlockError:
+			frappe.db.rollback()
+			if attempt < max_retries - 1:
+				time.sleep(0.1 * (attempt + 1))
+			else:
+				raise
+		except Exception:
+			frappe.db.rollback()
+			raise
+	return execution_name
+
+
+@frappe.whitelist()
+def resume_execution(execution_name: str) -> str:
+	"""
+	Transition execution status from Paused to In Progress (resume after hold).
+	Only allowed when status is Paused. Sets resumed_at on the document.
+	"""
+	import time
+	max_retries = 3
+	for attempt in range(max_retries):
+		try:
+			frappe.db.begin()
+			doc = frappe.get_doc("Farm Task Execution", execution_name, for_update=True)
+			if doc.status != "Paused":
+				frappe.db.rollback()
+				frappe.throw(f"Cannot resume. Current status is {doc.status}. Only executions that are on hold can be resumed.")
+			doc.status = "In Progress"
+			doc.resumed_at = now_datetime()
+			doc.save(ignore_permissions=True)
+			frappe.db.commit()
+			return doc.name
+		except frappe.QueryDeadlockError:
+			frappe.db.rollback()
+			if attempt < max_retries - 1:
+				time.sleep(0.1 * (attempt + 1))
+			else:
+				raise
+		except Exception:
+			frappe.db.rollback()
+			raise
+	return execution_name
+
+
+@frappe.whitelist()
+def get_execution_days(execution_name: str) -> List[Dict[str, Any]]:
+	"""
+	Return list of Farm Task Execution Day docs (with child tables) for the given execution, ordered by date.
+	Used by Update and View modals to show day list and load selected day.
+	"""
+	execution_name = (execution_name or "").strip()
+	if not execution_name:
+		return []
+	names = frappe.get_all(
+		"Farm Task Execution Day",
+		filters={"execution": execution_name},
+		fields=["name", "date", "actual_spray_water_liters", "actual_irrigation_water_liters", "remark"],
+		order_by="date asc",
+	)
+	out = []
+	for d in names:
+		doc = frappe.get_doc("Farm Task Execution Day", d["name"])
+		out.append(doc.as_dict())
+	return out
+
+
+def _copy_fte_child_to_day(fte_doc, day_doc):
+	"""Copy FTE labour, inputs, equipment, progress_images, remark, water into a Day doc (for lazy migration)."""
+	day_doc.remark = (fte_doc.remark or "").strip()
+	day_doc.actual_spray_water_liters = flt(fte_doc.actual_spray_water_liters, 3)
+	day_doc.actual_irrigation_water_liters = flt(fte_doc.actual_irrigation_water_liters, 3)
+	for row in (fte_doc.get("labour_attendance") or []):
+		day_doc.append("labour", {
+			"labour": row.labour,
+			"labour_name": getattr(row, "labour_name", None),
+			"role": getattr(row, "role", None),
+			"checkin_in": getattr(row, "checkin_in", None),
+			"checkin_out": getattr(row, "checkin_out", None),
+		})
+	for row in (fte_doc.get("inputs") or []):
+		day_doc.append("inputs", {
+			"item": row.item,
+			"item_name": getattr(row, "item_name", None),
+			"uom": getattr(row, "uom", None),
+			"rate_qty": flt(row.rate_qty, 3),
+			"planned_qty": flt(row.planned_qty, 3),
+			"issued_qty": flt(row.issued_qty, 3),
+			"returned_qty": flt(row.returned_qty, 3),
+			"consumed_qty": flt(row.consumed_qty, 3),
+		})
+	for row in (fte_doc.get("equipment") or []):
+		day_doc.append("equipment", {
+			"asset": row.asset,
+			"asset_name": getattr(row, "asset_name", None),
+			"planned_hours": flt(row.planned_hours, 2),
+			"actual_hours": flt(row.actual_hours, 2),
+			"remarks": getattr(row, "remarks", None) or "",
+		})
+	for row in (fte_doc.get("progress_images") or []):
+		day_doc.append("progress_images", {"image": row.image})
+
+
+@frappe.whitelist()
+def get_or_create_current_day(execution_name: str, date: str) -> Dict[str, Any]:
+	"""
+	If a Day for that execution + date exists, return it (with children).
+	If not, create one (lazy migration: if execution has no days, create from FTE and optionally copy FTE child data).
+	Only allowed when FTE status is In Progress or Paused.
+	"""
+	fte = frappe.get_doc("Farm Task Execution", execution_name)
+	if fte.status not in ("In Progress", "Paused"):
+		frappe.throw(f"Cannot get or create day. Current status is {fte.status}. Only 'In Progress' or 'Paused' executions can have day data updated.")
+
+	existing = frappe.db.get_value(
+		"Farm Task Execution Day",
+		{"execution": execution_name, "date": date},
+		"name",
+	)
+	if existing:
+		doc = frappe.get_doc("Farm Task Execution Day", existing)
+		return doc.as_dict()
+
+	# Create new day
+	day_doc = frappe.new_doc("Farm Task Execution Day")
+	day_doc.execution = execution_name
+	day_doc.date = date
+
+	# Lazy migration: if this execution had no days, copy FTE child data into this first day
+	existing_days = frappe.get_all(
+		"Farm Task Execution Day",
+		filters={"execution": execution_name},
+		fields=["name"],
+	)
+	if len(existing_days) == 0:
+		_copy_fte_child_to_day(fte, day_doc)
+
+	day_doc.insert(ignore_permissions=True)
+	frappe.db.commit()
+
+	# When second day is created (we had at least one day before this insert), set execution_type to Multi Day
+	if len(existing_days) >= 1 and getattr(fte, "execution_type", None) == "Single Day":
+		frappe.db.set_value("Farm Task Execution", execution_name, "execution_type", "Multi Day", update_modified=False)
+		frappe.db.commit()
+
+	return day_doc.as_dict()
+
+
+@frappe.whitelist()
+def create_dummy_execution_days_for_testing(execution_name: str = None) -> List[str]:
+	"""
+	Create 2 dummy Farm Task Execution Day records for an execution (for testing day-wise view/update).
+	If execution_name is None, uses the first Farm Task Execution with status In Progress.
+	Creates one day for today and one for yesterday, with dummy remark; optionally adds one labour row if available.
+	Returns list of created day docnames.
+	"""
+	from frappe.utils import add_days, getdate
+
+	if not execution_name:
+		names = frappe.get_all(
+			"Farm Task Execution",
+			filters={"status": ["in", ["In Progress", "Paused"]]},
+			fields=["name"],
+			limit=1,
+		)
+		if not names:
+			frappe.throw("No In Progress or Paused execution found. Create one or pass execution_name.")
+		execution_name = names[0].name
+
+	fte = frappe.get_doc("Farm Task Execution", execution_name)
+	if fte.status not in ("In Progress", "Paused"):
+		frappe.throw(f"Execution {execution_name} status is {fte.status}. Only In Progress or Paused can have day data.")
+
+	today = getdate()
+	yesterday = add_days(today, -1)
+	dates_to_create = [yesterday, today]
+	created = []
+
+	# Optional: one labour to add (first Farm Worker Details)
+	labour_name = frappe.db.get_value("Farm Worker Details", {}, "name")
+
+	for d in dates_to_create:
+		date_str = d.strftime("%Y-%m-%d")
+		existing = frappe.db.get_value(
+			"Farm Task Execution Day",
+			{"execution": execution_name, "date": date_str},
+			"name",
+		)
+		if existing:
+			created.append(existing)
+			continue
+		day_doc = frappe.new_doc("Farm Task Execution Day")
+		day_doc.execution = execution_name
+		day_doc.date = date_str
+		day_doc.remark = f"Dummy day for testing ({date_str})"
+		if labour_name:
+			day_doc.append("labour", {"labour": labour_name})
+		day_doc.insert(ignore_permissions=True)
+		created.append(day_doc.name)
+
+	frappe.db.commit()
+	return created
+
+
+@frappe.whitelist()
+def update_day_data(
+	execution_name: str,
+	day_date: str,
+	labour: List[Dict[str, Any]] | str | None = None,
+	inputs: List[Dict[str, Any]] | str | None = None,
+	equipment: List[Dict[str, Any]] | str | None = None,
+	actual_spray_water_liters: Optional[float] = None,
+	actual_irrigation_water_liters: Optional[float] = None,
+	remark: Optional[str] = None,
+	progress_images: List[Dict[str, Any]] | str | None = None,
+) -> str:
+	"""
+	Load or create Farm Task Execution Day for (execution_name, day_date), update child tables and fields, save.
+	Only allowed when FTE status is In Progress or Paused.
+	"""
+	import json
+	if isinstance(labour, str):
+		labour = json.loads(labour) if labour else None
+	if isinstance(inputs, str):
+		inputs = json.loads(inputs) if inputs else None
+	if isinstance(equipment, str):
+		equipment = json.loads(equipment) if equipment else None
+	if isinstance(progress_images, str):
+		progress_images = json.loads(progress_images) if progress_images else None
+
+	fte = frappe.get_doc("Farm Task Execution", execution_name)
+	if fte.status not in ("In Progress", "Paused"):
+		frappe.throw(f"Cannot update day data. Current status is {fte.status}. Only 'In Progress' or 'Paused' executions can be updated.")
+
+	day_name = frappe.db.get_value(
+		"Farm Task Execution Day",
+		{"execution": execution_name, "date": day_date},
+		"name",
+	)
+	if not day_name:
+		# Create via get_or_create (which handles lazy migration)
+		result = get_or_create_current_day(execution_name, day_date)
+		day_name = result.get("name")
+
+	day_doc = frappe.get_doc("Farm Task Execution Day", day_name)
+
+	if remark is not None:
+		day_doc.remark = str(remark).strip()
+	if actual_spray_water_liters is not None:
+		day_doc.actual_spray_water_liters = flt(actual_spray_water_liters, 3)
+	if actual_irrigation_water_liters is not None:
+		day_doc.actual_irrigation_water_liters = flt(actual_irrigation_water_liters, 3)
+
+	if labour is not None and isinstance(labour, list):
+		day_doc.labour = []
+		for row in labour:
+			day_doc.append("labour", {
+				"labour": row.get("labour"),
+				"labour_name": row.get("labour_name"),
+				"role": row.get("role"),
+				"checkin_in": row.get("checkin_in"),
+				"checkin_out": row.get("checkin_out"),
+			})
+	if inputs is not None and isinstance(inputs, list):
+		day_doc.inputs = []
+		for row in inputs:
+			day_doc.append("inputs", {
+				"item": row.get("item"),
+				"item_name": row.get("item_name"),
+				"uom": row.get("uom"),
+				"rate_qty": flt(row.get("rate_qty"), 3),
+				"planned_qty": flt(row.get("planned_qty"), 3),
+				"issued_qty": flt(row.get("issued_qty"), 3),
+				"returned_qty": flt(row.get("returned_qty"), 3),
+				"consumed_qty": flt(row.get("consumed_qty"), 3),
+			})
+	if equipment is not None and isinstance(equipment, list):
+		day_doc.equipment = []
+		for row in equipment:
+			day_doc.append("equipment", {
+				"asset": row.get("asset"),
+				"asset_name": row.get("asset_name"),
+				"planned_hours": flt(row.get("planned_hours"), 2),
+				"actual_hours": flt(row.get("actual_hours"), 2),
+				"remarks": row.get("remarks") or "",
+			})
+	if progress_images is not None and isinstance(progress_images, list):
+		day_doc.progress_images = []
+		for row in progress_images:
+			if row.get("image"):
+				day_doc.append("progress_images", {"image": row["image"]})
+
+	day_doc.save(ignore_permissions=True)
+	frappe.db.commit()
+	return day_doc.name
+
+
+@frappe.whitelist()
+def save_day_progress_images(execution_name: str, day_date: str, progress_images: List[Dict[str, Any]] | str) -> str:
+	"""Update only progress_images for the Day (execution_name, day_date). Only when FTE status is In Progress or Paused."""
+	import json
+	if isinstance(progress_images, str):
+		progress_images = json.loads(progress_images) if progress_images else []
+
+	fte = frappe.get_doc("Farm Task Execution", execution_name)
+	if fte.status not in ("In Progress", "Paused"):
+		frappe.throw(f"Cannot save day progress images. Current status is {fte.status}.")
+
+	day_name = frappe.db.get_value(
+		"Farm Task Execution Day",
+		{"execution": execution_name, "date": day_date},
+		"name",
+	)
+	if not day_name:
+		result = get_or_create_current_day(execution_name, day_date)
+		day_name = result.get("name")
+
+	day_doc = frappe.get_doc("Farm Task Execution Day", day_name)
+	day_doc.progress_images = []
+	for row in (progress_images or []):
+		if row.get("image"):
+			day_doc.append("progress_images", {"image": row["image"]})
+	day_doc.save(ignore_permissions=True)
+	frappe.db.commit()
+	return day_doc.name
+
+
+@frappe.whitelist()
 def get_pre_execution_availability(execution_name: str) -> Dict[str, List[Dict[str, Any]]]:
 	"""
 	Return equipment and inputs with an 'available' flag based on field warehouse.
@@ -806,8 +1186,8 @@ def update_execution_data(
 		labour_attendance = json.loads(labour_attendance) if labour_attendance else None
 
 	doc = frappe.get_doc("Farm Task Execution", execution_name)
-	if doc.status != "In Progress":
-		frappe.throw(f"Cannot update execution data. Current status is {doc.status}. Only 'In Progress' executions can be updated.")
+	if doc.status not in ("In Progress", "Paused"):
+		frappe.throw(f"Cannot update execution data. Current status is {doc.status}. Only 'In Progress' or 'Paused' (on hold) executions can be updated.")
 
 	if inputs is not None and isinstance(inputs, list):
 		doc_inputs = doc.get("inputs") or []
@@ -899,6 +1279,8 @@ def submit_for_review(execution_name: str, skip_images: int = 0) -> str:
 			
 			if doc.status != "In Progress":
 				frappe.db.rollback()
+				if doc.status == "Paused":
+					frappe.throw("Cannot submit for review while execution is on hold. Please Resume the execution first.")
 				frappe.throw(f"Cannot submit for review. Current status is {doc.status}. Only 'In Progress' executions can be moved to 'In Review'.")
 			
 			# Optional bypass for progress-image requirement (requested UX)

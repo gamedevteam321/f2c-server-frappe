@@ -16,6 +16,9 @@
     "status",
     "actual_start",
     "actual_end",
+    "execution_type",
+    "paused_at",
+    "resumed_at",
     "section_break_context",
     "blocks",
     "farm_activity",
@@ -94,7 +97,7 @@
       "fieldname": "status",
       "fieldtype": "Select",
       "label": "Status",
-      "options": "Ready\nIn Progress\nIn Review\nReported\nRescheduled\nCompleted\nAborted",
+      "options": "Ready\nIn Progress\nPaused\nIn Review\nReported\nRescheduled\nCompleted\nAborted",
       "default": "In Progress",
       "in_list_view": 1,
       "in_standard_filter": 1
@@ -108,6 +111,25 @@
       "fieldname": "actual_end",
       "fieldtype": "Datetime",
       "label": "Actual End"
+    },
+    {
+      "fieldname": "execution_type",
+      "fieldtype": "Select",
+      "label": "Execution Type",
+      "options": "Single Day\nMulti Day",
+      "default": "Single Day"
+    },
+    {
+      "fieldname": "paused_at",
+      "fieldtype": "Datetime",
+      "label": "Paused At",
+      "read_only": 1
+    },
+    {
+      "fieldname": "resumed_at",
+      "fieldtype": "Datetime",
+      "label": "Resumed At",
+      "read_only": 1
     },
     {
       "fieldname": "section_break_context",
