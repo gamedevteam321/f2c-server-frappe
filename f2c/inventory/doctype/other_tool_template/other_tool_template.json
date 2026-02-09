@@ -1,0 +1,183 @@
+{
+  "doctype": "DocType",
+  "name": "Other Tool Template",
+  "module": "Inventory",
+  "document_type": "Document",
+  "autoname": "format:MTPL-OTOOL-{#####}",
+  "allow_import": 1,
+  "allow_rename": 1,
+  "track_changes": 1,
+  "engine": "InnoDB",
+  "title_field": "template_name",
+  "field_order": [
+    "template_info_section",
+    "template_name",
+    "column_break_t1",
+    "other_tool_type",
+    "brand",
+    "model",
+    "default_status",
+    "item_settings_section",
+    "default_item_code",
+    "column_break_item",
+    "item_group",
+    "stock_uom",
+    "asset_category",
+    "asset_naming_series",
+    "default_standard_rate",
+    "specs_section",
+    "material",
+    "dimensions",
+    "weight",
+    "default_description",
+    "default_features"
+  ],
+  "fields": [
+    {
+      "fieldname": "template_info_section",
+      "fieldtype": "Section Break",
+      "label": "Template Info"
+    },
+    {
+      "fieldname": "template_name",
+      "fieldtype": "Data",
+      "label": "Template Name",
+      "reqd": 1,
+      "in_list_view": 1,
+      "in_standard_filter": 1
+    },
+    {
+      "fieldname": "column_break_t1",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "other_tool_type",
+      "fieldtype": "Data",
+      "label": "Other Tool Type",
+      "reqd": 1,
+      "in_list_view": 1,
+      "in_standard_filter": 1
+    },
+    {
+      "fieldname": "brand",
+      "fieldtype": "Data",
+      "label": "Brand",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "model",
+      "fieldtype": "Data",
+      "label": "Model",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "default_status",
+      "fieldtype": "Select",
+      "label": "Default Status",
+      "options": "\nAvailable\nIn Use\nMaintenance\nRetired",
+      "default": "Available"
+    },
+    {
+      "fieldname": "item_settings_section",
+      "fieldtype": "Section Break",
+      "label": "Item Settings"
+    },
+    {
+      "fieldname": "default_item_code",
+      "fieldtype": "Link",
+      "label": "Default Item Code",
+      "options": "Item"
+    },
+    {
+      "fieldname": "column_break_item",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "item_group",
+      "fieldtype": "Link",
+      "label": "Item Group",
+      "options": "Item Group"
+    },
+    {
+      "fieldname": "stock_uom",
+      "fieldtype": "Link",
+      "label": "Stock UOM",
+      "options": "UOM",
+      "default": "Nos"
+    },
+    {
+      "fieldname": "asset_category",
+      "fieldtype": "Link",
+      "label": "Asset Category",
+      "options": "Asset Category"
+    },
+    {
+      "fieldname": "asset_naming_series",
+      "fieldtype": "Data",
+      "label": "Asset Naming Series"
+    },
+    {
+      "fieldname": "default_standard_rate",
+      "fieldtype": "Currency",
+      "label": "Default Standard Rate"
+    },
+    {
+      "fieldname": "specs_section",
+      "fieldtype": "Section Break",
+      "label": "Specifications"
+    },
+    {
+      "fieldname": "material",
+      "fieldtype": "Data",
+      "label": "Material"
+    },
+    {
+      "fieldname": "dimensions",
+      "fieldtype": "Data",
+      "label": "Dimensions"
+    },
+    {
+      "fieldname": "weight",
+      "fieldtype": "Float",
+      "label": "Weight"
+    },
+    {
+      "fieldname": "default_description",
+      "fieldtype": "Text",
+      "label": "Default Description"
+    },
+    {
+      "fieldname": "default_features",
+      "fieldtype": "Text",
+      "label": "Default Features"
+    }
+  ],
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "share": 1,
+      "write": 1,
+      "role": "System Manager"
+    },
+    {
+      "create": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "share": 1,
+      "write": 1,
+      "role": "All"
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC"
+}
+

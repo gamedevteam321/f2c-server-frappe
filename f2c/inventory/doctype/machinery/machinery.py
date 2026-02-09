@@ -8,6 +8,15 @@ from frappe.model.document import Document
 
 
 class Machinery(Document):
+	def validate(self):
+		# Ensure template application happens consistently for API/imports too.
+		# Only apply on Draft docs (submitted/cancelled should not be mutated silently).
+		if int(getattr(self, "docstatus", 0) or 0) != 0:
+			return
+		from f2c.inventory.equipment_template_apply import apply_template_overwrite
+
+		apply_template_overwrite(self)
+
 	def before_insert(self):
 		"""
 		Auto-create an ERPNext Asset when creating Machinery, unless an existing Asset is linked.

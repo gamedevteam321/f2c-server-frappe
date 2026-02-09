@@ -1,44 +1,30 @@
 {
   "doctype": "DocType",
-  "name": "Machinery",
+  "name": "Machinery Template",
   "module": "Inventory",
   "document_type": "Document",
-  "autoname": "format:MCH-{#####}",
+  "autoname": "format:MTPL-MCH-{#####}",
   "allow_import": 1,
   "allow_rename": 1,
-  "is_submittable": 1,
   "track_changes": 1,
-  "index_web_pages_for_search": 1,
   "engine": "InnoDB",
+  "title_field": "template_name",
   "field_order": [
-    "asset_info_section",
-    "asset",
-    "column_break_asset_link",
-    "create_asset_note",
-    "item_code",
-    "company",
-    "location",
-    "purchase_date",
-    "is_existing_asset",
-    "available_for_use_date",
-    "purchase_receipt",
-    "purchase_invoice",
-    "asset_name",
-    "image_section",
-    "hero_image",
-    "column_break_img",
-    "gallery",
-    "basic_info_section",
-    "machinery_template",
+    "template_info_section",
+    "template_name",
+    "column_break_t1",
     "machinery_type",
-    "machinery_name",
     "brand",
     "model",
-    "serial_number",
-    "column_break_basic_1",
-    "year",
-    "price",
-    "status",
+    "default_status",
+    "item_settings_section",
+    "default_item_code",
+    "column_break_item",
+    "item_group",
+    "stock_uom",
+    "asset_category",
+    "asset_naming_series",
+    "default_standard_rate",
     "engine_section",
     "hp",
     "cylinders",
@@ -92,130 +78,26 @@
     "additional_section",
     "warranty",
     "battery",
-    "description",
-    "features"
+    "default_description",
+    "default_features"
   ],
   "fields": [
     {
-      "fieldname": "asset_info_section",
+      "fieldname": "template_info_section",
       "fieldtype": "Section Break",
-      "label": "Asset Information"
+      "label": "Template Info"
     },
     {
-      "fieldname": "asset",
-      "fieldtype": "Link",
-      "label": "Asset (Optional: link an existing Asset)",
-      "options": "Asset",
+      "fieldname": "template_name",
+      "fieldtype": "Data",
+      "label": "Template Name",
+      "reqd": 1,
       "in_list_view": 1,
       "in_standard_filter": 1
     },
     {
-      "fieldname": "column_break_asset_link",
+      "fieldname": "column_break_t1",
       "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "create_asset_note",
-      "fieldtype": "HTML",
-      "label": "Note",
-      "options": "<div style=\"color:#6b7280;font-size:13px\">If you do not select an Asset, the system will auto-create an Asset from the required fields below.</div>"
-    },
-    {
-      "depends_on": "eval:!doc.asset",
-      "fieldname": "item_code",
-      "fieldtype": "Link",
-      "label": "Item Code",
-      "options": "Item",
-      "reqd": 1,
-      "in_standard_filter": 1
-    },
-    {
-      "depends_on": "eval:!doc.asset",
-      "fieldname": "company",
-      "fieldtype": "Link",
-      "label": "Company",
-      "options": "Company",
-      "reqd": 1
-    },
-    {
-      "depends_on": "eval:!doc.asset",
-      "fieldname": "location",
-      "fieldtype": "Link",
-      "label": "Location",
-      "options": "Location",
-      "reqd": 1
-    },
-    {
-      "depends_on": "eval:!doc.asset",
-      "fieldname": "purchase_date",
-      "fieldtype": "Date",
-      "label": "Purchase Date",
-      "reqd": 1
-    },
-    {
-      "default": "0",
-      "depends_on": "eval:!doc.asset",
-      "fieldname": "is_existing_asset",
-      "fieldtype": "Check",
-      "label": "Is Existing Asset"
-    },
-    {
-      "depends_on": "eval:!doc.asset",
-      "fieldname": "available_for_use_date",
-      "fieldtype": "Date",
-      "label": "Available-for-use Date"
-    },
-    {
-      "depends_on": "eval:!doc.asset && !doc.is_existing_asset",
-      "fieldname": "purchase_receipt",
-      "fieldtype": "Link",
-      "label": "Purchase Receipt",
-      "options": "Purchase Receipt"
-    },
-    {
-      "depends_on": "eval:!doc.asset && !doc.is_existing_asset",
-      "fieldname": "purchase_invoice",
-      "fieldtype": "Link",
-      "label": "Purchase Invoice",
-      "options": "Purchase Invoice"
-    },
-    {
-      "depends_on": "eval:!doc.asset",
-      "fieldname": "asset_name",
-      "fieldtype": "Data",
-      "label": "Asset Name (Optional)",
-      "description": "If not provided, it will be auto-generated from Brand/Model/Type/Serial."
-    },
-    {
-      "fieldname": "image_section",
-      "fieldtype": "Section Break",
-      "label": "Images"
-    },
-    {
-      "fieldname": "hero_image",
-      "fieldtype": "Attach Image",
-      "label": "Hero Image"
-    },
-    {
-      "fieldname": "column_break_img",
-      "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "gallery",
-      "fieldtype": "Table",
-      "label": "Gallery",
-      "options": "Equipment Image"
-    },
-    {
-      "fieldname": "basic_info_section",
-      "fieldtype": "Section Break",
-      "label": "Basic Info"
-    },
-    {
-      "fieldname": "machinery_template",
-      "fieldtype": "Link",
-      "label": "Machinery Template",
-      "options": "Machinery Template",
-      "in_standard_filter": 1
     },
     {
       "fieldname": "machinery_type",
@@ -227,48 +109,67 @@
       "options": "\nTractor\nHarvester\nCombine Harvester\nSpray Gun\nThresher\nBaler\nTiller\nOther"
     },
     {
-      "fieldname": "machinery_name",
-      "fieldtype": "Data",
-      "label": "Machinery Name",
-      "reqd": 1,
-      "in_list_view": 1
-    },
-    {
       "fieldname": "brand",
       "fieldtype": "Data",
-      "label": "Brand"
+      "label": "Brand",
+      "in_list_view": 1
     },
     {
       "fieldname": "model",
       "fieldtype": "Data",
-      "label": "Model"
+      "label": "Model",
+      "in_list_view": 1
     },
     {
-      "fieldname": "serial_number",
-      "fieldtype": "Data",
-      "label": "Serial Number"
+      "fieldname": "default_status",
+      "fieldtype": "Select",
+      "label": "Default Status",
+      "options": "\nAvailable\nIn Use\nMaintenance\nRetired",
+      "default": "Available"
     },
     {
-      "fieldname": "column_break_basic_1",
+      "fieldname": "item_settings_section",
+      "fieldtype": "Section Break",
+      "label": "Item Settings"
+    },
+    {
+      "fieldname": "default_item_code",
+      "fieldtype": "Link",
+      "label": "Default Item Code",
+      "options": "Item"
+    },
+    {
+      "fieldname": "column_break_item",
       "fieldtype": "Column Break"
     },
     {
-      "fieldname": "year",
-      "fieldtype": "Int",
-      "label": "Year"
+      "fieldname": "item_group",
+      "fieldtype": "Link",
+      "label": "Item Group",
+      "options": "Item Group"
     },
     {
-      "fieldname": "price",
+      "fieldname": "stock_uom",
+      "fieldtype": "Link",
+      "label": "Stock UOM",
+      "options": "UOM",
+      "default": "Nos"
+    },
+    {
+      "fieldname": "asset_category",
+      "fieldtype": "Link",
+      "label": "Asset Category",
+      "options": "Asset Category"
+    },
+    {
+      "fieldname": "asset_naming_series",
+      "fieldtype": "Data",
+      "label": "Asset Naming Series"
+    },
+    {
+      "fieldname": "default_standard_rate",
       "fieldtype": "Currency",
-      "label": "Price"
-    },
-    {
-      "fieldname": "status",
-      "fieldtype": "Select",
-      "label": "Status",
-      "in_list_view": 1,
-      "options": "\nAvailable\nIn Use\nMaintenance\nRetired",
-      "default": "Available"
+      "label": "Default Standard Rate"
     },
     {
       "fieldname": "engine_section",
@@ -547,20 +448,18 @@
       "label": "Battery"
     },
     {
-      "fieldname": "description",
+      "fieldname": "default_description",
       "fieldtype": "Text",
-      "label": "Description"
+      "label": "Default Description"
     },
     {
-      "fieldname": "features",
+      "fieldname": "default_features",
       "fieldtype": "Text",
-      "label": "Features"
+      "label": "Default Features"
     }
   ],
   "permissions": [
     {
-      "amend": 1,
-      "cancel": 1,
       "create": 1,
       "delete": 1,
       "email": 1,
@@ -569,13 +468,10 @@
       "read": 1,
       "report": 1,
       "share": 1,
-      "submit": 1,
       "write": 1,
       "role": "System Manager"
     },
     {
-      "amend": 1,
-      "cancel": 1,
       "create": 1,
       "email": 1,
       "export": 1,
@@ -583,14 +479,11 @@
       "read": 1,
       "report": 1,
       "share": 1,
-      "submit": 1,
       "write": 1,
       "role": "All"
     }
   ],
   "sort_field": "modified",
-  "sort_order": "DESC",
-  "title_field": "machinery_name"
+  "sort_order": "DESC"
 }
-
 

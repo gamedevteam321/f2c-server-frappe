@@ -29,6 +29,7 @@
     "column_break_img",
     "gallery",
     "basic_info_section",
+    "implement_template",
     "implement_type",
     "implement_name",
     "brand",
@@ -169,6 +170,13 @@
       "fieldname": "basic_info_section",
       "fieldtype": "Section Break",
       "label": "Basic Info"
+    },
+    {
+      "fieldname": "implement_template",
+      "fieldtype": "Link",
+      "label": "Implement Template",
+      "options": "Implement Template",
+      "in_standard_filter": 1
     },
     {
       "fieldname": "implement_type",

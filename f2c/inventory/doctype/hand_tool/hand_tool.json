@@ -29,6 +29,7 @@
     "column_break_img",
     "gallery",
     "basic_info_section",
+    "hand_tool_template",
     "hand_tool_type",
     "tool_name",
     "brand",
@@ -156,6 +157,13 @@
       "fieldname": "basic_info_section",
       "fieldtype": "Section Break",
       "label": "Basic Info"
+    },
+    {
+      "fieldname": "hand_tool_template",
+      "fieldtype": "Link",
+      "label": "Hand Tool Template",
+      "options": "Hand Tool Template",
+      "in_standard_filter": 1
     },
     {
       "fieldname": "hand_tool_type",

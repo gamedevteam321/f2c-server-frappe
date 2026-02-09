@@ -8,6 +8,13 @@ from frappe.model.document import Document
 
 
 class OtherTool(Document):
+	def validate(self):
+		if int(getattr(self, "docstatus", 0) or 0) != 0:
+			return
+		from f2c.inventory.equipment_template_apply import apply_template_overwrite
+
+		apply_template_overwrite(self)
+
 	def before_insert(self):
 		if self.asset:
 			return
