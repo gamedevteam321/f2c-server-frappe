@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 
 import frappe
 from frappe.model.document import Document
-from frappe.utils import flt, getdate, now_datetime, cint
+from frappe.utils import flt, getdate, get_datetime, now_datetime, cint, convert_utc_to_system_timezone
 
 from f2c.farm_scheduling.doctype.crop_plan_schedule.crop_plan_schedule import compute_total_qty
 from f2c.inventory.doctype.warehouse_stock.warehouse_stock import (
@@ -251,7 +251,7 @@ class FarmTaskExecution(Document):
 			# old_status already retrieved above
 			new_status = self.status
 
-			# Require at least 3 progress images before submitting for review (aggregate across all Days if using per-day model)
+			# Require at least 1 progress image before submitting for review (aggregate across all Days if using per-day model)
 			if new_status == "In Review":
 				# Allow explicit skip from API when user chooses "Submit for review without images"
 				if not getattr(frappe.flags, "skip_progress_image_min", False):
@@ -267,8 +267,8 @@ class FarmTaskExecution(Document):
 							total_images += count
 					else:
 						total_images = len(self.get("progress_images") or [])
-					if total_images < 3:
-						frappe.throw("Please upload at least 3 progress images before submitting for review (total across all days).")
+					if total_images < 1:
+						frappe.throw("Please upload at least 1 progress image before submitting for review (total across all days).")
 			
 			# Only allow specific transitions
 			valid_transitions = {
@@ -898,13 +898,15 @@ def get_or_create_current_day(execution_name: str, date: str) -> Dict[str, Any]:
 	return day_doc.as_dict()
 
 
-@frappe.whitelist()
-def create_dummy_execution_days_for_testing(execution_name: str = None) -> List[str]:
+def create_dummy_execution_days_for_testing(execution_name: str = None, num_days: int = None) -> List[str]:
 	"""
-	Create 2 dummy Farm Task Execution Day records for an execution (for testing day-wise view/update).
+	[Dev/testing only - not whitelisted] Create dummy Farm Task Execution Day records for an execution.
+	Use via bench execute script: f2c.scripts.create_dummy_execution_days.run
+	For testing day-wise view/update and consolidated multi-day view.
 	If execution_name is None, uses the first Farm Task Execution with status In Progress.
-	Creates one day for today and one for yesterday, with dummy remark; optionally adds one labour row if available.
-	Returns list of created day docnames.
+	Creates num_days days (default 3) ending today: today, yesterday, day before, ...
+	Each day gets: dummy remark; labour from first available Farm Worker Details; equipment from FTE equipment or first Assets.
+	Returns list of day docnames (created or existing).
 	"""
 	from frappe.utils import add_days, getdate
 
@@ -918,18 +920,55 @@ def create_dummy_execution_days_for_testing(execution_name: str = None) -> List[
 		if not names:
 			frappe.throw("No In Progress or Paused execution found. Create one or pass execution_name.")
 		execution_name = names[0].name
+	else:
+		if not frappe.db.exists("Farm Task Execution", execution_name):
+			frappe.throw(
+				f"Farm Task Execution '{execution_name}' not found. Omit execution_name to use the first In Progress execution."
+			)
 
 	fte = frappe.get_doc("Farm Task Execution", execution_name)
 	if fte.status not in ("In Progress", "Paused"):
 		frappe.throw(f"Execution {execution_name} status is {fte.status}. Only In Progress or Paused can have day data.")
 
+	num_days = cint(num_days)
+	if num_days < 1:
+		num_days = 3
+	if num_days > 31:
+		num_days = 31
+
 	today = getdate()
-	yesterday = add_days(today, -1)
-	dates_to_create = [yesterday, today]
+	dates_to_create = [add_days(today, -i) for i in range(num_days - 1, -1, -1)]  # oldest first: today-(n-1) .. today
 	created = []
 
-	# Optional: one labour to add (first Farm Worker Details)
-	labour_name = frappe.db.get_value("Farm Worker Details", {}, "name")
+	# Labour: up to 3 Farm Worker Details
+	labour_rows = frappe.get_all(
+		"Farm Worker Details",
+		fields=["name", "worker_name"],
+		limit=3,
+	)
+	labour_list = [{"labour": r.name, "labour_name": r.worker_name} for r in labour_rows] if labour_rows else []
+
+	# Equipment: from FTE's equipment if any, else first 2 Assets
+	equipment_rows = []
+	if getattr(fte, "equipment", None) and len(fte.equipment) > 0:
+		for eq in fte.equipment[:2]:
+			equipment_rows.append({
+				"asset": eq.asset,
+				"asset_name": getattr(eq, "asset_name", None) or eq.asset,
+				"planned_hours": flt(getattr(eq, "planned_hours", None), 2) or 1,
+				"actual_hours": 1,
+				"remarks": "Dummy for testing",
+			})
+	if not equipment_rows and frappe.db.table_exists("Asset"):
+		assets = frappe.get_all("Asset", fields=["name", "asset_name"], limit=2)
+		for a in assets:
+			equipment_rows.append({
+				"asset": a.name,
+				"asset_name": a.asset_name or a.name,
+				"planned_hours": 1,
+				"actual_hours": 1,
+				"remarks": "Dummy for testing",
+			})
 
 	for d in dates_to_create:
 		date_str = d.strftime("%Y-%m-%d")
@@ -945,10 +984,22 @@ def create_dummy_execution_days_for_testing(execution_name: str = None) -> List[
 		day_doc.execution = execution_name
 		day_doc.date = date_str
 		day_doc.remark = f"Dummy day for testing ({date_str})"
-		if labour_name:
-			day_doc.append("labour", {"labour": labour_name})
+		for lab in labour_list:
+			day_doc.append("labour", {"labour": lab["labour"], "labour_name": lab.get("labour_name")})
+		for eq in equipment_rows:
+			day_doc.append("equipment", {
+				"asset": eq["asset"],
+				"asset_name": eq.get("asset_name"),
+				"planned_hours": eq.get("planned_hours", 1),
+				"actual_hours": eq.get("actual_hours", 1),
+				"remarks": eq.get("remarks") or "",
+			})
 		day_doc.insert(ignore_permissions=True)
 		created.append(day_doc.name)
+
+	# Ensure execution_type is Multi Day when we have more than one day
+	if len(created) >= 2 and getattr(fte, "execution_type", None) == "Single Day":
+		frappe.db.set_value("Farm Task Execution", execution_name, "execution_type", "Multi Day", update_modified=False)
 
 	frappe.db.commit()
 	return created
@@ -1007,12 +1058,42 @@ def update_day_data(
 	if labour is not None and isinstance(labour, list):
 		day_doc.labour = []
 		for row in labour:
+			# Support both dict rows and plain string (labour id only)
+			if isinstance(row, dict):
+				labour_id = row.get("labour")
+			else:
+				labour_id = row
+			if not labour_id:
+				continue
+			# Parse check-in/check-out times (ISO string or None). MySQL DATETIME is naive;
+			# convert timezone-aware values to system timezone and strip tzinfo.
+			checkin_in_time = None
+			checkin_out_time = None
+			if isinstance(row, dict):
+				ci = row.get("checkin_in_time")
+				co = row.get("checkin_out_time")
+				if ci is not None and ci != "":
+					try:
+						checkin_in_time = get_datetime(ci)
+						if getattr(checkin_in_time, "tzinfo", None):
+							checkin_in_time = convert_utc_to_system_timezone(checkin_in_time).replace(tzinfo=None)
+					except Exception:
+						checkin_in_time = None
+				if co is not None and co != "":
+					try:
+						checkin_out_time = get_datetime(co)
+						if getattr(checkin_out_time, "tzinfo", None):
+							checkin_out_time = convert_utc_to_system_timezone(checkin_out_time).replace(tzinfo=None)
+					except Exception:
+						checkin_out_time = None
 			day_doc.append("labour", {
-				"labour": row.get("labour"),
-				"labour_name": row.get("labour_name"),
-				"role": row.get("role"),
-				"checkin_in": row.get("checkin_in"),
-				"checkin_out": row.get("checkin_out"),
+				"labour": labour_id,
+				"labour_name": row.get("labour_name") if isinstance(row, dict) else None,
+				"role": row.get("role") if isinstance(row, dict) else None,
+				"checkin_in": row.get("checkin_in") if isinstance(row, dict) else None,
+				"checkin_out": row.get("checkin_out") if isinstance(row, dict) else None,
+				"checkin_in_time": checkin_in_time,
+				"checkin_out_time": checkin_out_time,
 			})
 	if inputs is not None and isinstance(inputs, list):
 		day_doc.inputs = []
@@ -1045,6 +1126,12 @@ def update_day_data(
 
 	if ended_for_day is not None:
 		day_doc.ended_for_day = cint(ended_for_day)
+		if day_doc.ended_for_day:
+			# Set check-out time for all labour rows that don't have it
+			now_ts = now_datetime()
+			for row in day_doc.labour:
+				if not row.get("checkin_out_time"):
+					row.checkin_out_time = now_ts
 
 	day_doc.save(ignore_permissions=True)
 	frappe.db.commit()

@@ -7,46 +7,15 @@
   "editable_grid": 1,
   "allow_rename": 1,
   "track_changes": 1,
-  "field_order": ["labour", "labour_name", "role", "checkin_in", "checkin_out"],
+  "field_order": ["labour", "labour_name", "role", "checkin_in", "checkin_out", "checkin_in_time", "checkin_out_time"],
   "fields": [
-    {
-      "fieldname": "labour",
-      "fieldtype": "Link",
-      "label": "Labour",
-      "options": "Farm Worker Details",
-      "reqd": 1,
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "labour_name",
-      "fieldtype": "Data",
-      "label": "Labour Name",
-      "fetch_from": "labour.worker_name",
-      "read_only": 1,
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "role",
-      "fieldtype": "Data",
-      "label": "Role/Skill",
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "checkin_in",
-      "fieldtype": "Link",
-      "label": "Check-in (IN)",
-      "options": "Employee Checkin",
-      "read_only": 1,
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "checkin_out",
-      "fieldtype": "Link",
-      "label": "Check-in (OUT)",
-      "options": "Employee Checkin",
-      "read_only": 1,
-      "in_list_view": 1
-    }
+    {"fieldname": "labour", "fieldtype": "Link", "label": "Labour", "options": "Farm Worker Details", "reqd": 1, "in_list_view": 1},
+    {"fieldname": "labour_name", "fieldtype": "Data", "label": "Labour Name", "fetch_from": "labour.worker_name", "read_only": 1, "in_list_view": 1},
+    {"fieldname": "role", "fieldtype": "Data", "label": "Role/Skill", "in_list_view": 1},
+    {"fieldname": "checkin_in", "fieldtype": "Link", "label": "Check-in (IN)", "options": "Employee Checkin", "read_only": 1, "in_list_view": 1},
+    {"fieldname": "checkin_out", "fieldtype": "Link", "label": "Check-in (OUT)", "options": "Employee Checkin", "read_only": 1, "in_list_view": 1},
+    {"fieldname": "checkin_in_time", "fieldtype": "Datetime", "label": "Check-in (IN) Time", "in_list_view": 1},
+    {"fieldname": "checkin_out_time", "fieldtype": "Datetime", "label": "Check-in (OUT) Time", "in_list_view": 1}
   ],
   "permissions": [],
   "sort_field": "modified",
