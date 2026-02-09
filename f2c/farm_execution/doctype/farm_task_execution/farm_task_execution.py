@@ -109,17 +109,6 @@ class FarmTaskExecution(Document):
 				except Exception as e:
 					frappe.log_error(f"Error updating On Demand Activity status to Aborted for {self.on_demand_activity_ref}: {str(e)}", "Farm Task Execution on_update Error")
 
-			# Create equipment transfer tickets when execution completes: same-cluster next field or return to cluster
-			if self.status == "Completed":
-				try:
-					from f2c.farm_execution.equipment_transfer_on_completion import create_equipment_transfer_tickets_for_execution
-					create_equipment_transfer_tickets_for_execution(self)
-				except Exception as e:
-					frappe.log_error(
-						f"Equipment transfer tickets on completion failed for {self.name}: {str(e)}",
-						"Farm Task Execution Equipment Transfer",
-					)
-
 			# Create Material Issue (consumption) from target warehouse when execution completes and used approved inputs
 			if self.status == "Completed":
 				try:
@@ -1135,6 +1124,16 @@ def update_day_data(
 
 	day_doc.save(ignore_permissions=True)
 	frappe.db.commit()
+	# Create equipment transfer tickets on End of the day: same-cluster next field or return to cluster
+	if ended_for_day:
+		try:
+			from f2c.farm_execution.equipment_transfer_on_completion import create_equipment_transfer_tickets_for_execution
+			create_equipment_transfer_tickets_for_execution(fte)
+		except Exception as e:
+			frappe.log_error(
+				f"Equipment transfer tickets on end of day failed for {execution_name}: {str(e)}",
+				"Farm Task Execution Equipment Transfer",
+			)
 	return day_doc.name
 
 
@@ -1398,6 +1397,15 @@ def submit_for_review(execution_name: str, skip_images: int = 0) -> str:
 				doc.actual_end = now_datetime()
 			doc.save(ignore_permissions=True)
 			frappe.db.commit()
+			# Create equipment transfer tickets on End Activity: same-cluster next field or return to cluster
+			try:
+				from f2c.farm_execution.equipment_transfer_on_completion import create_equipment_transfer_tickets_for_execution
+				create_equipment_transfer_tickets_for_execution(doc)
+			except Exception as e:
+				frappe.log_error(
+					f"Equipment transfer tickets on submit for review failed for {doc.name}: {str(e)}",
+					"Farm Task Execution Equipment Transfer",
+				)
 			return doc.name
 		except frappe.QueryDeadlockError:
 			frappe.db.rollback()
