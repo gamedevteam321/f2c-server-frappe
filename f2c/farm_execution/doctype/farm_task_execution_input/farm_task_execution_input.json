@@ -94,7 +94,6 @@
       "fieldtype": "Float",
       "label": "Consumed Qty",
       "precision": "3",
-      "read_only": 1,
       "in_list_view": 1
     },
     {

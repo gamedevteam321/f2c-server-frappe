@@ -637,6 +637,38 @@ def get_available_balance(item_code: str, warehouse: str):
 
 
 @frappe.whitelist()
+def get_stock_balance_for_items(warehouse: str, item_codes: str) -> dict:
+	"""
+	Get stock balance for multiple items in a warehouse.
+	item_codes: JSON list of item codes, e.g. '["Item A", "Item B"]'
+	Returns dict mapping item_code -> qty (float). Non-stock or missing items get 0.
+	"""
+	if not warehouse:
+		return {}
+	try:
+		codes = frappe.parse_json(item_codes) if isinstance(item_codes, str) else item_codes
+	except Exception:
+		return {}
+	if not codes or not isinstance(codes, (list, tuple)):
+		return {}
+	from erpnext.stock.utils import get_stock_balance
+	result = {}
+	for item_code in codes:
+		if not item_code:
+			continue
+		try:
+			is_stock_item = frappe.db.get_value("Item", item_code, "is_stock_item")
+			if not is_stock_item:
+				result[item_code] = 0.0
+				continue
+			balance = get_stock_balance(item_code, warehouse)
+			result[item_code] = flt(balance, 3) if balance is not None else 0.0
+		except Exception:
+			result[item_code] = 0.0
+	return result
+
+
+@frappe.whitelist()
 def get_asset_availability(asset: str, warehouse: str):
 	"""
 	Check if an asset is available at the warehouse's location.

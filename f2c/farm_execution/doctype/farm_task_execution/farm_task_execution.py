@@ -290,8 +290,8 @@ class FarmTaskExecution(Document):
 					)
 
 	def _compute_consumed_qty(self):
-		for row in self.get("inputs") or []:
-			row.consumed_qty = flt(flt(row.issued_qty) - flt(row.returned_qty), 3)
+		# consumed_qty is user-editable input; do not overwrite with issued - returned
+		pass
 
 
 @frappe.whitelist()
@@ -1254,6 +1254,21 @@ def get_pre_execution_availability(execution_name: str) -> Dict[str, List[Dict[s
 
 
 @frappe.whitelist()
+def get_warehouse_for_issued_qty(execution_name: str):
+	"""
+	Return the field warehouse for displaying Issued Qty in the Inputs table.
+	Issued Qty shows available stock at the field warehouse only (activity field's target warehouse).
+	Returns None if execution has no field or field has no linked warehouse.
+	"""
+	doc = frappe.get_doc("Farm Task Execution", execution_name)
+	field = getattr(doc, "field", None) or ""
+	if not field:
+		return None
+	from f2c.farm_execution.equipment_transfer_on_completion import get_target_warehouse_for_field
+	return get_target_warehouse_for_field(field)
+
+
+@frappe.whitelist()
 def update_execution_data(
 	execution_name: str,
 	inputs: List[Dict[str, Any]] | str | None = None,
@@ -1420,7 +1435,7 @@ def approve_execution(execution_name: str) -> str:
 			# Ensure actual_end is set
 			if not doc.actual_end:
 				doc.actual_end = now_datetime()
-			# Recompute consumed_qty (issued - returned) for all approved inputs so consumption stock entry uses correct values
+			# consumed_qty is user input; no recompute
 			doc._compute_consumed_qty()
 			doc.save(ignore_permissions=True)
 			

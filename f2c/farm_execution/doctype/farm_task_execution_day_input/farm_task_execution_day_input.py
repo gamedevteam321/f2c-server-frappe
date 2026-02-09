@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from frappe.model.document import Document
-from frappe.utils import flt
 
 
 class FarmTaskExecutionDayInput(Document):
 	def validate(self):
-		self.consumed_qty = flt(flt(self.issued_qty) - flt(self.returned_qty), 3)
+		# consumed_qty is user input; do not overwrite with issued - returned
+		pass
