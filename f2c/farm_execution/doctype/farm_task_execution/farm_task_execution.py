@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 
 import frappe
 from frappe.model.document import Document
-from frappe.utils import flt, getdate, now_datetime
+from frappe.utils import flt, getdate, now_datetime, cint
 
 from f2c.farm_scheduling.doctype.crop_plan_schedule.crop_plan_schedule import compute_total_qty
 from f2c.inventory.doctype.warehouse_stock.warehouse_stock import (
@@ -965,6 +965,7 @@ def update_day_data(
 	actual_irrigation_water_liters: Optional[float] = None,
 	remark: Optional[str] = None,
 	progress_images: List[Dict[str, Any]] | str | None = None,
+	ended_for_day: Optional[bool] = None,
 ) -> str:
 	"""
 	Load or create Farm Task Execution Day for (execution_name, day_date), update child tables and fields, save.
@@ -1041,6 +1042,9 @@ def update_day_data(
 		for row in progress_images:
 			if row.get("image"):
 				day_doc.append("progress_images", {"image": row["image"]})
+
+	if ended_for_day is not None:
+		day_doc.ended_for_day = cint(ended_for_day)
 
 	day_doc.save(ignore_permissions=True)
 	frappe.db.commit()
