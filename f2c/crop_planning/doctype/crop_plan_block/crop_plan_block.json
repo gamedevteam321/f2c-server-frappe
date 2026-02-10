@@ -12,6 +12,7 @@
         "field",
         "field_name",
         "crop",
+        "variety",
         "pop",
         "pop_name",
         "spacing",
@@ -67,6 +68,12 @@
             "options": "Crop"
         },
         {
+            "fieldname": "variety",
+            "fieldtype": "Data",
+            "in_list_view": 1,
+            "label": "Variety"
+        },
+        {
             "fieldname": "pop",
             "fieldtype": "Link",
             "in_list_view": 1,
@@ -113,4 +120,3 @@
     "sort_order": "DESC",
     "track_changes": 1
 }
-

@@ -407,6 +407,7 @@ def get_crop_plan_with_activities(crop_plan_name):
 		if block_row.crop:  # Only add if crop is set
 			blocks_dict[block_ref]['crop_configs'].append({
 				'crop': block_row.crop,
+				'variety': getattr(block_row, 'variety', None) or '',
 				'pop': block_row.pop or '',
 				'pop_name': block_row.pop_name or '',
 				'spacing': block_row.spacing or '',

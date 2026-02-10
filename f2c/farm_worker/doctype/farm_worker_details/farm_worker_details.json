@@ -1,166 +1,180 @@
 {
-    "actions": [],
-    "allow_import": 1,
-    "allow_rename": 1,
-    "autoname": "format:FW-{#####}",
-    "creation": "2025-01-20 10:00:00.000000",
-    "doctype": "DocType",
-    "document_type": "Document",
-    "engine": "InnoDB",
-    "field_order": [
-        "worker_name",
-        "dob",
-        "column_break_1",
-        "aadhaar_number",
-        "gender",
-        "section_break_1",
-        "address",
-        "section_break_work_details",
-        "farm_project",
-        "farm",
-        "farm_name",
-        "daily_wage_amount",
-        "contractor",
-        "contractor_name"
-    ],
-    "fields": [
-        {
-            "fieldname": "worker_name",
-            "fieldtype": "Data",
-            "in_list_view": 1,
-            "label": "Name",
-            "reqd": 1
-        },
-        {
-            "fieldname": "dob",
-            "fieldtype": "Date",
-            "in_list_view": 1,
-            "label": "Date of Birth",
-            "reqd": 1
-        },
-        {
-            "fieldname": "column_break_1",
-            "fieldtype": "Column Break"
-        },
-        {
-            "fieldname": "aadhaar_number",
-            "fieldtype": "Data",
-            "in_list_view": 1,
-            "in_standard_filter": 1,
-            "label": "Aadhaar Number",
-            "reqd": 1,
-            "unique": 1
-        },
-        {
-            "fieldname": "gender",
-            "fieldtype": "Select",
-            "in_list_view": 1,
-            "label": "Gender",
-            "options": "Male\nFemale\nOther",
-            "reqd": 1
-        },
-        {
-            "fieldname": "section_break_1",
-            "fieldtype": "Section Break",
-            "label": "Address Details"
-        },
-        {
-            "fieldname": "address",
-            "fieldtype": "Small Text",
-            "label": "Address"
-        },
-        {
-            "fieldname": "section_break_work_details",
-            "fieldtype": "Section Break",
-            "label": "Work Details"
-        },
-        {
-            "fieldname": "farm_project",
-            "fieldtype": "Link",
-            "in_list_view": 1,
-            "in_standard_filter": 1,
-            "label": "Project",
-            "options": "Farm Project",
-            "reqd": 1
-        },
-        {
-            "fieldname": "farm",
-            "fieldtype": "Link",
-            "in_list_view": 1,
-            "in_standard_filter": 1,
-            "label": "Farm",
-            "options": "Geo Fencing Area",
-            "reqd": 1
-        },
-        {
-            "fetch_from": "farm.area_name",
-            "fieldname": "farm_name",
-            "fieldtype": "Data",
-            "in_list_view": 1,
-            "label": "Farm Name",
-            "read_only": 1
-        },
-        {
-            "fieldname": "daily_wage_amount",
-            "fieldtype": "Currency",
-            "in_list_view": 1,
-            "label": "Daily Wage Amount",
-            "reqd": 1
-        },
-        {
-            "fieldname": "contractor",
-            "fieldtype": "Link",
-            "in_list_view": 1,
-            "in_standard_filter": 1,
-            "label": "Contractor",
-            "options": "Farm Worker Contractor",
-            "reqd": 1
-        },
-        {
-            "fetch_from": "contractor.contractor_name",
-            "fieldname": "contractor_name",
-            "fieldtype": "Data",
-            "in_list_view": 1,
-            "label": "Contractor Name",
-            "read_only": 1
-        }
-    ],
-    "index_web_pages_for_search": 1,
-    "links": [],
-    "modified": "2025-01-20 10:00:00.000000",
-    "modified_by": "Administrator",
-    "module": "Farm Worker",
-    "name": "Farm Worker Details",
-    "naming_rule": "Expression",
-    "owner": "Administrator",
-    "permissions": [
-        {
-            "create": 1,
-            "delete": 1,
-            "email": 1,
-            "export": 1,
-            "print": 1,
-            "read": 1,
-            "report": 1,
-            "role": "System Manager",
-            "share": 1,
-            "write": 1
-        },
-        {
-            "create": 1,
-            "email": 1,
-            "export": 1,
-            "print": 1,
-            "read": 1,
-            "report": 1,
-            "role": "All",
-            "share": 1,
-            "write": 1
-        }
-    ],
-    "sort_field": "modified",
-    "sort_order": "DESC",
-    "states": [],
-    "track_changes": 1
+  "actions": [],
+  "allow_import": 1,
+  "allow_rename": 1,
+  "autoname": "format:FW-{#####}",
+  "creation": "2025-01-20 10:00:00.000000",
+  "doctype": "DocType",
+  "document_type": "Document",
+  "engine": "InnoDB",
+  "field_order": [
+    "worker_name",
+    "dob",
+    "column_break_1",
+    "aadhaar_number",
+    "gender",
+    "section_break_1",
+    "address",
+    "section_break_work_details",
+    "farm_project",
+    "farm",
+    "farm_name",
+    "daily_wage_amount",
+    "contractor",
+    "contractor_name",
+    "employee",
+    "worker_roles"
+  ],
+  "fields": [
+    {
+      "fieldname": "worker_name",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "label": "Name",
+      "reqd": 1
+    },
+    {
+      "fieldname": "dob",
+      "fieldtype": "Date",
+      "in_list_view": 1,
+      "label": "Date of Birth",
+      "reqd": 1
+    },
+    {
+      "fieldname": "column_break_1",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "aadhaar_number",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "label": "Aadhaar Number",
+      "reqd": 1,
+      "unique": 1
+    },
+    {
+      "fieldname": "gender",
+      "fieldtype": "Select",
+      "in_list_view": 1,
+      "label": "Gender",
+      "options": "Male\nFemale\nOther",
+      "reqd": 1
+    },
+    {
+      "fieldname": "section_break_1",
+      "fieldtype": "Section Break",
+      "label": "Address Details"
+    },
+    {
+      "fieldname": "address",
+      "fieldtype": "Small Text",
+      "label": "Address"
+    },
+    {
+      "fieldname": "section_break_work_details",
+      "fieldtype": "Section Break",
+      "label": "Work Details"
+    },
+    {
+      "fieldname": "farm_project",
+      "fieldtype": "Link",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "label": "Project",
+      "options": "Farm Project",
+      "reqd": 1
+    },
+    {
+      "fieldname": "farm",
+      "fieldtype": "Link",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "label": "Farm",
+      "options": "Geo Fencing Area",
+      "reqd": 1
+    },
+    {
+      "fetch_from": "farm.area_name",
+      "fieldname": "farm_name",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "label": "Farm Name",
+      "read_only": 1
+    },
+    {
+      "fieldname": "daily_wage_amount",
+      "fieldtype": "Currency",
+      "in_list_view": 1,
+      "label": "Daily Wage Amount",
+      "reqd": 1
+    },
+    {
+      "fieldname": "contractor",
+      "fieldtype": "Link",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "label": "Contractor",
+      "options": "Farm Worker Contractor",
+      "reqd": 1
+    },
+    {
+      "fetch_from": "contractor.contractor_name",
+      "fieldname": "contractor_name",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "label": "Contractor Name",
+      "read_only": 1
+    },
+    {
+      "fieldname": "employee",
+      "fieldtype": "Link",
+      "label": "Employee",
+      "options": "Employee",
+      "description": "Link to HR Employee for syncing Attendance Log check-in to farm worker attendance."
+    },
+    {
+      "fieldname": "worker_roles",
+      "fieldtype": "Small Text",
+      "label": "Roles",
+      "description": "Worker roles/skills (e.g. Harvester, Supervisor). One per line or comma-separated."
+    }
+  ],
+  "index_web_pages_for_search": 1,
+  "links": [],
+  "modified": "2025-01-20 10:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "Farm Worker",
+  "name": "Farm Worker Details",
+  "naming_rule": "Expression",
+  "owner": "Administrator",
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "System Manager",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "All",
+      "share": 1,
+      "write": 1
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": [],
+  "track_changes": 1
 }
-
