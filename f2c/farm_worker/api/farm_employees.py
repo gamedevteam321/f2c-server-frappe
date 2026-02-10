@@ -1,13 +1,23 @@
 # Copyright (c) 2025, Orgatek and contributors
-# List users who have Role Profile set (Farm Employee page). Uses ignore_permissions so any logged-in user can load the list.
+# List users whose Role Profile is Driver or Security Guard (Farm Employee page). Uses ignore_permissions so any logged-in user can load the list.
 
 import frappe
+
+FARM_EMPLOYEE_ROLE_PROFILES = ("Driver", "Security Guard")
+
+
+def _role_profile_matches(role_profile):
+	if not role_profile:
+		return False
+	r = (role_profile or "").strip().lower()
+	allowed = [p.lower() for p in FARM_EMPLOYEE_ROLE_PROFILES]
+	return r in allowed or any(a in r for a in allowed)
 
 
 @frappe.whitelist()
 def get_farm_employees():
 	"""
-	Fetch users from User doctype where role_profile_name (Role Profile field) is set.
+	Fetch users from User doctype where role_profile_name is Driver or Security Guard only.
 	Returns list of { name, full_name, gender, birth_date, location, role_profile, roles }.
 	"""
 	all_users = frappe.get_all(
@@ -16,8 +26,8 @@ def get_farm_employees():
 		limit=2000,
 		ignore_permissions=True,
 	)
-	# Only users who have Role Profile set
-	users = [u for u in all_users if u.get("role_profile_name")]
+	# Only users whose Role Profile is Driver or Security Guard
+	users = [u for u in all_users if _role_profile_matches(u.get("role_profile_name"))]
 	if not users:
 		return []
 
