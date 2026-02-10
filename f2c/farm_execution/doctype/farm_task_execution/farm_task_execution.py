@@ -800,10 +800,47 @@ def get_execution_days(execution_name: str) -> List[Dict[str, Any]]:
 		order_by="date asc",
 	)
 	out = []
+	fte = None
 	for d in names:
 		doc = frappe.get_doc("Farm Task Execution Day", d["name"])
+		# Backfill: existing days created before we copied FTE child data may have no inputs/equipment; copy from FTE so UI shows tables for each day
+		has_inputs = doc.get("inputs") and len(doc.inputs) > 0
+		has_equipment = doc.get("equipment") and len(doc.equipment) > 0
+		if not has_inputs and not has_equipment:
+			if fte is None:
+				fte = frappe.get_doc("Farm Task Execution", execution_name)
+			if (fte.get("inputs") and len(fte.inputs) > 0) or (fte.get("equipment") and len(fte.equipment) > 0):
+				_copy_fte_inputs_equipment_to_day(fte, doc)
+				doc.save(ignore_permissions=True)
+				frappe.db.commit()
 		out.append(doc.as_dict())
 	return out
+
+
+def _copy_fte_inputs_equipment_to_day(fte_doc, day_doc):
+	"""Copy only inputs and equipment from FTE to day (for backfilling existing days that have none)."""
+	for row in (fte_doc.get("inputs") or []):
+		issued = flt(row.issued_qty, 3)
+		if not issued and flt(row.planned_qty, 3):
+			issued = flt(row.planned_qty, 3)
+		day_doc.append("inputs", {
+			"item": row.item,
+			"item_name": getattr(row, "item_name", None),
+			"uom": getattr(row, "uom", None),
+			"rate_qty": flt(row.rate_qty, 3),
+			"planned_qty": flt(row.planned_qty, 3),
+			"issued_qty": issued,
+			"returned_qty": flt(row.returned_qty, 3),
+			"consumed_qty": flt(row.consumed_qty, 3),
+		})
+	for row in (fte_doc.get("equipment") or []):
+		day_doc.append("equipment", {
+			"asset": row.asset,
+			"asset_name": getattr(row, "asset_name", None),
+			"planned_hours": flt(row.planned_hours, 2),
+			"actual_hours": flt(row.actual_hours, 2),
+			"remarks": getattr(row, "remarks", None) or "",
+		})
 
 
 def _copy_fte_child_to_day(fte_doc, day_doc):
@@ -867,14 +904,13 @@ def get_or_create_current_day(execution_name: str, date: str) -> Dict[str, Any]:
 	day_doc.execution = execution_name
 	day_doc.date = date
 
-	# Lazy migration: if this execution had no days, copy FTE child data into this first day
+	# Copy FTE child data (inputs, equipment, labour, etc.) into every new day so Update/End for day/End Activity show tables for all days
 	existing_days = frappe.get_all(
 		"Farm Task Execution Day",
 		filters={"execution": execution_name},
 		fields=["name"],
 	)
-	if len(existing_days) == 0:
-		_copy_fte_child_to_day(fte, day_doc)
+	_copy_fte_child_to_day(fte, day_doc)
 
 	day_doc.insert(ignore_permissions=True)
 	frappe.db.commit()
@@ -1133,6 +1169,14 @@ def update_day_data(
 			frappe.log_error(
 				f"Equipment transfer tickets on end of day failed for {execution_name}: {str(e)}",
 				"Farm Task Execution Equipment Transfer",
+			)
+		# Create consumption stock entry for this day (reduce field warehouse stock by consumed qty)
+		try:
+			_create_consumption_stock_entry_for_day(execution_name, day_date)
+		except Exception as e:
+			frappe.log_error(
+				f"Consumption stock entry on end of day failed for {execution_name} day {day_date}: {str(e)}",
+				"Farm Task Execution Day Consumption",
 			)
 	return day_doc.name
 
@@ -1406,6 +1450,25 @@ def submit_for_review(execution_name: str, skip_images: int = 0) -> str:
 					f"Equipment transfer tickets on submit for review failed for {doc.name}: {str(e)}",
 					"Farm Task Execution Equipment Transfer",
 				)
+			# Create consumption stock entry for each day that does not have one yet (reduce field warehouse stock)
+			days_list = frappe.get_all(
+				"Farm Task Execution Day",
+				filters={"execution": execution_name},
+				fields=["name", "date", "consumption_stock_entry"],
+				order_by="date asc",
+			)
+			for d in days_list:
+				if d.get("consumption_stock_entry"):
+					continue
+				day_date_str = d.get("date")
+				if day_date_str:
+					try:
+						_create_consumption_stock_entry_for_day(execution_name, day_date_str)
+					except Exception as e:
+						frappe.log_error(
+							f"Consumption stock entry on submit for review failed for {doc.name} day {day_date_str}: {str(e)}",
+							"Farm Task Execution Day Consumption",
+						)
 			return doc.name
 		except frappe.QueryDeadlockError:
 			frappe.db.rollback()
@@ -1513,17 +1576,132 @@ def _require_warehouses(doc: Document):
 		frappe.throw("Please set Source Warehouse and Target Warehouse before creating Stock Entries.")
 
 
+def _create_consumption_stock_entry_for_day(execution_name: str, day_date: str) -> Optional[str]:
+	"""
+	Create a Material Issue Stock Entry from target_warehouse for one Farm Task Execution Day's consumed qty.
+	Idempotent: if day already has consumption_stock_entry, returns without creating.
+	Returns Stock Entry name if created, else None.
+	"""
+	fte = frappe.get_doc("Farm Task Execution", execution_name)
+	if not fte.approved_input_mix:
+		return None
+
+	day_name = frappe.db.get_value(
+		"Farm Task Execution Day",
+		{"execution": execution_name, "date": day_date},
+		"name",
+	)
+	if not day_name:
+		return None
+	day_doc = frappe.get_doc("Farm Task Execution Day", day_name)
+	if day_doc.get("consumption_stock_entry"):
+		return None
+
+	target_warehouse = fte.target_warehouse
+	if not target_warehouse and getattr(fte, "field", None):
+		from f2c.farm_execution.equipment_transfer_on_completion import get_target_warehouse_for_field
+		target_warehouse = get_target_warehouse_for_field(fte.field)
+	if not target_warehouse:
+		frappe.log_error(
+			message=f"Execution {execution_name} day {day_date}: Target Warehouse not set. Consumption skipped.",
+			title="Execution day consumption skipped (no target warehouse)",
+		)
+		return None
+
+	items = []
+	for row in day_doc.get("inputs") or []:
+		qty = flt(row.get("consumed_qty"))
+		if qty <= 0:
+			continue
+		items.append({
+			"item_code": row.get("item"),
+			"qty": qty,
+			"s_warehouse": target_warehouse,
+			"batch_no": row.get("batch_no"),
+		})
+	if not items:
+		return None
+
+	company = frappe.db.get_value("Warehouse", target_warehouse, "company")
+	if not company:
+		frappe.log_error(
+			message=f"Execution {execution_name}: Warehouse {target_warehouse} has no Company. Consumption skipped.",
+			title="Execution day consumption skipped (no company on warehouse)",
+		)
+		return None
+
+	se = frappe.get_doc({
+		"doctype": "Stock Entry",
+		"stock_entry_type": "Material Issue",
+		"company": company,
+		"from_warehouse": target_warehouse,
+		"items": items,
+	})
+	se.insert(ignore_permissions=True)
+	se.submit()
+
+	frappe.db.set_value(
+		"Farm Task Execution Day",
+		day_name,
+		"consumption_stock_entry",
+		se.name,
+		update_modified=False,
+	)
+	frappe.db.commit()
+
+	try:
+		ws_docname = _get_ws_docname_for_warehouse(target_warehouse)
+		if ws_docname:
+			refresh_from_ledger(ws_docname)
+		else:
+			from f2c.inventory.doctype.warehouse_stock.warehouse_stock import sync_warehouse_stock
+			sync_warehouse_stock(refresh_existing=0)
+			ws_docname = _get_ws_docname_for_warehouse(target_warehouse)
+			if ws_docname:
+				refresh_from_ledger(ws_docname)
+	except Exception as e:
+		frappe.log_error(
+			message=f"Failed to refresh warehouse stock for {target_warehouse} after day consumption: {str(e)}",
+			title="Warehouse Stock Refresh Error",
+		)
+	return se.name
+
+
 def _create_consumption_stock_entry_if_applicable(doc: Document) -> None:
 	"""
 	When execution is completed and used approved inputs (consumed_qty > 0),
 	create a Material Issue Stock Entry from target_warehouse to reduce stock.
 	Only runs once per execution (idempotent via consumption_stock_entry).
+	If execution has Farm Task Execution Days, consume per day (any day not yet consumed); else use FTE inputs.
 	"""
 	if not doc.approved_input_mix:
 		return
 	if doc.get("consumption_stock_entry"):
 		return
 
+	# If execution has days, create consumption for each day that does not have one yet (then return)
+	days_list = frappe.get_all(
+		"Farm Task Execution Day",
+		filters={"execution": doc.name},
+		fields=["name", "date", "consumption_stock_entry"],
+		order_by="date asc",
+	)
+	if days_list:
+		for d in days_list:
+			if d.get("consumption_stock_entry"):
+				continue
+			day_date_str = d.get("date")
+			if day_date_str:
+				try:
+					_create_consumption_stock_entry_for_day(doc.name, day_date_str)
+				except Exception as e:
+					frappe.log_error(
+						message=f"Consumption on completion failed for {doc.name} day {day_date_str}: {str(e)}",
+						title="Farm Task Execution Day Consumption",
+					)
+		return
+
+	# No days: use FTE inputs (existing single-day / no-days flow)
 	items = []
 	for row in doc.get("inputs") or []:
 		qty = flt(row.consumed_qty)

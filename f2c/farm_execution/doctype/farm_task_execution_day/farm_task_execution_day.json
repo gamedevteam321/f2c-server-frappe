@@ -10,6 +10,7 @@
     "execution",
     "date",
     "ended_for_day",
+    "consumption_stock_entry",
     "column_break_1",
     "actual_spray_water_liters",
     "actual_irrigation_water_liters",
@@ -47,6 +48,13 @@
       "fieldtype": "Check",
       "label": "Ended for Day",
       "default": "0",
+      "read_only": 1
+    },
+    {
+      "fieldname": "consumption_stock_entry",
+      "fieldtype": "Link",
+      "label": "Consumption Stock Entry",
+      "options": "Stock Entry",
       "read_only": 1
     },
     {
