@@ -11,7 +11,7 @@
     "asset",
     "asset_name",
     "planned_hours",
-    "remarks"
+    "return_type"
   ],
   "fields": [
     {
@@ -38,9 +38,12 @@
       "in_list_view": 1
     },
     {
-      "fieldname": "remarks",
-      "fieldtype": "Small Text",
-      "label": "Remarks"
+      "fieldname": "return_type",
+      "fieldtype": "Select",
+      "label": "Return Type",
+      "options": "Returnable\nNon Returnable\nDaily Returnable\nEnd Activity Returnable",
+      "default": "Non Returnable",
+      "in_list_view": 1
     }
   ],
   "permissions": [],

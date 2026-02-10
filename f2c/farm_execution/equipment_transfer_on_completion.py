@@ -234,64 +234,92 @@ def get_next_scheduled_activity_in_same_cluster(
 		return None
 
 
-def create_equipment_transfer_tickets_for_execution(execution_doc) -> None:
+def create_equipment_transfer_tickets_for_execution(execution_doc, on_end_of_day: bool = False) -> None:
 	"""
-	When execution completes: if another field in the same cluster has the same equipment
-	scheduled after this activity, create transfer ticket(s) to that field; else to the cluster.
+	Create transfer tickets for equipment based on return_type and context.
+
+	- When on_end_of_day=True (End for the day): only "Daily Returnable" equipment;
+	  create return ticket Field -> Cluster only (no transfer to next field).
+	- When on_end_of_day=False (End Activity): only "Returnable" or "End Activity Returnable"
+	  equipment; create transfer to next field in cluster if any, else to cluster.
+
 	Does not raise; logs and returns on any failure.
 	"""
 	try:
-		assets = [row.asset for row in (execution_doc.equipment or []) if getattr(row, "asset", None)]
+		equipment_rows = execution_doc.equipment or []
+		if on_end_of_day:
+			# Only Daily Returnable on end of day
+			assets = [
+				row.asset for row in equipment_rows
+				if getattr(row, "asset", None) and (getattr(row, "return_type", None) or "").strip() == "Daily Returnable"
+			]
+		else:
+			# Only Returnable or End Activity Returnable on activity end
+			assets = [
+				row.asset for row in equipment_rows
+				if getattr(row, "asset", None)
+				and (getattr(row, "return_type", None) or "").strip() in ("Returnable", "End Activity Returnable")
+			]
 		if not assets or not getattr(execution_doc, "field", None):
 			return
 
-		# End time: actual_end, else from linked schedule/activity, else now
-		after_time = getattr(execution_doc, "actual_end", None)
-		if not after_time and getattr(execution_doc, "schedule_ref", None):
-			vals = frappe.db.get_value(
-				"Crop Plan Schedule",
-				execution_doc.schedule_ref,
-				["planned_end", "planned_start"],
-			)
-			if isinstance(vals, (list, tuple)) and len(vals) >= 2:
-				after_time = vals[0] or vals[1]
-			elif vals is not None:
-				after_time = vals
-		if not after_time and getattr(execution_doc, "on_demand_activity_ref", None):
-			vals = frappe.db.get_value(
-				"On Demand Activity",
-				execution_doc.on_demand_activity_ref,
-				["planned_end", "planned_start"],
-			)
-			if isinstance(vals, (list, tuple)) and len(vals) >= 2:
-				after_time = vals[0] or vals[1]
-			elif vals is not None:
-				after_time = vals
-		if not after_time:
-			after_time = now_datetime()
-
 		field = execution_doc.field
-		cluster = get_cluster_for_field(field)
-
-		next_act = None
-		if cluster:
-			next_act = get_next_scheduled_activity_in_same_cluster(
-				cluster,
-				assets,
-				after_time,
-				exclude_schedule_ref=getattr(execution_doc, "schedule_ref", None),
-				exclude_oda_ref=getattr(execution_doc, "on_demand_activity_ref", None),
-			)
-
-		if next_act and next_act.get("field"):
-			to_warehouse = get_target_warehouse_for_field(next_act["field"])
-		else:
-			to_warehouse = get_cluster_warehouse_for_field(field)
-
 		from_warehouse = get_target_warehouse_for_field(field)
-		if not from_warehouse or not to_warehouse:
+		if not from_warehouse:
 			frappe.log_error(
-				f"Execution {getattr(execution_doc, 'name', '?')}: missing from_warehouse or to_warehouse (from field {field})",
+				f"Execution {getattr(execution_doc, 'name', '?')}: missing from_warehouse for field {field}",
+				"Equipment Transfer on Completion",
+			)
+			return
+
+		if on_end_of_day:
+			# Return to cluster only (no next-field logic)
+			to_warehouse = get_cluster_warehouse_for_field(field)
+		else:
+			# End time: actual_end, else from linked schedule/activity, else now
+			after_time = getattr(execution_doc, "actual_end", None)
+			if not after_time and getattr(execution_doc, "schedule_ref", None):
+				vals = frappe.db.get_value(
+					"Crop Plan Schedule",
+					execution_doc.schedule_ref,
+					["planned_end", "planned_start"],
+				)
+				if isinstance(vals, (list, tuple)) and len(vals) >= 2:
+					after_time = vals[0] or vals[1]
+				elif vals is not None:
+					after_time = vals
+			if not after_time and getattr(execution_doc, "on_demand_activity_ref", None):
+				vals = frappe.db.get_value(
+					"On Demand Activity",
+					execution_doc.on_demand_activity_ref,
+					["planned_end", "planned_start"],
+				)
+				if isinstance(vals, (list, tuple)) and len(vals) >= 2:
+					after_time = vals[0] or vals[1]
+				elif vals is not None:
+					after_time = vals
+			if not after_time:
+				after_time = now_datetime()
+
+			cluster = get_cluster_for_field(field)
+			next_act = None
+			if cluster:
+				next_act = get_next_scheduled_activity_in_same_cluster(
+					cluster,
+					assets,
+					after_time,
+					exclude_schedule_ref=getattr(execution_doc, "schedule_ref", None),
+					exclude_oda_ref=getattr(execution_doc, "on_demand_activity_ref", None),
+				)
+
+			if next_act and next_act.get("field"):
+				to_warehouse = get_target_warehouse_for_field(next_act["field"])
+			else:
+				to_warehouse = get_cluster_warehouse_for_field(field)
+
+		if not to_warehouse:
+			frappe.log_error(
+				f"Execution {getattr(execution_doc, 'name', '?')}: missing to_warehouse (from field {field})",
 				"Equipment Transfer on Completion",
 			)
 			return
@@ -344,12 +372,89 @@ def create_equipment_transfer_tickets_for_execution(execution_doc) -> None:
 		)
 		if result and result.get("ticket"):
 			frappe.log_error(
-				f"Created equipment transfer ticket {result.get('ticket')} for execution {getattr(execution_doc, 'name', '?')} "
-				f"from {from_warehouse} to {to_warehouse}",
-				"Equipment Transfer on Completion",
+				title="Equipment Transfer on Completion",
+				message=f"Created equipment transfer ticket {result.get('ticket')} for execution {getattr(execution_doc, 'name', '?')} from {from_warehouse} to {to_warehouse}",
 			)
 	except Exception as e:
 		frappe.log_error(
-			f"create_equipment_transfer_tickets_for_execution failed: {str(e)}",
-			"Equipment Transfer on Completion",
+			title="Equipment Transfer on Completion",
+			message=f"create_equipment_transfer_tickets_for_execution failed: {str(e)}",
+		)
+
+
+def create_delivery_ticket_for_daily_returnable_equipment(execution_name: str, day_date: str) -> None:
+	"""
+	When a Farm Task Execution Day is created (multi-day execution), create a delivery ticket
+	(cluster -> field) for equipment with return_type "Daily Returnable" so assets are sent to
+	the field for that day. Only runs if execution is In Progress or Paused and has such equipment.
+	Does not raise; logs and returns on any failure. Skips if a similar ticket was already created
+	for this execution+date (duplicate check by from/to/asset set and creation date).
+	"""
+	try:
+		fte = frappe.get_doc("Farm Task Execution", execution_name)
+		if fte.status not in ("In Progress", "Paused"):
+			return
+		field = getattr(fte, "field", None)
+		if not field:
+			return
+		assets = [
+			row.asset for row in (fte.equipment or [])
+			if getattr(row, "asset", None)
+			and (getattr(row, "return_type", None) or "").strip() == "Daily Returnable"
+		]
+		if not assets:
+			return
+		to_warehouse = get_target_warehouse_for_field(field)
+		from_warehouse = get_cluster_warehouse_for_field(field)
+		if not from_warehouse or not to_warehouse:
+			frappe.log_error(
+				title="Equipment Delivery on Day Create",
+				message=f"Execution {execution_name} day {day_date}: missing cluster or field warehouse for delivery",
+			)
+			return
+		# Duplicate check: same day, same from/to, same assets
+		day_start = day_date + " 00:00:00"
+		existing = frappe.get_all(
+			"Logistics Transfer Ticket",
+			filters=[
+				["from_warehouse", "=", from_warehouse],
+				["to_warehouse", "=", to_warehouse],
+				["status", "!=", "Cancelled"],
+				["creation", ">=", day_start],
+				["creation", "<=", day_date + " 23:59:59"],
+			],
+			fields=["name"],
+			limit=20,
+		)
+		asset_set = set(assets)
+		for t in existing:
+			try:
+				ticket_doc = frappe.get_doc("Logistics Transfer Ticket", t.name)
+				ticket_assets = {ai.asset for ai in (ticket_doc.get("asset_items") or []) if getattr(ai, "asset", None)}
+				if ticket_assets and ticket_assets == asset_set:
+					return  # already created for this day
+			except Exception:
+				pass
+		from f2c.inventory.logistics_transfer_ticket_api import create_logistics_transfer_ticket
+		try:
+			result = create_logistics_transfer_ticket(
+				from_warehouse=from_warehouse,
+				to_warehouse=to_warehouse,
+				stock_items=None,
+				assets=[{"asset": a, "qty": 1} for a in assets],
+			)
+		except frappe.ValidationError as ve:
+			# Assets already at field (e.g. same day reopened or first day) — skip creating ticket
+			if "already in the destination" in (str(ve) or ""):
+				return
+			raise
+		if result and result.get("ticket"):
+			frappe.log_error(
+				title="Equipment Delivery on Day Create",
+				message=f"Created delivery ticket {result.get('ticket')} (cluster->field) for execution {execution_name} day {day_date}",
+			)
+	except Exception as e:
+		frappe.log_error(
+			title="Equipment Delivery on Day Create",
+			message=f"create_delivery_ticket_for_daily_returnable_equipment failed: {str(e)}",
 		)

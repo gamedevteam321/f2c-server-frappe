@@ -7,7 +7,7 @@
   "editable_grid": 1,
   "allow_rename": 1,
   "track_changes": 1,
-  "field_order": ["asset", "asset_name", "planned_hours", "actual_hours", "remarks"],
+  "field_order": ["asset", "asset_name", "planned_hours", "actual_hours", "return_type"],
   "fields": [
     {
       "fieldname": "asset",
@@ -40,9 +40,12 @@
       "in_list_view": 1
     },
     {
-      "fieldname": "remarks",
-      "fieldtype": "Small Text",
-      "label": "Remarks"
+      "fieldname": "return_type",
+      "fieldtype": "Select",
+      "label": "Return Type",
+      "options": "Returnable\nNon Returnable\nDaily Returnable\nEnd Activity Returnable",
+      "default": "Non Returnable",
+      "in_list_view": 1
     }
   ],
   "permissions": [],

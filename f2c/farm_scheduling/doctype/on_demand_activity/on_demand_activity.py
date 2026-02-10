@@ -2040,7 +2040,7 @@ def schedule_campaign(
 						"asset": mach.asset,
 						"asset_name": mach.asset_name,
 						"planned_hours": mach.planned_hours or 0,
-						"remarks": mach.remarks or ""
+						"return_type": getattr(mach, "return_type", None) or "Non Returnable"
 					})
 			if parent_campaign.get("implements"):
 				for impl in parent_campaign.implements:
@@ -2048,7 +2048,7 @@ def schedule_campaign(
 						"asset": impl.asset,
 						"asset_name": impl.asset_name,
 						"planned_hours": impl.planned_hours or 0,
-						"remarks": impl.remarks or ""
+						"return_type": getattr(impl, "return_type", None) or "Non Returnable"
 					})
 			if parent_campaign.get("hand_tools"):
 				for ht in parent_campaign.hand_tools:
@@ -2056,7 +2056,7 @@ def schedule_campaign(
 						"asset": ht.asset,
 						"asset_name": ht.asset_name,
 						"planned_hours": ht.planned_hours or 0,
-						"remarks": ht.remarks or ""
+						"return_type": getattr(ht, "return_type", None) or "Non Returnable"
 					})
 			if parent_campaign.get("other_tools"):
 				for ot in parent_campaign.other_tools:
@@ -2064,7 +2064,7 @@ def schedule_campaign(
 						"asset": ot.asset,
 						"asset_name": ot.asset_name,
 						"planned_hours": ot.planned_hours or 0,
-						"remarks": ot.remarks or ""
+						"return_type": getattr(ot, "return_type", None) or "Non Returnable"
 					})
 			
 			child_activity.insert()

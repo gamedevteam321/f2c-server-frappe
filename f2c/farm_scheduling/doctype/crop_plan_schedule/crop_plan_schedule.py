@@ -2410,7 +2410,7 @@ def create_reschedule(
 				"asset": m.asset,
 				"asset_name": m.asset_name,
 				"planned_hours": m.planned_hours,
-				"remarks": m.remarks,
+				"return_type": getattr(m, "return_type", None) or "Non Returnable",
 			},
 		)
 	# Copy implements
@@ -2421,7 +2421,7 @@ def create_reschedule(
 				"asset": imp.asset,
 				"asset_name": imp.asset_name,
 				"planned_hours": imp.planned_hours,
-				"remarks": imp.remarks,
+				"return_type": getattr(imp, "return_type", None) or "Non Returnable",
 			},
 		)
 	# Copy hand tools
@@ -2432,7 +2432,7 @@ def create_reschedule(
 				"asset": ht.asset,
 				"asset_name": ht.asset_name,
 				"planned_hours": ht.planned_hours,
-				"remarks": ht.remarks,
+				"return_type": getattr(ht, "return_type", None) or "Non Returnable",
 			},
 		)
 	# Copy other tools
@@ -2443,7 +2443,7 @@ def create_reschedule(
 				"asset": ot.asset,
 				"asset_name": ot.asset_name,
 				"planned_hours": ot.planned_hours,
-				"remarks": ot.remarks,
+				"return_type": getattr(ot, "return_type", None) or "Non Returnable",
 			},
 		)
 

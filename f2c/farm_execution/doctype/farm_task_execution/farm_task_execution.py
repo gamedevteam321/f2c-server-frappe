@@ -44,6 +44,7 @@ class FarmTaskExecution(Document):
 		self._validate_reference()
 		self._sync_and_validate_progress_images()
 		self._validate_status_rules()
+		self._validate_inputs_consumed_qty()
 		self._compute_consumed_qty()
 
 	def _sync_and_validate_progress_images(self):
@@ -278,6 +279,19 @@ class FarmTaskExecution(Document):
 						f"Valid transitions from '{old_status}' are: {', '.join(valid_transitions[old_status])}"
 					)
 
+	def _validate_inputs_consumed_qty(self):
+		"""Consumed quantity cannot exceed issued quantity for any input."""
+		for row in self.get("inputs") or []:
+			consumed = flt(row.get("consumed_qty"), 3)
+			issued = flt(row.get("issued_qty"), 3)
+			if consumed > issued:
+				item_label = (row.get("item_name") or row.get("item") or "Item").strip() or "Item"
+				frappe.throw(
+					frappe._("Consumed quantity cannot be greater than issued quantity for {0}. Issued: {1}, Consumed: {2}.").format(
+						item_label, issued, consumed
+					)
+				)
+
 	def _compute_consumed_qty(self):
 		# consumed_qty is user-editable input; do not overwrite with issued - returned
 		pass
@@ -382,6 +396,7 @@ def create_from_schedule(schedule_name: str, labour_list: str = None) -> str:
 					"asset": eq.asset,
 					"asset_name": eq.asset_name,
 					"planned_hours": eq.planned_hours,
+					"return_type": getattr(eq, "return_type", None) or "Non Returnable",
 				},
 			)
 		for eq in schedule.get("implements") or []:
@@ -391,6 +406,7 @@ def create_from_schedule(schedule_name: str, labour_list: str = None) -> str:
 					"asset": eq.asset,
 					"asset_name": eq.asset_name,
 					"planned_hours": eq.planned_hours,
+					"return_type": getattr(eq, "return_type", None) or "Non Returnable",
 				},
 			)
 		for eq in schedule.get("hand_tools") or []:
@@ -400,6 +416,7 @@ def create_from_schedule(schedule_name: str, labour_list: str = None) -> str:
 					"asset": eq.asset,
 					"asset_name": eq.asset_name,
 					"planned_hours": eq.planned_hours,
+					"return_type": getattr(eq, "return_type", None) or "Non Returnable",
 				},
 			)
 		for eq in schedule.get("other_tools") or []:
@@ -409,6 +426,7 @@ def create_from_schedule(schedule_name: str, labour_list: str = None) -> str:
 					"asset": eq.asset,
 					"asset_name": eq.asset_name,
 					"planned_hours": eq.planned_hours,
+					"return_type": getattr(eq, "return_type", None) or "Non Returnable",
 				},
 			)
 
@@ -528,6 +546,7 @@ def create_from_on_demand_activity(on_demand_activity_name: str, labour_list: st
 				"asset": eq.asset,
 				"asset_name": eq.asset_name,
 				"planned_hours": eq.planned_hours,
+				"return_type": getattr(eq, "return_type", None) or "Non Returnable",
 			},
 		)
 	for eq in activity.get("implements") or []:
@@ -537,6 +556,7 @@ def create_from_on_demand_activity(on_demand_activity_name: str, labour_list: st
 				"asset": eq.asset,
 				"asset_name": eq.asset_name,
 				"planned_hours": eq.planned_hours,
+				"return_type": getattr(eq, "return_type", None) or "Non Returnable",
 			},
 		)
 	for eq in activity.get("hand_tools") or []:
@@ -546,6 +566,7 @@ def create_from_on_demand_activity(on_demand_activity_name: str, labour_list: st
 				"asset": eq.asset,
 				"asset_name": eq.asset_name,
 				"planned_hours": eq.planned_hours,
+				"return_type": getattr(eq, "return_type", None) or "Non Returnable",
 			},
 		)
 	for eq in activity.get("other_tools") or []:
@@ -555,6 +576,7 @@ def create_from_on_demand_activity(on_demand_activity_name: str, labour_list: st
 				"asset": eq.asset,
 				"asset_name": eq.asset_name,
 				"planned_hours": eq.planned_hours,
+				"return_type": getattr(eq, "return_type", None) or "Non Returnable",
 			},
 		)
 
@@ -839,7 +861,7 @@ def _copy_fte_inputs_equipment_to_day(fte_doc, day_doc):
 			"asset_name": getattr(row, "asset_name", None),
 			"planned_hours": flt(row.planned_hours, 2),
 			"actual_hours": flt(row.actual_hours, 2),
-			"remarks": getattr(row, "remarks", None) or "",
+			"return_type": getattr(row, "return_type", None) or "Non Returnable",
 		})
 
 
@@ -873,7 +895,7 @@ def _copy_fte_child_to_day(fte_doc, day_doc):
 			"asset_name": getattr(row, "asset_name", None),
 			"planned_hours": flt(row.planned_hours, 2),
 			"actual_hours": flt(row.actual_hours, 2),
-			"remarks": getattr(row, "remarks", None) or "",
+			"return_type": getattr(row, "return_type", None) or "Non Returnable",
 		})
 	for row in (fte_doc.get("progress_images") or []):
 		day_doc.append("progress_images", {"image": row.image})
@@ -897,6 +919,12 @@ def get_or_create_current_day(execution_name: str, date: str) -> Dict[str, Any]:
 	)
 	if existing:
 		doc = frappe.get_doc("Farm Task Execution Day", existing)
+		# Ensure delivery ticket exists for Daily Returnable equipment (idempotent)
+		try:
+			from f2c.farm_execution.equipment_transfer_on_completion import create_delivery_ticket_for_daily_returnable_equipment
+			create_delivery_ticket_for_daily_returnable_equipment(execution_name, date)
+		except Exception:
+			pass
 		return doc.as_dict()
 
 	# Create new day
@@ -919,6 +947,16 @@ def get_or_create_current_day(execution_name: str, date: str) -> Dict[str, Any]:
 	if len(existing_days) >= 1 and getattr(fte, "execution_type", None) == "Single Day":
 		frappe.db.set_value("Farm Task Execution", execution_name, "execution_type", "Multi Day", update_modified=False)
 		frappe.db.commit()
+
+	# Create delivery ticket (cluster -> field) for Daily Returnable equipment for this day
+	try:
+		from f2c.farm_execution.equipment_transfer_on_completion import create_delivery_ticket_for_daily_returnable_equipment
+		create_delivery_ticket_for_daily_returnable_equipment(execution_name, date)
+	except Exception as e:
+		frappe.log_error(
+			title="Farm Task Execution Day Delivery",
+			message=f"Delivery ticket for daily returnable equipment failed for {execution_name} day {date}: {str(e)}",
+		)
 
 	return day_doc.as_dict()
 
@@ -982,7 +1020,7 @@ def create_dummy_execution_days_for_testing(execution_name: str = None, num_days
 				"asset_name": getattr(eq, "asset_name", None) or eq.asset,
 				"planned_hours": flt(getattr(eq, "planned_hours", None), 2) or 1,
 				"actual_hours": 1,
-				"remarks": "Dummy for testing",
+				"return_type": getattr(eq, "return_type", None) or "Non Returnable",
 			})
 	if not equipment_rows and frappe.db.table_exists("Asset"):
 		assets = frappe.get_all("Asset", fields=["name", "asset_name"], limit=2)
@@ -992,7 +1030,7 @@ def create_dummy_execution_days_for_testing(execution_name: str = None, num_days
 				"asset_name": a.asset_name or a.name,
 				"planned_hours": 1,
 				"actual_hours": 1,
-				"remarks": "Dummy for testing",
+				"return_type": "Non Returnable",
 			})
 
 	for d in dates_to_create:
@@ -1017,7 +1055,7 @@ def create_dummy_execution_days_for_testing(execution_name: str = None, num_days
 				"asset_name": eq.get("asset_name"),
 				"planned_hours": eq.get("planned_hours", 1),
 				"actual_hours": eq.get("actual_hours", 1),
-				"remarks": eq.get("remarks") or "",
+				"return_type": eq.get("return_type") or "Non Returnable",
 			})
 		day_doc.insert(ignore_permissions=True)
 		created.append(day_doc.name)
@@ -1141,7 +1179,7 @@ def update_day_data(
 				"asset_name": row.get("asset_name"),
 				"planned_hours": flt(row.get("planned_hours"), 2),
 				"actual_hours": flt(row.get("actual_hours"), 2),
-				"remarks": row.get("remarks") or "",
+				"return_type": row.get("return_type") or "Non Returnable",
 			})
 	if progress_images is not None and isinstance(progress_images, list):
 		day_doc.progress_images = []
@@ -1160,11 +1198,11 @@ def update_day_data(
 
 	day_doc.save(ignore_permissions=True)
 	frappe.db.commit()
-	# Create equipment transfer tickets on End of the day: same-cluster next field or return to cluster
+	# Create equipment transfer tickets on End of the day: only Daily Returnable -> return to cluster
 	if ended_for_day:
 		try:
 			from f2c.farm_execution.equipment_transfer_on_completion import create_equipment_transfer_tickets_for_execution
-			create_equipment_transfer_tickets_for_execution(fte)
+			create_equipment_transfer_tickets_for_execution(fte, on_end_of_day=True)
 		except Exception as e:
 			frappe.log_error(
 				f"Equipment transfer tickets on end of day failed for {execution_name}: {str(e)}",
@@ -1381,8 +1419,8 @@ def update_execution_data(
 				continue
 			if "actual_hours" in row and row["actual_hours"] is not None:
 				child.actual_hours = flt(row["actual_hours"], 2)
-			if "remarks" in row:
-				child.remarks = str(row["remarks"]) if row["remarks"] is not None else ""
+			if "return_type" in row:
+				child.return_type = str(row["return_type"]).strip() if row["return_type"] else "Non Returnable"
 
 	if labour_attendance is not None and isinstance(labour_attendance, list):
 		for i, row in enumerate(labour_attendance):
