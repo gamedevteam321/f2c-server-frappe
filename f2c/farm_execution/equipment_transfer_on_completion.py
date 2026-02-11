@@ -386,13 +386,13 @@ def create_delivery_ticket_for_daily_returnable_equipment(execution_name: str, d
 	"""
 	When a Farm Task Execution Day is created (multi-day execution), create a delivery ticket
 	(cluster -> field) for equipment with return_type "Daily Returnable" so assets are sent to
-	the field for that day. Only runs if execution is In Progress or Paused and has such equipment.
+	the field for that day. Only runs if execution is In Progress or On Hold and has such equipment.
 	Does not raise; logs and returns on any failure. Skips if a similar ticket was already created
 	for this execution+date (duplicate check by from/to/asset set and creation date).
 	"""
 	try:
 		fte = frappe.get_doc("Farm Task Execution", execution_name)
-		if fte.status not in ("In Progress", "Paused"):
+		if fte.status not in ("In Progress", "On Hold"):
 			return
 		field = getattr(fte, "field", None)
 		if not field:

@@ -4,7 +4,7 @@
 # Or with an optional schedule name: bench --site <your-site> execute f2c.scripts.create_dummy_execution.run --args '["CPS-0123"]'
 #
 # If a schedule without execution_ref exists: creates new FTE, starts it, sets Actual Start, creates all days.
-# If all schedules already have an execution: uses first In Progress/Paused execution and creates all days for it.
+# If all schedules already have an execution: uses first In Progress/On Hold execution and creates all days for it.
 
 # bench --site localhost execute f2c.scripts.create_dummy_execution.run --args '["CPS-0123"]'
 
@@ -138,7 +138,7 @@ def _create_all_days_for_execution(execution_name, schedule_name):
 def run(schedule_name=None):
 	"""
 	Ensure a dummy execution with all days: either create new FTE from a free schedule,
-	or add all days to an existing In Progress/Paused execution.
+	or add all days to an existing In Progress/On Hold execution.
 	"""
 	# Schedules that have no execution_ref (can create new FTE)
 	schedules_no_exec = frappe.get_all(
@@ -204,13 +204,13 @@ def run(schedule_name=None):
 		print(f"\nDone. Execution: {execution_name} (Status: In Progress, all days + Inputs/Equipment/Labour).")
 		return execution_name
 
-	# Fallback: all schedules have an execution — use first one that is In Progress or Paused
+	# Fallback: all schedules have an execution — use first one that is In Progress or On Hold
 	for s in schedules_with_exec:
 		exec_ref = (s.get("execution_ref") or "").strip()
 		if not exec_ref or not frappe.db.exists("Farm Task Execution", exec_ref):
 			continue
 		status = frappe.db.get_value("Farm Task Execution", exec_ref, "status")
-		if status not in ("In Progress", "Paused"):
+		if status not in ("In Progress", "On Hold"):
 			continue
 		schedule_name = s["name"]
 		execution_name = exec_ref
@@ -220,5 +220,5 @@ def run(schedule_name=None):
 		print(f"\nDone. All days + Inputs/Equipment/Labour for execution: {execution_name}.")
 		return execution_name
 
-	print("No Crop Plan Schedule without execution, and no In Progress/Paused execution found. Start an execution in the app first.")
+	print("No Crop Plan Schedule without execution, and no In Progress/On Hold execution found. Start an execution in the app first.")
 	return None
