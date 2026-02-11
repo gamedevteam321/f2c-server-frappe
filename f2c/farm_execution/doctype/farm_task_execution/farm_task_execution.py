@@ -872,6 +872,7 @@ def _copy_fte_child_to_day(fte_doc, day_doc):
 	day_doc.actual_irrigation_water_liters = flt(fte_doc.actual_irrigation_water_liters, 3)
 	for row in (fte_doc.get("labour_attendance") or []):
 		day_doc.append("labour", {
+			"labour_type": getattr(row, "labour_type", None) or "Farm Worker Details",
 			"labour": row.labour,
 			"labour_name": getattr(row, "labour_name", None),
 			"role": getattr(row, "role", None),
@@ -1048,7 +1049,7 @@ def create_dummy_execution_days_for_testing(execution_name: str = None, num_days
 		day_doc.date = date_str
 		day_doc.remark = f"Dummy day for testing ({date_str})"
 		for lab in labour_list:
-			day_doc.append("labour", {"labour": lab["labour"], "labour_name": lab.get("labour_name")})
+			day_doc.append("labour", {"labour_type": "Farm Worker Details", "labour": lab["labour"], "labour_name": lab.get("labour_name")})
 		for eq in equipment_rows:
 			day_doc.append("equipment", {
 				"asset": eq["asset"],
@@ -1128,6 +1129,34 @@ def update_day_data(
 				labour_id = row
 			if not labour_id:
 				continue
+			labour_type = "Farm Worker Details"
+			if isinstance(row, dict) and row.get("labour_type"):
+				labour_type = str(row.get("labour_type")).strip() or "Farm Worker Details"
+
+			# Auto-fill labour_name when not provided
+			labour_name = row.get("labour_name") if isinstance(row, dict) else None
+			if not labour_name:
+				try:
+					if labour_type == "Employee":
+						labour_name = frappe.db.get_value("Employee", labour_id, "employee_name") or labour_id
+					else:
+						labour_name = frappe.db.get_value("Farm Worker Details", labour_id, "worker_name") or labour_id
+				except Exception:
+					labour_name = labour_id
+
+			# Auto-fill role when not provided
+			role_val = row.get("role") if isinstance(row, dict) else None
+			if not role_val:
+				try:
+					if labour_type == "Employee":
+						role_val = frappe.db.get_value("Employee", labour_id, "designation") or "Employee"
+					else:
+						roles_raw = frappe.db.get_value("Farm Worker Details", labour_id, "worker_roles") or ""
+						# take first token (newline or comma)
+						first = [s.strip() for s in str(roles_raw).replace(",", "\n").splitlines() if s.strip()]
+						role_val = first[0] if first else "Daily Worker"
+				except Exception:
+					role_val = role_val or None
 			# Parse check-in/check-out times (ISO string or None). MySQL DATETIME is naive;
 			# convert timezone-aware values to system timezone and strip tzinfo.
 			checkin_in_time = None
@@ -1150,9 +1179,10 @@ def update_day_data(
 					except Exception:
 						checkin_out_time = None
 			day_doc.append("labour", {
+				"labour_type": labour_type,
 				"labour": labour_id,
-				"labour_name": row.get("labour_name") if isinstance(row, dict) else None,
-				"role": row.get("role") if isinstance(row, dict) else None,
+				"labour_name": labour_name,
+				"role": role_val,
 				"checkin_in": row.get("checkin_in") if isinstance(row, dict) else None,
 				"checkin_out": row.get("checkin_out") if isinstance(row, dict) else None,
 				"checkin_in_time": checkin_in_time,
@@ -1503,10 +1533,21 @@ def submit_for_review(execution_name: str, skip_images: int = 0) -> str:
 					try:
 						_create_consumption_stock_entry_for_day(execution_name, day_date_str)
 					except Exception as e:
-						frappe.log_error(
-							f"Consumption stock entry on submit for review failed for {doc.name} day {day_date_str}: {str(e)}",
-							"Farm Task Execution Day Consumption",
-						)
+						# Never fail submit_for_review due to logging/title length limits
+						try:
+							frappe.log_error(
+								message=(
+									f"Consumption stock entry on submit for review failed.\n"
+									f"Execution: {doc.name}\n"
+									f"Day: {day_date_str}\n"
+									f"Error: {str(e)}\n\n"
+									f"{frappe.get_traceback()}"
+								),
+								title=f"Day consumption failed: {doc.name} {day_date_str}"[:140],
+							)
+						except Exception:
+							# If even error logging fails, continue silently (status already moved to In Review)
+							pass
 			return doc.name
 		except frappe.QueryDeadlockError:
 			frappe.db.rollback()
@@ -1656,6 +1697,9 @@ def _create_consumption_stock_entry_for_day(execution_name: str, day_date: str) 
 			"qty": qty,
 			"s_warehouse": target_warehouse,
 			"batch_no": row.get("batch_no"),
+			# Allow consumption even when item has no valuation rate (ERPNext validation).
+			# This aligns with field operations where accounting can be reconciled later.
+			"allow_zero_valuation_rate": 1,
 		})
 	if not items:
 		return None
@@ -1751,6 +1795,7 @@ def _create_consumption_stock_entry_if_applicable(doc: Document) -> None:
 				"qty": qty,
 				"s_warehouse": doc.target_warehouse,
 				"batch_no": row.batch_no,
+				"allow_zero_valuation_rate": 1,
 			}
 		)
 	if not items:
@@ -2305,47 +2350,91 @@ def get_available_labour(attendance_date: str = None, debug: bool = False) -> Li
 			print(f"[get_available_labour] Error checking all Present records: {str(e)}")
 			frappe.log_error(f"Error checking all Present records: {str(e)}", "Get Available Labour Error")
 		
-		# Return empty list - this is expected if no workers have Present attendance
-		return []
+		# Don't return yet — we may still have punched-in Employees (Attendance Log)
+		# that are linked to Farm Worker Details via the `employee` field.
+		present_attendance = []
 	
 	# Step 2: Get Farm Worker Details for each Present attendance record
 	available_labour = []
-	
-	# Get Farm Worker Details for all present workers in one query
+
+	# Collect candidate Farm Worker Details IDs from two sources:
+	# 1) Farm Worker Attendance with status "Present"
+	# 2) Attendance Log entries ("punched in") mapped to Farm Worker Details via Farm Worker Details.employee
+	farm_worker_names: List[str] = []
 	if present_attendance:
-		# present_attendance is a list of dictionaries, so use dictionary access
-		farm_worker_names = [att.get("farm_worker") for att in present_attendance if att.get("farm_worker")]
-		print(f"[get_available_labour] Processing {len(farm_worker_names)} workers with Present attendance: {farm_worker_names}")
-		
-		if not farm_worker_names:
-			print(f"[get_available_labour] WARNING: No farm_worker names extracted from attendance records")
-			return []
-		
-		# Get Farm Worker Details with all needed fields
-		farm_workers_data = frappe.get_all(
-			"Farm Worker Details",
-			filters={"name": ["in", farm_worker_names]},
-			fields=["name", "worker_name", "aadhaar_number", "dob", "address", "gender"],
-			order_by="worker_name"
-		)
-		
-		print(f"[get_available_labour] Found {len(farm_workers_data)} Farm Worker Details records for {len(farm_worker_names)} attendance records")
-		
-		if len(farm_workers_data) != len(farm_worker_names):
-			missing = set(farm_worker_names) - {fw.get("name") for fw in farm_workers_data}
+		farm_worker_names.extend([att.get("farm_worker") for att in present_attendance if att.get("farm_worker")])
+
+	attendance_log_employee_ids: List[str] = []
+	try:
+		# Fetch Attendance Log for the same dates we tried for Farm Worker Attendance.
+		for date_str_check, _date_obj_check in dates_to_try:
+			log_rows = frappe.get_all(
+				"Attendance Log",
+				filters={"attendance_date": date_str_check},
+				fields=["employee", "check_in"],
+				limit=1000,
+			)
+			for r in (log_rows or []):
+				emp = r.get("employee")
+				# "Punched in": keep rows that have a check_in timestamp.
+				if emp and r.get("check_in"):
+					attendance_log_employee_ids.append(emp)
+	except Exception as e:
+		frappe.log_error(f"Error fetching Attendance Log: {str(e)}", "Get Available Labour Attendance Log Error")
+
+	# Map Attendance Log employees to Farm Worker Details via the employee link.
+	if attendance_log_employee_ids:
+		# De-dupe employee IDs
+		emp_ids = list(dict.fromkeys([e for e in attendance_log_employee_ids if e]))
+		try:
+			fw_from_employees = frappe.get_all(
+				"Farm Worker Details",
+				filters={"employee": ["in", emp_ids]},
+				fields=["name", "employee"],
+				limit=2000,
+			)
+			if fw_from_employees:
+				farm_worker_names.extend([r.get("name") for r in fw_from_employees if r.get("name")])
+		except Exception as e:
+			frappe.log_error(f"Error mapping Attendance Log employees to Farm Worker Details: {str(e)}", "Get Available Labour Attendance Log Map Error")
+
+	# De-dupe farm worker names while preserving order
+	farm_worker_names = list(dict.fromkeys([n for n in farm_worker_names if n]))
+	print(f"[get_available_labour] Processing {len(farm_worker_names)} total workers (Present + punched-in employees): {farm_worker_names}")
+
+	if not farm_worker_names:
+		print(f"[get_available_labour] No Farm Worker Details found from Present attendance or Attendance Log punched-in employees")
+		return []
+
+	# Fetch Farm Worker Details with all needed fields (including employee + worker_roles for role column)
+	farm_workers_data = frappe.get_all(
+		"Farm Worker Details",
+		filters={"name": ["in", farm_worker_names]},
+		fields=["name", "worker_name", "aadhaar_number", "dob", "address", "gender", "employee", "worker_roles"],
+		order_by="worker_name",
+		limit=2000,
+	)
+
+	print(f"[get_available_labour] Found {len(farm_workers_data)} Farm Worker Details records for {len(farm_worker_names)} candidate workers")
+
+	if len(farm_workers_data) != len(farm_worker_names):
+		missing = set(farm_worker_names) - {fw.get("name") for fw in farm_workers_data}
+		if missing:
 			print(f"[get_available_labour] WARNING: Missing Farm Worker Details for: {missing}")
-		
-		# Return Farm Worker Details directly (no Labour Details needed)
-		for farm_worker in farm_workers_data:
-			available_labour.append({
-				"name": farm_worker.get("name"),
-				"worker_name": farm_worker.get("worker_name"),
-				"labour_name": farm_worker.get("worker_name"),  # Keep for backward compatibility with frontend
-				"aadhaar_number": farm_worker.get("aadhaar_number"),
-				"dob": farm_worker.get("dob"),
-				"address": farm_worker.get("address"),
-				"gender": farm_worker.get("gender")
-			})
+
+	# Return Farm Worker Details directly (no Labour Details needed)
+	for farm_worker in (farm_workers_data or []):
+		available_labour.append({
+			"name": farm_worker.get("name"),
+			"worker_name": farm_worker.get("worker_name"),
+			"labour_name": farm_worker.get("worker_name"),  # Keep for backward compatibility with frontend
+			"aadhaar_number": farm_worker.get("aadhaar_number"),
+			"dob": farm_worker.get("dob"),
+			"address": farm_worker.get("address"),
+			"gender": farm_worker.get("gender"),
+			"employee": farm_worker.get("employee"),
+			"worker_roles": farm_worker.get("worker_roles"),
+		})
 	
 	# Sort by worker name
 	available_labour.sort(key=lambda x: x.get("worker_name", ""))

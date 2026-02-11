@@ -8,6 +8,7 @@
   "allow_rename": 1,
   "track_changes": 1,
   "field_order": [
+    "labour_type",
     "labour",
     "labour_name",
     "role",
@@ -16,10 +17,18 @@
   ],
   "fields": [
     {
+      "fieldname": "labour_type",
+      "fieldtype": "Select",
+      "label": "Labour Type",
+      "options": "Farm Worker Details\nEmployee",
+      "default": "Farm Worker Details",
+      "in_list_view": 1
+    },
+    {
       "fieldname": "labour",
-      "fieldtype": "Link",
+      "fieldtype": "Dynamic Link",
       "label": "Labour",
-      "options": "Farm Worker Details",
+      "options": "labour_type",
       "reqd": 1,
       "in_list_view": 1
     },
@@ -27,7 +36,6 @@
       "fieldname": "labour_name",
       "fieldtype": "Data",
       "label": "Labour Name",
-      "fetch_from": "labour.worker_name",
       "read_only": 1,
       "in_list_view": 1
     },
