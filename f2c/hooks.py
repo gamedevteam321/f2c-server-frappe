@@ -191,6 +191,10 @@ scheduler_events = {
 		# Auto-create Warehouse Stock docs for warehouses that have stock available
 		"f2c.inventory.doctype.warehouse_stock.warehouse_stock.sync_warehouse_stock",
 	],
+	"hourly": [
+		# Update today's Weather Report current conditions (do not create new)
+		"f2c.weather.scheduler.update_today_weather_reports_hourly",
+	],
 	"cron": {
 		# Fetch weather data for all fields daily at 6 AM
 		"0 6 * * *": [
