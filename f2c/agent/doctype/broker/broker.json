@@ -10,8 +10,15 @@
  "field_order": [
   "broker_details_section",
   "broker_name",
+  "farm_name",
+  "field_name",
   "village_name",
   "contact_no",
+  "aadhaar_number",
+  "bank_details_section",
+  "account_number",
+  "ifsc_code",
+  "beneficiary_name",
   "photo_uploaded",
   "location_name",
   "latitude",
@@ -33,6 +40,16 @@
    "reqd": 1
   },
   {
+   "fieldname": "farm_name",
+   "fieldtype": "Data",
+   "label": "Farm Name"
+  },
+  {
+   "fieldname": "field_name",
+   "fieldtype": "Data",
+   "label": "Field Name"
+  },
+  {
    "fieldname": "village_name",
    "fieldtype": "Data",
    "in_list_view": 1,
@@ -46,6 +63,32 @@
    "in_list_view": 1,
    "label": "Contact No",
    "reqd": 1
+  },
+  {
+   "description": "Enter a 12-digit number",
+   "fieldname": "aadhaar_number",
+   "fieldtype": "Data",
+   "label": "Aadhaar Number"
+  },
+  {
+   "fieldname": "bank_details_section",
+   "fieldtype": "Section Break",
+   "label": "Bank Details"
+  },
+  {
+   "fieldname": "account_number",
+   "fieldtype": "Data",
+   "label": "Account Number"
+  },
+  {
+   "fieldname": "ifsc_code",
+   "fieldtype": "Data",
+   "label": "IFSC Code"
+  },
+  {
+   "fieldname": "beneficiary_name",
+   "fieldtype": "Data",
+   "label": "Beneficiary Name"
   },
   {
    "fieldname": "photo_uploaded",
