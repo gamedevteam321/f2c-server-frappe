@@ -3,7 +3,7 @@
 
 import frappe
 from frappe import _
-from frappe.utils import nowdate, nowtime, today, get_datetime
+from frappe.utils import now_datetime, nowdate, nowtime, today, get_datetime
 from typing import Optional, Tuple, Dict, Any
 import json
 
@@ -554,6 +554,98 @@ def fetch_weather_for_all_fields():
 	
 	frappe.logger().info(
 		f"Daily weather collection completed: {success_count} successful, {error_count} errors"
+	)
+
+
+def update_today_weather_reports_hourly() -> None:
+	"""
+	Scheduled task to update (NOT create) today's Weather Report for each Field.
+	Runs hourly.
+
+	- Updates only current weather condition fields
+	- Updates report_time with HH:MM:SS (no microseconds)
+	- Does not modify hourly_forecast child rows
+	"""
+	from f2c.weather.api import get_current_weather
+
+	run_date = today()
+	run_time = now_datetime().strftime("%H:%M:%S")
+
+	frappe.logger().info(f"Starting hourly weather update for reports on {run_date} at {run_time}")
+
+	geo_areas = frappe.get_all(
+		"Geo Fencing Area",
+		filters={"geo_fencing_type": "Field"},
+		fields=["name", "area_name", "shape_type"]
+	)
+
+	updated = 0
+	skipped_no_report = 0
+	skipped_no_coords = 0
+	errors = 0
+
+	for geo_area in geo_areas:
+		field_id = geo_area.name
+		field_label = geo_area.area_name or field_id
+
+		try:
+			# Find today's report (update existing only)
+			existing = frappe.get_all(
+				"Weather Report",
+				filters={"location": field_id, "report_date": run_date},
+				fields=["name", "report_time"],
+				order_by="report_time desc",
+				limit=1
+			)
+			if not existing:
+				skipped_no_report += 1
+				continue
+
+			coords = get_field_coordinates(field_id)
+			if not coords:
+				skipped_no_coords += 1
+				continue
+
+			latitude, longitude = coords
+
+			current_weather = get_current_weather(latitude, longitude)
+
+			doc = frappe.get_doc("Weather Report", existing[0].name)
+
+			# Update reporting time without microseconds
+			doc.report_time = run_time
+
+			# Keep hourly forecast intact; only refresh current conditions
+			populate_current_weather_fields(doc, current_weather)
+
+			# Update raw_data.current if present (keep it lightweight)
+			try:
+				raw = {}
+				if doc.raw_data:
+					raw = json.loads(doc.raw_data) if isinstance(doc.raw_data, str) else (doc.raw_data or {})
+				if not isinstance(raw, dict):
+					raw = {}
+				raw["current"] = current_weather
+				doc.raw_data = json.dumps(raw)
+			except Exception:
+				# Don't fail the update if raw_data isn't valid JSON
+				pass
+
+			doc.save(ignore_permissions=True)
+			updated += 1
+
+		except Exception as e:
+			errors += 1
+			frappe.log_error(
+				f"Hourly update failed for field {field_label} ({field_id}): {str(e)}\nTraceback: {frappe.get_traceback()}",
+				"Hourly Weather Update Error"
+			)
+
+	# Commit once at end for performance
+	frappe.db.commit()
+
+	frappe.logger().info(
+		f"Hourly weather update completed: updated={updated}, skipped_no_report={skipped_no_report}, skipped_no_coords={skipped_no_coords}, errors={errors}"
 	)
 
 
