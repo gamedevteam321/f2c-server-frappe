@@ -557,7 +557,7 @@ def fetch_weather_for_all_fields():
 	)
 
 
-def update_today_weather_reports_hourly() -> None:
+def update_today_weather_reports_hourly() -> Dict[str, int]:
 	"""
 	Scheduled task to update (NOT create) today's Weather Report for each Field.
 	Runs hourly.
@@ -647,6 +647,19 @@ def update_today_weather_reports_hourly() -> None:
 	frappe.logger().info(
 		f"Hourly weather update completed: updated={updated}, skipped_no_report={skipped_no_report}, skipped_no_coords={skipped_no_coords}, errors={errors}"
 	)
+
+	return {
+		"updated": updated,
+		"skipped_no_report": skipped_no_report,
+		"skipped_no_coords": skipped_no_coords,
+		"errors": errors,
+	}
+
+
+@frappe.whitelist()
+def refresh_today_weather_reports() -> Dict[str, int]:
+	"""API endpoint: run the hourly updater on demand (no new docs)."""
+	return update_today_weather_reports_hourly()
 
 
 @frappe.whitelist()

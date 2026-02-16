@@ -760,13 +760,94 @@ class GeoFencingArea(Document):
 						parent_warehouse = parent_area_doc.warehouses[0].warehouse
 				except Exception as e:
 					frappe.log_error(f"Error getting parent warehouse for {self.name}: {str(e)}", "Geo Fencing Area Create Warehouse")
+
+			# Determine company (affects Warehouse naming: "{warehouse_name} - {company_abbr}")
+			company = None
+			if parent_warehouse:
+				company = frappe.db.get_value("Warehouse", parent_warehouse, "company")
+
+			if not company:
+				# Try global defaults
+				try:
+					company = frappe.defaults.get_global_default("company")
+				except Exception:
+					company = None
+			if not company:
+				try:
+					company = frappe.db.get_single_value("Global Defaults", "default_company")
+				except Exception:
+					company = None
+
+			company_abbr = ""
+			if company and frappe.db.exists("Company", company):
+				try:
+					company_abbr = frappe.get_cached_value("Company", company, "abbr") or ""
+				except Exception:
+					company_abbr = frappe.db.get_value("Company", company, "abbr") or ""
+
+			def _fit_warehouse_base_name(base: str, abbr: str) -> str:
+				"""
+				Frappe/ERPNext warehouse `name` is built as "{warehouse_name} - {abbr}" and the DB limit is 140 chars.
+				If the company abbreviation is long, we must truncate the warehouse_name part.
+				"""
+				base = (base or "").strip()
+				abbr = (abbr or "").strip()
+				max_total = 140
+				if not abbr:
+					return base[:max_total].rstrip()
+				# " - " is 3 chars
+				max_base = max_total - len(abbr) - 3
+				if max_base < 1:
+					frappe.throw(
+						f"Company abbreviation is too long to create a Warehouse name (abbr length={len(abbr)}). "
+						f"Please shorten Company.abbr for '{company}'."
+					)
+				return base[:max_base].rstrip()
+
+			def _warehouse_docname_from_base(base: str, abbr: str) -> str:
+				"""ERPNext Warehouse autoname: '{warehouse_name} - {abbr}' when company exists."""
+				base = (base or "").strip()
+				abbr = (abbr or "").strip()
+				return f"{base} - {abbr}" if abbr else base
+
+			def _make_unique_warehouse_base(base: str, abbr: str) -> str:
+				"""
+				If a Warehouse with the default docname already exists (often because the old one was disabled),
+				make the warehouse_name unique so the user can recreate an area with the same area_name.
+				We keep the first warehouse clean, and only add suffix when needed.
+				"""
+				base = (base or "").strip()
+				# First try: plain base
+				docname = _warehouse_docname_from_base(base, abbr)
+				if not frappe.db.exists("Warehouse", docname):
+					return base
+
+				# Second try: include geo area id (stable + unique)
+				base2 = f"{base} ({self.name})"
+				base2 = _fit_warehouse_base_name(base2, abbr)
+				docname2 = _warehouse_docname_from_base(base2, abbr)
+				if not frappe.db.exists("Warehouse", docname2):
+					return base2
+
+				# Last resort: numeric suffix
+				for i in range(2, 50):
+					candidate = f"{base} ({self.name}-{i})"
+					candidate = _fit_warehouse_base_name(candidate, abbr)
+					doc = _warehouse_docname_from_base(candidate, abbr)
+					if not frappe.db.exists("Warehouse", doc):
+						return candidate
+
+				frappe.throw("Unable to generate a unique Warehouse name. Please shorten the Area Name.")
 			
 			# Create a new Warehouse document
 			warehouse_data = {
 				"doctype": "Warehouse",
-				"warehouse_name": self.area_name,
+				"warehouse_name": _make_unique_warehouse_base(_fit_warehouse_base_name(self.area_name, company_abbr), company_abbr),
 				"is_group": is_group
 			}
+
+			if company:
+				warehouse_data["company"] = company
 			
 			# Set parent_warehouse if parent area has a warehouse
 			# Hierarchy: Farm -> Cluster -> Field
@@ -841,30 +922,20 @@ class GeoFencingArea(Document):
 			# If this is a group warehouse (Farm or Cluster), create a child ledger warehouse
 			# This allows items and assets to be stored in Farm/Cluster warehouses
 			if is_group == 1:
-				# Get company from parent warehouse or default
-				company = None
-				if parent_warehouse:
-					company = frappe.db.get_value("Warehouse", parent_warehouse, "company")
-				
+				# Ensure we have a company for the child warehouse too (fallback to the created warehouse)
 				if not company:
-					# Try to get from the newly created warehouse
 					company = warehouse.company if hasattr(warehouse, 'company') and warehouse.company else None
-				
-				if not company:
-					# Get default company
+
+				# Re-resolve abbr if company came from the created warehouse
+				if company and not company_abbr and frappe.db.exists("Company", company):
 					try:
-						company = frappe.defaults.get_global_default("company")
-					except:
-						pass
-					
-					if not company:
-						try:
-							company = frappe.db.get_single_value("Global Defaults", "default_company")
-						except:
-							pass
-				
+						company_abbr = frappe.get_cached_value("Company", company, "abbr") or ""
+					except Exception:
+						company_abbr = frappe.db.get_value("Company", company, "abbr") or ""
+
 				# Create child ledger warehouse
-				child_warehouse_name = f"{self.area_name} - Stock"
+				child_base = _fit_warehouse_base_name(f"{self.area_name} - Stock", company_abbr)
+				child_warehouse_name = _make_unique_warehouse_base(child_base, company_abbr)
 				child_warehouse_data = {
 					"doctype": "Warehouse",
 					"warehouse_name": child_warehouse_name,
