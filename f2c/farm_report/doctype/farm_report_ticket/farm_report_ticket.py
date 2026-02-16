@@ -209,11 +209,10 @@ def create_report_and_mark_reported(
 	reorder_inventory: bool | None = None,
 ) -> Dict[str, Any]:
 	"""
-	Create a Farm Report Ticket and mark related task(s) as Reported.
-
-	- If execution_ref is provided and it links to a schedule_ref, BOTH are set to Reported.
-	- If reporting against on_demand_activity_ref, it is set to Reported.
-	- Farm Task Execution will be set to Reported when present.
+	Create a Farm Report Ticket only. Does not change the status of any linked
+	execution, schedule, or on-demand activity. The Reported tab on Execution,
+	Schedule, and On Demand pages shows records that have an open (non-Resolved)
+	report ticket for that ref.
 	"""
 	refs_provided = [bool(execution_ref), bool(schedule_ref), bool(on_demand_activity_ref)]
 	if sum(refs_provided) != 1:
@@ -296,40 +295,6 @@ def create_report_and_mark_reported(
 		report_doc.append("stock_details", {"item_code": item_code, "remarks": row.get("remarks")})
 
 	report_doc.insert(ignore_permissions=True)
-
-	# Mark tasks as Reported (and propagate between schedule/execution when linked).
-	# Do not set execution status to Reported when it is In Progress (activity stays In Progress but appears in Reported tab via open ticket).
-	if refs.get("execution_ref"):
-		exec_doc = frappe.get_doc("Farm Task Execution", refs["execution_ref"])
-		if exec_doc.status not in ("Completed", "Aborted", "Rescheduled") and exec_doc.status != "In Progress":
-			exec_doc.status = "Reported"
-			exec_doc.save(ignore_permissions=True)
-
-	if refs.get("schedule_ref"):
-		sch = frappe.get_doc("Crop Plan Schedule", refs["schedule_ref"])
-		if sch.status not in ("Completed", "Aborted", "Rescheduled"):
-			sch.status = "Reported"
-			sch.save(ignore_permissions=True)
-
-		# If schedule has execution_ref, also mark that execution as Reported (unless In Progress)
-		if getattr(sch, "execution_ref", None):
-			exec_doc2 = frappe.get_doc("Farm Task Execution", sch.execution_ref)
-			if exec_doc2.status not in ("Completed", "Aborted", "Rescheduled") and exec_doc2.status != "In Progress":
-				exec_doc2.status = "Reported"
-				exec_doc2.save(ignore_permissions=True)
-
-	if refs.get("on_demand_activity_ref"):
-		oda = frappe.get_doc("On Demand Activity", refs["on_demand_activity_ref"])
-		if oda.status not in ("Completed", "Aborted", "Rescheduled", "Archived"):
-			oda.status = "Reported"
-			oda.save(ignore_permissions=True)
-
-		# If on-demand has execution_ref, also mark that execution as Reported (unless In Progress)
-		if getattr(oda, "execution_ref", None):
-			exec_doc3 = frappe.get_doc("Farm Task Execution", oda.execution_ref)
-			if exec_doc3.status not in ("Completed", "Aborted", "Rescheduled") and exec_doc3.status != "In Progress":
-				exec_doc3.status = "Reported"
-				exec_doc3.save(ignore_permissions=True)
 
 	frappe.db.commit()
 	return {"farm_report_name": report_doc.name}

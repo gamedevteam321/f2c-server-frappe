@@ -7,7 +7,18 @@
   "editable_grid": 1,
   "allow_rename": 1,
   "track_changes": 1,
-  "field_order": ["asset", "asset_name", "planned_hours", "actual_hours", "return_type"],
+  "field_order": [
+    "asset",
+    "asset_name",
+    "planned_hours",
+    "actual_hours",
+    "return_type",
+    "fuel_reading_start",
+    "fuel_photo",
+    "fuel_reading_end",
+    "fuel_photo_end",
+    "fuel_consumption"
+  ],
   "fields": [
     {
       "fieldname": "asset",
@@ -46,6 +57,32 @@
       "options": "Returnable\nNon Returnable\nDaily Returnable\nEnd Activity Returnable",
       "default": "Non Returnable",
       "in_list_view": 1
+    },
+    {
+      "fieldname": "fuel_reading_start",
+      "fieldtype": "Data",
+      "label": "Fuel Reading (Start)"
+    },
+    {
+      "fieldname": "fuel_photo",
+      "fieldtype": "Attach",
+      "label": "Fuel Photo Proof"
+    },
+    {
+      "fieldname": "fuel_reading_end",
+      "fieldtype": "Data",
+      "label": "Fuel Reading (End)"
+    },
+    {
+      "fieldname": "fuel_photo_end",
+      "fieldtype": "Attach",
+      "label": "Fuel Photo Proof (End)"
+    },
+    {
+      "fieldname": "fuel_consumption",
+      "fieldtype": "Float",
+      "label": "Fuel Consumption",
+      "precision": "2"
     }
   ],
   "permissions": [],

@@ -210,12 +210,12 @@ class FarmTaskExecution(Document):
 				# Fallback: fetch from database if _doc_before_save is not available
 				old_status = frappe.db.get_value(self.doctype, self.name, "status")
 
-		# When transitioning to Paused, set paused_at
-		if self.has_value_changed("status") and self.status == "Paused":
+		# When transitioning to On Hold, set paused_at
+		if self.has_value_changed("status") and self.status == "On Hold":
 			self.paused_at = now_datetime()
 
-		# When transitioning from Paused to In Progress, set resumed_at
-		if self.has_value_changed("status") and old_status == "Paused" and self.status == "In Progress":
+		# When transitioning from On Hold to In Progress, set resumed_at
+		if self.has_value_changed("status") and old_status == "On Hold" and self.status == "In Progress":
 			self.resumed_at = now_datetime()
 
 		# For spray activities, validate actual_spray_water_liters
@@ -263,8 +263,8 @@ class FarmTaskExecution(Document):
 			# Only allow specific transitions
 			valid_transitions = {
 				"Ready": ["In Progress", "Reported", "Aborted"],
-				"In Progress": ["In Review", "Reported", "Aborted", "Paused"],
-				"Paused": ["In Progress", "Aborted"],
+				"In Progress": ["In Review", "Reported", "Aborted", "On Hold"],
+				"On Hold": ["In Progress", "Aborted"],
 				"In Review": ["Completed", "Reported", "Aborted"],
 				"Reported": ["Rescheduled", "Aborted"],
 				"Rescheduled": [],  # Terminal-ish state for this execution
@@ -691,6 +691,38 @@ def _apply_pre_execution_checklist(doc, equipment_checklist=None, input_checklis
 				doc.pre_execution_equipment_photo = json.dumps([file_doc.file_url])
 
 
+def _apply_equipment_fuel_to_day(day_doc, equipment_fuel):
+	"""Apply per-equipment fuel_reading_start and fuel_photo to day's equipment table. Does not save."""
+	import json
+	if equipment_fuel is None:
+		return
+	if isinstance(equipment_fuel, str):
+		try:
+			equipment_fuel = json.loads(equipment_fuel) if (equipment_fuel or "").strip() else None
+		except Exception:
+			equipment_fuel = None
+	if not equipment_fuel or not isinstance(equipment_fuel, (list, tuple)):
+		return
+	fuel_by_asset = {}
+	for e in equipment_fuel:
+		asset = (e.get("asset") or "").strip()
+		if not asset:
+			continue
+		fuel_by_asset[asset] = {
+			"fuel_reading_start": (e.get("fuel_reading_start") or "").strip() or None,
+			"fuel_photo_url": (e.get("fuel_photo_url") or "").strip() or None,
+		}
+	for row in (day_doc.equipment or []):
+		asset = getattr(row, "asset", None)
+		if not asset or asset not in fuel_by_asset:
+			continue
+		vals = fuel_by_asset[asset]
+		if vals.get("fuel_reading_start") is not None:
+			row.fuel_reading_start = vals["fuel_reading_start"]
+		if vals.get("fuel_photo_url") is not None:
+			row.fuel_photo = vals["fuel_photo_url"]
+
+
 @frappe.whitelist()
 def start_execution(
 	execution_name: str,
@@ -698,6 +730,8 @@ def start_execution(
 	input_checklist: Optional[str] = None,
 	equipment_photo: Optional[str] = None,
 	equipment_photo_urls=None,
+	equipment_fuel=None,
+	day_date: Optional[str] = None,
 ) -> str:
 	"""
 	Transition execution status from Ready to In Progress.
@@ -728,6 +762,18 @@ def start_execution(
 			doc.status = "In Progress"
 			doc.save(ignore_permissions=True)
 			frappe.db.commit()
+
+			# Apply equipment fuel to day (day-wise storage)
+			if equipment_fuel:
+				day_date_str = (day_date or "").strip() or str(getdate())
+				result = get_or_create_current_day(execution_name, day_date_str)
+				day_name = result.get("name")
+				if day_name:
+					day_doc = frappe.get_doc("Farm Task Execution Day", day_name)
+					_apply_equipment_fuel_to_day(day_doc, equipment_fuel)
+					day_doc.save(ignore_permissions=True)
+					frappe.db.commit()
+
 			return doc.name
 		except frappe.QueryDeadlockError:
 			frappe.db.rollback()
@@ -745,7 +791,7 @@ def start_execution(
 @frappe.whitelist()
 def pause_execution(execution_name: str) -> str:
 	"""
-	Transition execution status from In Progress to Paused (put on hold).
+	Transition execution status from In Progress to On Hold (put on hold).
 	Only allowed when status is In Progress. Sets paused_at on the document.
 	"""
 	import time
@@ -757,7 +803,7 @@ def pause_execution(execution_name: str) -> str:
 			if doc.status != "In Progress":
 				frappe.db.rollback()
 				frappe.throw(f"Cannot put on hold. Current status is {doc.status}. Only 'In Progress' executions can be put on hold.")
-			doc.status = "Paused"
+			doc.status = "On Hold"
 			doc.paused_at = now_datetime()
 			doc.save(ignore_permissions=True)
 			frappe.db.commit()
@@ -777,8 +823,8 @@ def pause_execution(execution_name: str) -> str:
 @frappe.whitelist()
 def resume_execution(execution_name: str) -> str:
 	"""
-	Transition execution status from Paused to In Progress (resume after hold).
-	Only allowed when status is Paused. Sets resumed_at on the document.
+	Transition execution status from On Hold to In Progress (resume after hold).
+	Only allowed when status is On Hold. Sets resumed_at on the document.
 	"""
 	import time
 	max_retries = 3
@@ -786,7 +832,7 @@ def resume_execution(execution_name: str) -> str:
 		try:
 			frappe.db.begin()
 			doc = frappe.get_doc("Farm Task Execution", execution_name, for_update=True)
-			if doc.status != "Paused":
+			if doc.status != "On Hold":
 				frappe.db.rollback()
 				frappe.throw(f"Cannot resume. Current status is {doc.status}. Only executions that are on hold can be resumed.")
 			doc.status = "In Progress"
@@ -907,11 +953,11 @@ def get_or_create_current_day(execution_name: str, date: str) -> Dict[str, Any]:
 	"""
 	If a Day for that execution + date exists, return it (with children).
 	If not, create one (lazy migration: if execution has no days, create from FTE and optionally copy FTE child data).
-	Only allowed when FTE status is In Progress or Paused.
+	Only allowed when FTE status is In Progress or On Hold.
 	"""
 	fte = frappe.get_doc("Farm Task Execution", execution_name)
-	if fte.status not in ("In Progress", "Paused"):
-		frappe.throw(f"Cannot get or create day. Current status is {fte.status}. Only 'In Progress' or 'Paused' executions can have day data updated.")
+	if fte.status not in ("In Progress", "On Hold"):
+		frappe.throw(f"Cannot get or create day. Current status is {fte.status}. Only 'In Progress' or 'On Hold' executions can have day data updated.")
 
 	existing = frappe.db.get_value(
 		"Farm Task Execution Day",
@@ -977,12 +1023,12 @@ def create_dummy_execution_days_for_testing(execution_name: str = None, num_days
 	if not execution_name:
 		names = frappe.get_all(
 			"Farm Task Execution",
-			filters={"status": ["in", ["In Progress", "Paused"]]},
+			filters={"status": ["in", ["In Progress", "On Hold"]]},
 			fields=["name"],
 			limit=1,
 		)
 		if not names:
-			frappe.throw("No In Progress or Paused execution found. Create one or pass execution_name.")
+			frappe.throw("No In Progress or On Hold execution found. Create one or pass execution_name.")
 		execution_name = names[0].name
 	else:
 		if not frappe.db.exists("Farm Task Execution", execution_name):
@@ -991,8 +1037,8 @@ def create_dummy_execution_days_for_testing(execution_name: str = None, num_days
 			)
 
 	fte = frappe.get_doc("Farm Task Execution", execution_name)
-	if fte.status not in ("In Progress", "Paused"):
-		frappe.throw(f"Execution {execution_name} status is {fte.status}. Only In Progress or Paused can have day data.")
+	if fte.status not in ("In Progress", "On Hold"):
+		frappe.throw(f"Execution {execution_name} status is {fte.status}. Only In Progress or On Hold can have day data.")
 
 	num_days = cint(num_days)
 	if num_days < 1:
@@ -1076,15 +1122,18 @@ def update_day_data(
 	labour: List[Dict[str, Any]] | str | None = None,
 	inputs: List[Dict[str, Any]] | str | None = None,
 	equipment: List[Dict[str, Any]] | str | None = None,
+	equipment_fuel=None,
 	actual_spray_water_liters: Optional[float] = None,
 	actual_irrigation_water_liters: Optional[float] = None,
 	remark: Optional[str] = None,
 	progress_images: List[Dict[str, Any]] | str | None = None,
 	ended_for_day: Optional[bool] = None,
+	activity_start_time: Optional[str] = None,
+	activity_end_time: Optional[str] = None,
 ) -> str:
 	"""
 	Load or create Farm Task Execution Day for (execution_name, day_date), update child tables and fields, save.
-	Only allowed when FTE status is In Progress or Paused.
+	Only allowed when FTE status is In Progress or On Hold.
 	"""
 	import json
 	if isinstance(labour, str):
@@ -1097,8 +1146,8 @@ def update_day_data(
 		progress_images = json.loads(progress_images) if progress_images else None
 
 	fte = frappe.get_doc("Farm Task Execution", execution_name)
-	if fte.status not in ("In Progress", "Paused"):
-		frappe.throw(f"Cannot update day data. Current status is {fte.status}. Only 'In Progress' or 'Paused' executions can be updated.")
+	if fte.status not in ("In Progress", "On Hold"):
+		frappe.throw(f"Cannot update day data. Current status is {fte.status}. Only 'In Progress' or 'On Hold' executions can be updated.")
 
 	day_name = frappe.db.get_value(
 		"Farm Task Execution Day",
@@ -1118,6 +1167,28 @@ def update_day_data(
 		day_doc.actual_spray_water_liters = flt(actual_spray_water_liters, 3)
 	if actual_irrigation_water_liters is not None:
 		day_doc.actual_irrigation_water_liters = flt(actual_irrigation_water_liters, 3)
+
+	# Activity start/end time (datetime, same timezone handling as labour check-in times)
+	if activity_start_time is not None:
+		_val = None
+		if activity_start_time and str(activity_start_time).strip():
+			try:
+				_val = get_datetime(activity_start_time)
+				if getattr(_val, "tzinfo", None):
+					_val = convert_utc_to_system_timezone(_val).replace(tzinfo=None)
+			except Exception:
+				_val = None
+		day_doc.activity_start_time = _val
+	if activity_end_time is not None:
+		_val = None
+		if activity_end_time and str(activity_end_time).strip():
+			try:
+				_val = get_datetime(activity_end_time)
+				if getattr(_val, "tzinfo", None):
+					_val = convert_utc_to_system_timezone(_val).replace(tzinfo=None)
+			except Exception:
+				_val = None
+		day_doc.activity_end_time = _val
 
 	if labour is not None and isinstance(labour, list):
 		day_doc.labour = []
@@ -1210,12 +1281,19 @@ def update_day_data(
 				"planned_hours": flt(row.get("planned_hours"), 2),
 				"actual_hours": flt(row.get("actual_hours"), 2),
 				"return_type": row.get("return_type") or "Non Returnable",
+				"fuel_reading_start": (row.get("fuel_reading_start") or "").strip() or None,
+				"fuel_photo": (row.get("fuel_photo") or "").strip() or None,
+				"fuel_reading_end": (row.get("fuel_reading_end") or "").strip() or None,
+				"fuel_photo_end": (row.get("fuel_photo_end") or "").strip() or None,
+				"fuel_consumption": flt(row.get("fuel_consumption"), 2),
 			})
 	if progress_images is not None and isinstance(progress_images, list):
 		day_doc.progress_images = []
 		for row in progress_images:
 			if row.get("image"):
 				day_doc.append("progress_images", {"image": row["image"]})
+
+	_apply_equipment_fuel_to_day(day_doc, equipment_fuel)
 
 	if ended_for_day is not None:
 		day_doc.ended_for_day = cint(ended_for_day)
@@ -1251,13 +1329,13 @@ def update_day_data(
 
 @frappe.whitelist()
 def save_day_progress_images(execution_name: str, day_date: str, progress_images: List[Dict[str, Any]] | str) -> str:
-	"""Update only progress_images for the Day (execution_name, day_date). Only when FTE status is In Progress or Paused."""
+	"""Update only progress_images for the Day (execution_name, day_date). Only when FTE status is In Progress or On Hold."""
 	import json
 	if isinstance(progress_images, str):
 		progress_images = json.loads(progress_images) if progress_images else []
 
 	fte = frappe.get_doc("Farm Task Execution", execution_name)
-	if fte.status not in ("In Progress", "Paused"):
+	if fte.status not in ("In Progress", "On Hold"):
 		frappe.throw(f"Cannot save day progress images. Current status is {fte.status}.")
 
 	day_name = frappe.db.get_value(
@@ -1301,7 +1379,13 @@ def get_pre_execution_availability(execution_name: str) -> Dict[str, List[Dict[s
 		for row in (doc.equipment or []):
 			asset = getattr(row, "asset", None)
 			if asset:
-				equipment.append({"asset": asset, "asset_name": getattr(row, "asset_name") or asset, "available": False})
+				asset_category = frappe.db.get_value("Asset", asset, "asset_category") or ""
+				equipment.append({
+					"asset": asset,
+					"asset_name": getattr(row, "asset_name") or asset,
+					"available": False,
+					"asset_category": asset_category,
+				})
 		inputs = []
 		for row in (doc.inputs or []):
 			item = getattr(row, "item", None)
@@ -1330,10 +1414,12 @@ def get_pre_execution_availability(execution_name: str) -> Dict[str, List[Dict[s
 		if warehouse_location:
 			asset_location = frappe.db.get_value("Asset", asset, "location")
 			available = bool(asset_location and asset_location == warehouse_location)
+		asset_category = frappe.db.get_value("Asset", asset, "asset_category") or ""
 		equipment.append({
 			"asset": asset,
 			"asset_name": getattr(row, "asset_name") or asset,
 			"available": available,
+			"asset_category": asset_category,
 		})
 
 	# Inputs: available if get_stock_balance(item, field_warehouse) >= required
@@ -1403,8 +1489,8 @@ def update_execution_data(
 		labour_attendance = json.loads(labour_attendance) if labour_attendance else None
 
 	doc = frappe.get_doc("Farm Task Execution", execution_name)
-	if doc.status not in ("In Progress", "Paused"):
-		frappe.throw(f"Cannot update execution data. Current status is {doc.status}. Only 'In Progress' or 'Paused' (on hold) executions can be updated.")
+	if doc.status not in ("In Progress", "On Hold"):
+		frappe.throw(f"Cannot update execution data. Current status is {doc.status}. Only 'In Progress' or 'On Hold' (on hold) executions can be updated.")
 
 	if inputs is not None and isinstance(inputs, list):
 		doc_inputs = doc.get("inputs") or []
@@ -1496,7 +1582,7 @@ def submit_for_review(execution_name: str, skip_images: int = 0) -> str:
 			
 			if doc.status != "In Progress":
 				frappe.db.rollback()
-				if doc.status == "Paused":
+				if doc.status == "On Hold":
 					frappe.throw("Cannot submit for review while execution is on hold. Please Resume the execution first.")
 				frappe.throw(f"Cannot submit for review. Current status is {doc.status}. Only 'In Progress' executions can be moved to 'In Review'.")
 			

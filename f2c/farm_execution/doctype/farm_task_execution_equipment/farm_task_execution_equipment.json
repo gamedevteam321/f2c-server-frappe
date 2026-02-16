@@ -13,7 +13,11 @@
     "planned_hours",
     "actual_hours",
     "return_type",
-    "pre_execution_present"
+    "pre_execution_present",
+    "fuel_reading_start",
+    "fuel_photo",
+    "fuel_reading_end",
+    "fuel_consumption"
   ],
   "fields": [
     {
@@ -59,11 +63,30 @@
       "fieldtype": "Check",
       "label": "Pre-Execution Present",
       "default": 0
+    },
+    {
+      "fieldname": "fuel_reading_start",
+      "fieldtype": "Data",
+      "label": "Fuel Reading (Start)"
+    },
+    {
+      "fieldname": "fuel_photo",
+      "fieldtype": "Attach",
+      "label": "Fuel Photo Proof"
+    },
+    {
+      "fieldname": "fuel_reading_end",
+      "fieldtype": "Data",
+      "label": "Fuel Reading (End)"
+    },
+    {
+      "fieldname": "fuel_consumption",
+      "fieldtype": "Float",
+      "label": "Fuel Consumption",
+      "precision": "2"
     }
   ],
   "permissions": [],
   "sort_field": "modified",
   "sort_order": "DESC"
 }
-
-

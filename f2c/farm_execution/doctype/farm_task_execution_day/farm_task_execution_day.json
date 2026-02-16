@@ -9,6 +9,8 @@
   "field_order": [
     "execution",
     "date",
+    "activity_start_time",
+    "activity_end_time",
     "ended_for_day",
     "consumption_stock_entry",
     "column_break_1",
@@ -42,6 +44,16 @@
       "reqd": 1,
       "in_list_view": 1,
       "in_standard_filter": 1
+    },
+    {
+      "fieldname": "activity_start_time",
+      "fieldtype": "Datetime",
+      "label": "Activity Start Time"
+    },
+    {
+      "fieldname": "activity_end_time",
+      "fieldtype": "Datetime",
+      "label": "Activity End Time"
     },
     {
       "fieldname": "ended_for_day",
