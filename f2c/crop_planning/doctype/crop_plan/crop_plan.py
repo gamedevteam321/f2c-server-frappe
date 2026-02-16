@@ -399,6 +399,9 @@ def get_crop_plan_with_activities(crop_plan_name):
 				'field': field_id,
 				'field_name': field_name,
 				'field_area': field_area,
+				'land_preparation': getattr(block_row, 'land_preparation', None) or '',
+				'land_preparation_name': getattr(block_row, 'land_preparation_name', None) or '',
+				'land_preparation_activities_override': getattr(block_row, 'land_preparation_activities_override', None) or '',
 				'name': block_row.name if hasattr(block_row, 'name') else None,
 				'crop_configs': []
 			}
