@@ -42,7 +42,8 @@
     "safety_devices",
     "applications",
     "default_description",
-    "default_features"
+    "default_features",
+    "specs_json"
   ],
   "fields": [
     {
@@ -69,7 +70,7 @@
       "reqd": 1,
       "in_list_view": 1,
       "in_standard_filter": 1,
-      "options": "\nPlow\nCultivator\nHarrow\nSeeder\nPlanter\nRotavator\nOther"
+      "options": "\nRotavator\nCultivator\nMB Plough\nDisc Harrow\nSeed Drill - Planter\nTrailer - Trolley\nDozer Blade\nPlow\nHarrow\nSeeder\nPlanter\nOther"
     },
     {
       "fieldname": "brand",
@@ -222,6 +223,13 @@
       "fieldname": "default_features",
       "fieldtype": "Text",
       "label": "Default Features"
+    },
+    {
+      "description": "Stores dynamic spec fields (Base + Category + Sub-category overlays) as JSON.",
+      "fieldname": "specs_json",
+      "fieldtype": "JSON",
+      "hidden": 1,
+      "label": "Specs JSON"
     }
   ],
   "permissions": [

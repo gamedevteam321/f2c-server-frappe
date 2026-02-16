@@ -30,7 +30,8 @@
     "dimensions",
     "weight",
     "default_description",
-    "default_features"
+    "default_features",
+    "specs_json"
   ],
   "fields": [
     {
@@ -151,6 +152,13 @@
       "fieldname": "default_features",
       "fieldtype": "Text",
       "label": "Default Features"
+    },
+    {
+      "description": "Stores dynamic spec fields (Base + Category + Sub-category overlays) as JSON.",
+      "fieldname": "specs_json",
+      "fieldtype": "JSON",
+      "hidden": 1,
+      "label": "Specs JSON"
     }
   ],
   "permissions": [

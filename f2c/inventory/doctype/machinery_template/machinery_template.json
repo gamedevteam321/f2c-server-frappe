@@ -79,7 +79,8 @@
     "warranty",
     "battery",
     "default_description",
-    "default_features"
+    "default_features",
+    "specs_json"
   ],
   "fields": [
     {
@@ -106,7 +107,7 @@
       "reqd": 1,
       "in_list_view": 1,
       "in_standard_filter": 1,
-      "options": "\nTractor\nHarvester\nCombine Harvester\nSpray Gun\nThresher\nBaler\nTiller\nOther"
+      "options": "\nTractor\nPump\nSprayer\nGenerator\nVehicle\nEarthmoving\nIrrigation\nPower & Electrical\nHarvester\nCombine Harvester\nSpray Gun\nThresher\nBaler\nTiller\nOther"
     },
     {
       "fieldname": "brand",
@@ -456,6 +457,13 @@
       "fieldname": "default_features",
       "fieldtype": "Text",
       "label": "Default Features"
+    },
+    {
+      "description": "Stores dynamic spec fields (Base + Category + Sub-category overlays) as JSON.",
+      "fieldname": "specs_json",
+      "fieldtype": "JSON",
+      "hidden": 1,
+      "label": "Specs JSON"
     }
   ],
   "permissions": [

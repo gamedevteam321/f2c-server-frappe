@@ -11,7 +11,8 @@ def _copy(template: Document, doc: Document, src: str, dest: str):
 	# Overwrite-all semantics: copy even falsy values (None clears),
 	# but never clear critical link fields if template doesn't provide one.
 	val = template.get(src)
-	if src in {"default_item_code", "default_status"} and (val is None or val == ""):
+	# For JSON specs, older templates may not have the field; don't wipe doc specs in that case.
+	if src in {"default_item_code", "default_status", "specs_json"} and (val is None or val == ""):
 		return
 	doc.set(dest, val)
 
@@ -69,6 +70,7 @@ _CONFIG: Dict[str, Dict] = {
 			("battery", "battery"),
 			("default_description", "description"),
 			("default_features", "features"),
+			("specs_json", "specs_json"),
 		],
 	},
 	"Implement": {
@@ -97,6 +99,7 @@ _CONFIG: Dict[str, Dict] = {
 			("applications", "applications"),
 			("default_description", "description"),
 			("default_features", "features"),
+			("specs_json", "specs_json"),
 		],
 	},
 	"Hand Tool": {
@@ -114,6 +117,7 @@ _CONFIG: Dict[str, Dict] = {
 			("weight", "weight"),
 			("default_description", "description"),
 			("default_features", "features"),
+			("specs_json", "specs_json"),
 		],
 	},
 	"Other Tool": {
@@ -131,6 +135,7 @@ _CONFIG: Dict[str, Dict] = {
 			("weight", "weight"),
 			("default_description", "description"),
 			("default_features", "features"),
+			("specs_json", "specs_json"),
 		],
 	},
 }

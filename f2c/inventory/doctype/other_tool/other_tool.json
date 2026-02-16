@@ -42,7 +42,8 @@
     "status",
     "additional_section",
     "features",
-    "description"
+    "description",
+    "specs_json"
   ],
   "fields": [
     {
@@ -236,6 +237,13 @@
       "fieldname": "description",
       "fieldtype": "Text",
       "label": "Description"
+    },
+    {
+      "description": "Stores dynamic spec fields (Base + Category + Sub-category overlays) as JSON.",
+      "fieldname": "specs_json",
+      "fieldtype": "JSON",
+      "hidden": 1,
+      "label": "Specs JSON"
     }
   ],
   "permissions": [
