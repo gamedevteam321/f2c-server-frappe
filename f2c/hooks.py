@@ -117,6 +117,11 @@ after_migrate = "f2c.seed_defaults.after_migrate"
 # before_app_uninstall = "f2c.utils.before_app_uninstall"
 # after_app_uninstall = "f2c.utils.after_app_uninstall"
 
+# File storage: optional Local or S3 (configure in File Storage Settings or site config)
+# ------------------
+write_file = ["f2c.file_storage.write_file"]
+delete_file_data_content = ["f2c.file_storage.delete_file_data_content"]
+
 # Desk Notifications
 # ------------------
 # See frappe.core.notifications.get_notification_config

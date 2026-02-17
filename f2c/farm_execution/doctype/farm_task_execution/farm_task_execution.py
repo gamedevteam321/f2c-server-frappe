@@ -49,13 +49,13 @@ class FarmTaskExecution(Document):
 
 	def _sync_and_validate_progress_images(self):
 		"""
-		Progress images are uploaded as a child table.
+		Progress media (images/videos) are uploaded as a child table.
 		- Keep progress_image_count in sync
-		- Enforce max 5 images
+		- Enforce max 5 media items
 		"""
 		rows = self.get("progress_images") or []
 		if len(rows) > 5:
-			frappe.throw("Maximum 5 progress images are allowed.")
+			frappe.throw("Maximum 5 progress media items are allowed.")
 		self.progress_image_count = len(rows)
 
 	def on_trash(self):
@@ -2154,6 +2154,32 @@ def mark_checkin_out(execution_name: str) -> str:
 
 	doc.save(ignore_permissions=True)
 	return doc.name
+
+
+@frappe.whitelist()
+def get_execution_equipment_list(parent_names) -> List[Dict[str, Any]]:
+	"""
+	Return list of Farm Task Execution Equipment rows (parent, asset, asset_name) for given execution names.
+	Used by the frontend to avoid direct getDocList on the child doctype (which can 403 without permissions).
+	"""
+	if not parent_names:
+		return []
+	if isinstance(parent_names, str):
+		import json
+		try:
+			parent_names = json.loads(parent_names)
+		except Exception:
+			parent_names = [parent_names]
+	names = [str(n).strip() for n in parent_names if n and str(n).strip()]
+	if not names:
+		return []
+	rows = frappe.get_all(
+		"Farm Task Execution Equipment",
+		filters={"parent": ["in", names]},
+		fields=["parent", "asset", "asset_name"],
+		limit=2000,
+	)
+	return rows or []
 
 
 @frappe.whitelist()
