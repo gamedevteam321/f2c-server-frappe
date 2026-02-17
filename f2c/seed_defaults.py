@@ -1,5 +1,7 @@
 import frappe
 
+from f2c.farm_to_crop.doctype.water_source.seed_data import seed_water_source
+
 
 def ensure_irrigation_types() -> None:
 	"""Create default Irrigation Type master records if they don't exist.
@@ -26,6 +28,7 @@ def after_migrate() -> None:
 	"""Hook: run after `bench migrate`."""
 	try:
 		ensure_irrigation_types()
+		seed_water_source()
 	except Exception:
 		# Never block migrations due to seed failures
 		frappe.log_error(frappe.get_traceback(), "f2c.after_migrate seed_defaults failed")
