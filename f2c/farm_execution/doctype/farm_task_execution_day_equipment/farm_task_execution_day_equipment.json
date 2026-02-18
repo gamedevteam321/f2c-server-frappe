@@ -13,6 +13,9 @@
     "planned_hours",
     "actual_hours",
     "return_type",
+    "is_refill",
+    "refill_qty",
+    "machinery_place",
     "fuel_reading_start",
     "fuel_photo",
     "fuel_reading_end",
@@ -57,6 +60,23 @@
       "options": "Returnable\nNon Returnable\nDaily Returnable\nEnd Activity Returnable",
       "default": "Non Returnable",
       "in_list_view": 1
+    },
+    {
+      "fieldname": "is_refill",
+      "fieldtype": "Check",
+      "label": "Is Refill",
+      "default": 0
+    },
+    {
+      "fieldname": "refill_qty",
+      "fieldtype": "Float",
+      "label": "Refill Qty",
+      "precision": 2
+    },
+    {
+      "fieldname": "machinery_place",
+      "fieldtype": "Data",
+      "label": "Machinery Place"
     },
     {
       "fieldname": "fuel_reading_start",

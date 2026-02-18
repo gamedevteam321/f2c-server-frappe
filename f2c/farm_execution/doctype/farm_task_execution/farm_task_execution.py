@@ -711,6 +711,9 @@ def _apply_equipment_fuel_to_day(day_doc, equipment_fuel):
 		fuel_by_asset[asset] = {
 			"fuel_reading_start": (e.get("fuel_reading_start") or "").strip() or None,
 			"fuel_photo_url": (e.get("fuel_photo_url") or "").strip() or None,
+			"is_refill": cint(e.get("is_refill")) if e.get("is_refill") is not None else None,
+			"refill_qty": flt(e.get("refill_qty"), 2) if e.get("refill_qty") is not None and e.get("refill_qty") != "" else None,
+			"machinery_place": (e.get("machinery_place") or "").strip() or None,
 		}
 	for row in (day_doc.equipment or []):
 		asset = getattr(row, "asset", None)
@@ -721,6 +724,12 @@ def _apply_equipment_fuel_to_day(day_doc, equipment_fuel):
 			row.fuel_reading_start = vals["fuel_reading_start"]
 		if vals.get("fuel_photo_url") is not None:
 			row.fuel_photo = vals["fuel_photo_url"]
+		if vals.get("is_refill") is not None:
+			row.is_refill = vals["is_refill"]
+		if vals.get("refill_qty") is not None:
+			row.refill_qty = vals["refill_qty"]
+		if vals.get("machinery_place") is not None:
+			row.machinery_place = vals["machinery_place"]
 
 
 @frappe.whitelist()
@@ -1281,6 +1290,9 @@ def update_day_data(
 				"planned_hours": flt(row.get("planned_hours"), 2),
 				"actual_hours": flt(row.get("actual_hours"), 2),
 				"return_type": row.get("return_type") or "Non Returnable",
+				"is_refill": cint(row.get("is_refill")) if row.get("is_refill") is not None else 0,
+				"refill_qty": flt(row.get("refill_qty"), 2) if row.get("refill_qty") is not None and row.get("refill_qty") != "" else None,
+				"machinery_place": (row.get("machinery_place") or "").strip() or None,
 				"fuel_reading_start": (row.get("fuel_reading_start") or "").strip() or None,
 				"fuel_photo": (row.get("fuel_photo") or "").strip() or None,
 				"fuel_reading_end": (row.get("fuel_reading_end") or "").strip() or None,
@@ -1463,6 +1475,75 @@ def get_warehouse_for_issued_qty(execution_name: str):
 		return None
 	from f2c.farm_execution.equipment_transfer_on_completion import get_target_warehouse_for_field
 	return get_target_warehouse_for_field(field)
+
+
+@frappe.whitelist()
+def get_stock_at_warehouse_for_execution(execution_name: str) -> Dict[str, Any]:
+	"""
+	Return field warehouse and list of stock items with balance at that warehouse
+	for the execution's field, restricted to items related to the activity (inputs on
+	execution or on any execution day). Used by Return Equipment modal to show stock table.
+	"""
+	execution_name = (execution_name or "").strip()
+	if not execution_name:
+		return {"warehouse": None, "stock_items": []}
+	try:
+		doc = frappe.get_doc("Farm Task Execution", execution_name)
+		field = getattr(doc, "field", None) or ""
+		if not field:
+			return {"warehouse": None, "stock_items": []}
+		from f2c.farm_execution.equipment_transfer_on_completion import get_target_warehouse_for_field
+		warehouse = get_target_warehouse_for_field(field)
+		if not warehouse:
+			return {"warehouse": None, "stock_items": []}
+		# Item codes related to this activity (execution inputs + all days' inputs)
+		activity_item_codes = set()
+		for row in (doc.get("inputs") or []):
+			item = getattr(row, "item", None) or (row.get("item") if isinstance(row, dict) else None)
+			if item:
+				activity_item_codes.add(str(item).strip())
+		day_names = frappe.get_all(
+			"Farm Task Execution Day",
+			filters={"execution": execution_name},
+			fields=["name"],
+			order_by="date asc",
+		)
+		for d in day_names:
+			day_doc = frappe.get_doc("Farm Task Execution Day", d["name"])
+			for row in (day_doc.get("inputs") or []):
+				item = getattr(row, "item", None) or (row.get("item") if isinstance(row, dict) else None)
+				if item:
+					activity_item_codes.add(str(item).strip())
+		# Real-time balance from Bin, only for activity-related items
+		if not activity_item_codes:
+			return {"warehouse": warehouse, "stock_items": []}
+		bins = frappe.get_all(
+			"Bin",
+			filters={"warehouse": warehouse, "actual_qty": [">", 0], "item_code": ["in", list(activity_item_codes)]},
+			fields=["item_code", "actual_qty"],
+			limit_page_length=500,
+		)
+		stock_items = []
+		for b in bins:
+			item_code = b.get("item_code")
+			qty = flt(b.get("actual_qty"), 3)
+			if not item_code or qty <= 0:
+				continue
+			item_name = frappe.db.get_value("Item", item_code, "item_name")
+			stock_uom = frappe.db.get_value("Item", item_code, "stock_uom")
+			stock_items.append({
+				"item_code": item_code,
+				"item_name": item_name or item_code,
+				"qty": qty,
+				"stock_uom": stock_uom or "",
+			})
+		return {"warehouse": warehouse, "stock_items": stock_items}
+	except Exception as e:
+		frappe.log_error(
+			title="get_stock_at_warehouse_for_execution",
+			message=str(e),
+		)
+		return {"warehouse": None, "stock_items": []}
 
 
 @frappe.whitelist()
@@ -1699,6 +1780,388 @@ def approve_execution(execution_name: str) -> str:
 			raise
 	
 	return execution_name
+
+
+@frappe.whitelist()
+def get_pending_return_tickets_for_execution(execution_name: str) -> List[str]:
+	"""
+	Return list of Logistics Transfer Ticket names that are linked to this execution
+	and have status "Pending Pickup" (initial state, not yet dispatched).
+	"""
+	if not (execution_name or "").strip():
+		return []
+	if not frappe.db.has_column("Logistics Transfer Ticket", "farm_task_execution"):
+		return []
+	tickets = frappe.get_all(
+		"Logistics Transfer Ticket",
+		filters={
+			"farm_task_execution": execution_name.strip(),
+			"status": "Pending Pickup",
+		},
+		fields=["name"],
+		limit_page_length=100,
+	)
+	return [t["name"] for t in tickets if t.get("name")]
+
+
+def get_non_cancelled_tickets_for_execution(execution_name: str) -> List[str]:
+	"""
+	Return list of Logistics Transfer Ticket names linked to this execution
+	with status not Cancelled (any active ticket).
+	"""
+	if not (execution_name or "").strip():
+		return []
+	if not frappe.db.has_column("Logistics Transfer Ticket", "farm_task_execution"):
+		return []
+	tickets = frappe.get_all(
+		"Logistics Transfer Ticket",
+		filters={
+			"farm_task_execution": execution_name.strip(),
+			"status": ["!=", "Cancelled"],
+		},
+		fields=["name"],
+		limit_page_length=500,
+	)
+	return [t["name"] for t in tickets if t.get("name")]
+
+
+def _update_child_equipment_return_type(row_name: str, return_type: str) -> None:
+	"""
+	Find the equipment child row by name (in Farm Task Execution or Farm Task Execution Day)
+	and set its return_type. Saves the parent doc.
+	"""
+	valid_types = ("Returnable", "Non Returnable", "Daily Returnable", "End Activity Returnable")
+	return_type = (return_type or "").strip() or "Non Returnable"
+	if return_type not in valid_types:
+		return_type = "Non Returnable"
+	for doctype in ("Farm Task Execution Equipment", "Farm Task Execution Day Equipment"):
+		if not frappe.db.exists(doctype, row_name):
+			continue
+		parent = frappe.db.get_value(doctype, row_name, "parent")
+		parenttype = frappe.db.get_value(doctype, row_name, "parenttype")
+		if not parent or not parenttype:
+			continue
+		parent_doc = frappe.get_doc(parenttype, parent)
+		for row in parent_doc.get("equipment") or []:
+			if getattr(row, "name", None) == row_name:
+				row.return_type = return_type
+				parent_doc.save(ignore_permissions=True)
+				frappe.db.commit()
+				return
+		break
+	return
+
+
+def _update_child_input_return_type(row_name: str, return_type: str) -> None:
+	"""
+	Find the input child row by name (in Farm Task Execution or Farm Task Execution Day)
+	and set its return_type. Saves the parent doc.
+	"""
+	valid_types = ("Returnable", "Non Returnable", "Daily Returnable", "End Activity Returnable")
+	return_type = (return_type or "").strip() or "Non Returnable"
+	if return_type not in valid_types:
+		return_type = "Non Returnable"
+	for doctype in ("Farm Task Execution Input", "Farm Task Execution Day Input"):
+		if not frappe.db.exists(doctype, row_name):
+			continue
+		parent = frappe.db.get_value(doctype, row_name, "parent")
+		parenttype = frappe.db.get_value(doctype, row_name, "parenttype")
+		if not parent or not parenttype:
+			continue
+		parent_doc = frappe.get_doc(parenttype, parent)
+		child_attr = "inputs"
+		for row in parent_doc.get(child_attr) or []:
+			if getattr(row, "name", None) == row_name:
+				row.return_type = return_type
+				parent_doc.save(ignore_permissions=True)
+				frappe.db.commit()
+				return
+		break
+	return
+
+
+@frappe.whitelist()
+def update_input_return_types(execution_name: str, input_updates: List[Dict[str, Any]] | str = None) -> str:
+	"""
+	Update return_type on execution (and day) input rows.
+	Allowed when execution status is In Review.
+	input_updates: list of {"name": "<child_row_name>", "return_type": "Returnable"|...}.
+	"""
+	import json
+	execution_name = (execution_name or "").strip()
+	if not execution_name:
+		frappe.throw("execution_name is required")
+	if isinstance(input_updates, str):
+		input_updates = json.loads(input_updates) if input_updates else []
+	if not isinstance(input_updates, list):
+		input_updates = []
+	doc = frappe.get_doc("Farm Task Execution", execution_name)
+	if doc.status != "In Review":
+		frappe.throw(
+			f"Cannot update input return types. Execution status is {doc.status}. Only 'In Review' executions are allowed."
+		)
+	# Resolve execution's own input row names and its days' input row names so we only update those
+	valid_parents = {execution_name}
+	for d in frappe.get_all(
+		"Farm Task Execution Day",
+		filters={"execution": execution_name},
+		fields=["name"],
+	):
+		valid_parents.add(d["name"])
+	for item in input_updates:
+		row_name = (item.get("name") or "").strip() if isinstance(item, dict) else None
+		return_type = (item.get("return_type") or "").strip() if isinstance(item, dict) else ""
+		if not row_name:
+			continue
+		for doctype in ("Farm Task Execution Input", "Farm Task Execution Day Input"):
+			if not frappe.db.exists(doctype, row_name):
+				continue
+			parent = frappe.db.get_value(doctype, row_name, "parent")
+			if parent not in valid_parents:
+				continue
+			_update_child_input_return_type(row_name, return_type)
+			break
+	return execution_name
+
+
+@frappe.whitelist()
+def update_equipment_return_types_and_sync_tickets(
+	execution_name: str,
+	equipment_updates: List[Dict[str, Any]] | str = None,
+) -> str:
+	"""
+	Update return_type on execution (and day) equipment rows. Then:
+	- For each existing LTT linked to this execution: remove from the ticket any assets
+	  that are now Non Returnable; cancel the ticket if no assets remain.
+	- Create new return ticket(s) only for assets that are Returnable/End Activity Returnable
+	  and do not already have a ticket.
+	Allowed when execution status is In Review.
+	equipment_updates: list of {"name": "<child_row_name>", "return_type": "Returnable"|...}.
+	"""
+	import json
+	execution_name = (execution_name or "").strip()
+	if not execution_name:
+		frappe.throw("execution_name is required")
+	if isinstance(equipment_updates, str):
+		equipment_updates = json.loads(equipment_updates) if equipment_updates else []
+	if not isinstance(equipment_updates, list):
+		equipment_updates = []
+
+	doc = frappe.get_doc("Farm Task Execution", execution_name)
+	if doc.status != "In Review":
+		frappe.throw(f"Cannot update return equipment. Execution status is {doc.status}. Only 'In Review' executions can update return types and sync tickets.")
+
+	for item in equipment_updates:
+		row_name = (item.get("name") or "").strip() if isinstance(item, dict) else None
+		return_type = (item.get("return_type") or "").strip() if isinstance(item, dict) else ""
+		if row_name:
+			_update_child_equipment_return_type(row_name, return_type)
+
+	# Build current return_type per asset from execution + days (after updates)
+	doc.reload()
+	execution_doc = frappe.get_doc("Farm Task Execution", execution_name)
+	days = frappe.get_all(
+		"Farm Task Execution Day",
+		filters={"execution": execution_name},
+		fields=["name"],
+		order_by="date asc",
+	)
+	seen_assets: Dict[str, str] = {}
+	if days:
+		for d in days:
+			day_doc = frappe.get_doc("Farm Task Execution Day", d["name"])
+			for row in day_doc.get("equipment") or []:
+				asset = getattr(row, "asset", None)
+				if asset:
+					seen_assets[asset] = (getattr(row, "return_type", None) or "").strip() or "Non Returnable"
+	else:
+		for row in execution_doc.get("equipment") or []:
+			asset = getattr(row, "asset", None)
+			if asset:
+				seen_assets[asset] = (getattr(row, "return_type", None) or "").strip() or "Non Returnable"
+
+	# Update existing LTTs: remove assets that are now Non Returnable; cancel ticket if no assets left
+	from f2c.inventory.logistics_transfer_ticket_api import mark_cancelled
+	linked_ticket_names = get_non_cancelled_tickets_for_execution(execution_name)
+	non_returnable_assets = {a for a, rtype in seen_assets.items() if rtype == "Non Returnable"}
+	for ticket_name in linked_ticket_names:
+		try:
+			ticket_doc = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
+			to_remove = [
+				row for row in (ticket_doc.get("asset_items") or [])
+				if getattr(row, "asset", None) in non_returnable_assets
+			]
+			for row in to_remove:
+				ticket_doc.remove(row)
+			if not (ticket_doc.get("asset_items") or []):
+				mark_cancelled(ticket_name, reason="Return types updated: all equipment set to Non Returnable")
+			else:
+				ticket_doc.save(ignore_permissions=True)
+				frappe.db.commit()
+		except Exception as e:
+			frappe.log_error(
+				title="Return Equipment Sync",
+				message=f"Failed to update LTT {ticket_name}: {e}",
+			)
+
+	# Fallback: process same-day same-route LTTs not linked to this execution (e.g. single-item ticket missing link)
+	# Remove non-returnable assets from them; cancel if no assets left. Handles tickets that were not found by get_non_cancelled_tickets_for_execution.
+	if non_returnable_assets:
+		field = getattr(execution_doc, "field", None)
+		if field:
+			try:
+				from f2c.farm_execution.equipment_transfer_on_completion import (
+					get_target_warehouse_for_field,
+					get_cluster_warehouse_for_field,
+				)
+				from_warehouse = get_target_warehouse_for_field(field)
+				to_warehouse = get_cluster_warehouse_for_field(field)
+				if from_warehouse and to_warehouse:
+					today_obj = getdate(now_datetime())
+					linked_set = set(linked_ticket_names)
+					candidates = frappe.get_all(
+						"Logistics Transfer Ticket",
+						filters={
+							"from_warehouse": from_warehouse,
+							"to_warehouse": to_warehouse,
+							"status": ["!=", "Cancelled"],
+						},
+						fields=["name", "creation"],
+						limit_page_length=200,
+					)
+					for t in candidates:
+						if not t.get("name") or t["name"] in linked_set:
+							continue
+						if getdate(t.get("creation")) != today_obj:
+							continue
+						try:
+							ticket_doc = frappe.get_doc("Logistics Transfer Ticket", t["name"])
+							to_remove = [
+								row for row in (ticket_doc.get("asset_items") or [])
+								if getattr(row, "asset", None) in non_returnable_assets
+							]
+							for row in to_remove:
+								ticket_doc.remove(row)
+							if not (ticket_doc.get("asset_items") or []):
+								mark_cancelled(
+									t["name"],
+									reason="Return types updated: all equipment set to Non Returnable (same-day same-route)",
+								)
+							elif to_remove:
+								ticket_doc.save(ignore_permissions=True)
+								frappe.db.commit()
+						except Exception as unlink_err:
+							frappe.log_error(
+								title="Return Equipment Sync",
+								message=f"Failed to update unlinked LTT {t.get('name')}: {unlink_err}",
+							)
+			except Exception as e:
+				frappe.log_error(
+					title="Return Equipment Sync",
+					message=f"Fallback same-day same-route LTT update failed: {e}",
+				)
+
+	# Build execution_doc.equipment for create_equipment_transfer_tickets
+	if days:
+		execution_doc.equipment = []
+		for asset, rtype in seen_assets.items():
+			execution_doc.append("equipment", {"asset": asset, "return_type": rtype})
+	try:
+		from f2c.farm_execution.equipment_transfer_on_completion import create_equipment_transfer_tickets_for_execution
+		# Returnable / End Activity Returnable: create return ticket (field -> next field or cluster)
+		create_equipment_transfer_tickets_for_execution(execution_doc)
+		# Daily Returnable: create return ticket (field -> cluster) so equipment ticket shows on Approve
+		create_equipment_transfer_tickets_for_execution(execution_doc, on_end_of_day=True)
+	except Exception as e:
+		frappe.log_error(
+			title="Return Equipment Sync",
+			message=f"create_equipment_transfer_tickets_for_execution failed after return type update: {e}",
+		)
+	return execution_name
+
+
+@frappe.whitelist()
+def create_stock_return_ticket_for_execution(execution_name: str, stock_items: List[Dict[str, Any]] | str = None) -> str:
+	"""
+	Create a stock-only Logistics Transfer Ticket (field -> cluster) for the execution
+	and link it to the execution. Allowed when execution status is In Review.
+	stock_items: list of {"item_code": str, "qty": float}, or JSON string. At least one item with qty > 0 required.
+	"""
+	import json
+	execution_name = (execution_name or "").strip()
+	if not execution_name:
+		frappe.throw("execution_name is required")
+	if isinstance(stock_items, str):
+		stock_items = json.loads(stock_items) if stock_items else []
+	if not isinstance(stock_items, list):
+		stock_items = []
+	payload = []
+	for row in stock_items:
+		item_code = (row.get("item_code") or "").strip() if isinstance(row, dict) else ""
+		qty = flt(row.get("qty"), 3) if isinstance(row, dict) else 0
+		if item_code and qty > 0:
+			payload.append({"item_code": item_code, "qty": qty})
+	if not payload:
+		frappe.throw("At least one stock item with qty > 0 is required")
+	doc = frappe.get_doc("Farm Task Execution", execution_name)
+	# Optional: only allow items that are execution inputs with return_type Returnable or End Activity Returnable
+	allowed_item_codes = set()
+	for inp in doc.get("inputs") or []:
+		item = getattr(inp, "item", None) or (inp.get("item") if isinstance(inp, dict) else None)
+		rtype = getattr(inp, "return_type", None) or (inp.get("return_type") if isinstance(inp, dict) else None) or ""
+		if item and (rtype or "").strip() in ("Returnable", "End Activity Returnable"):
+			allowed_item_codes.add(str(item).strip())
+	for d in frappe.get_all("Farm Task Execution Day", filters={"execution": execution_name}, fields=["name"]):
+		day_doc = frappe.get_doc("Farm Task Execution Day", d["name"])
+		for inp in day_doc.get("inputs") or []:
+			item = getattr(inp, "item", None) or (inp.get("item") if isinstance(inp, dict) else None)
+			rtype = getattr(inp, "return_type", None) or (inp.get("return_type") if isinstance(inp, dict) else None) or ""
+			if item and (rtype or "").strip() in ("Returnable", "End Activity Returnable"):
+				allowed_item_codes.add(str(item).strip())
+	if allowed_item_codes:
+		payload = [p for p in payload if p.get("item_code") in allowed_item_codes]
+		if not payload:
+			frappe.throw(
+				"After filtering by input return type (Returnable / End Activity Returnable), no stock items remain. "
+				"Add at least one input with return type Returnable or End Activity Returnable."
+			)
+	if doc.status != "In Review":
+		frappe.throw(
+			f"Cannot create stock return ticket. Execution status is {doc.status}. Only 'In Review' executions are allowed."
+		)
+	field = getattr(doc, "field", None) or ""
+	if not field:
+		frappe.throw("Execution has no field; cannot resolve warehouses.")
+	from f2c.farm_execution.equipment_transfer_on_completion import (
+		get_target_warehouse_for_field,
+		get_cluster_warehouse_for_field,
+	)
+	from_warehouse = get_target_warehouse_for_field(field)
+	to_warehouse = get_cluster_warehouse_for_field(field)
+	if not from_warehouse or not to_warehouse:
+		frappe.throw("Could not resolve field or cluster warehouse for this execution.")
+	if from_warehouse == to_warehouse:
+		frappe.throw("Field and cluster warehouse are the same; cannot create return ticket.")
+	from f2c.inventory.logistics_transfer_ticket_api import create_logistics_transfer_ticket
+	result = create_logistics_transfer_ticket(
+		from_warehouse=from_warehouse,
+		to_warehouse=to_warehouse,
+		stock_items=payload,
+		assets=[],
+	)
+	ticket_name = result.get("ticket") if result else None
+	if ticket_name:
+		try:
+			ticket_doc = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
+			ticket_doc.farm_task_execution = execution_name
+			ticket_doc.save(ignore_permissions=True)
+			frappe.db.commit()
+		except Exception as link_err:
+			frappe.log_error(
+				title="Stock Return Ticket Link",
+				message=f"Failed to link LTT {ticket_name} to execution {execution_name}: {link_err}",
+			)
+	return ticket_name or ""
 
 
 @frappe.whitelist()

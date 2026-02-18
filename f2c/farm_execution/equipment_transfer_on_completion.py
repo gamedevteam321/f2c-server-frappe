@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 import frappe
-from frappe.utils import now_datetime
+from frappe.utils import now_datetime, getdate
 
 
 def get_cluster_for_field(field_name: str) -> Optional[str]:
@@ -234,6 +234,83 @@ def get_next_scheduled_activity_in_same_cluster(
 		return None
 
 
+def _get_assets_with_existing_ticket_for_execution(execution_name: str) -> set:
+	"""
+	Return set of asset names that already have a non-cancelled Logistics Transfer Ticket
+	linked to this execution. Used to avoid creating duplicate tickets for the same equipment.
+	"""
+	out = set()
+	if not (execution_name or "").strip():
+		return out
+	if not frappe.db.has_column("Logistics Transfer Ticket", "farm_task_execution"):
+		return out
+	tickets = frappe.get_all(
+		"Logistics Transfer Ticket",
+		filters={
+			"farm_task_execution": execution_name.strip(),
+			"status": ["!=", "Cancelled"],
+		},
+		fields=["name"],
+		limit_page_length=500,
+	)
+	if not tickets:
+		return out
+	parent_names = [t["name"] for t in tickets if t.get("name")]
+	# Child table is Logistics Transfer Asset (options for asset_items)
+	rows = frappe.get_all(
+		"Logistics Transfer Asset",
+		filters={"parent": ["in", parent_names], "parenttype": "Logistics Transfer Ticket"},
+		fields=["asset"],
+		limit_page_length=0,
+	)
+	for r in rows:
+		if r.get("asset"):
+			out.add(r["asset"])
+	return out
+
+
+def _get_assets_with_existing_ticket_for_route_and_date(
+	from_warehouse: str, to_warehouse: str, on_date: str
+) -> set:
+	"""
+	Return set of asset names that already have a non-cancelled LTT for the same
+	from_warehouse, to_warehouse, and creation date. Prevents duplicate tickets
+	for the same equipment on the same day for the same route.
+	"""
+	out = set()
+	if not from_warehouse or not to_warehouse or not on_date:
+		return out
+	# LTT creation date: use DATE(creation) = on_date
+	tickets = frappe.get_all(
+		"Logistics Transfer Ticket",
+		filters={
+			"from_warehouse": from_warehouse,
+			"to_warehouse": to_warehouse,
+			"status": ["!=", "Cancelled"],
+		},
+		fields=["name", "creation"],
+		limit_page_length=500,
+	)
+	# Filter by creation date in Python to avoid DB-specific date functions
+	date_obj = getdate(on_date)
+	parent_names = [
+		t["name"] for t in tickets
+		if t.get("name") and getdate(t.get("creation")) == date_obj
+	]
+	if not parent_names:
+		return out
+	rows = frappe.get_all(
+		"Logistics Transfer Asset",
+		filters={"parent": ["in", parent_names], "parenttype": "Logistics Transfer Ticket"},
+		fields=["asset"],
+		limit_page_length=0,
+	)
+	for r in rows:
+		if r.get("asset"):
+			out.add(r["asset"])
+	return out
+
+
 def create_equipment_transfer_tickets_for_execution(execution_doc, on_end_of_day: bool = False) -> None:
 	"""
 	Create transfer tickets for equipment based on return_type and context.
@@ -261,6 +338,14 @@ def create_equipment_transfer_tickets_for_execution(execution_doc, on_end_of_day
 				and (getattr(row, "return_type", None) or "").strip() in ("Returnable", "End Activity Returnable")
 			]
 		if not assets or not getattr(execution_doc, "field", None):
+			return
+
+		# Do not create a ticket for equipment that already has an LTT for this execution
+		execution_name = getattr(execution_doc, "name", None)
+		if execution_name:
+			already_has_ticket = _get_assets_with_existing_ticket_for_execution(execution_name)
+			assets = [a for a in assets if a not in already_has_ticket]
+		if not assets:
 			return
 
 		field = execution_doc.field
@@ -326,6 +411,15 @@ def create_equipment_transfer_tickets_for_execution(execution_doc, on_end_of_day
 		if from_warehouse == to_warehouse:
 			return
 
+		# Do not create a ticket for equipment that already has an LTT on the same date for this route
+		today_str = str(getdate(now_datetime()))
+		already_has_ticket_same_date = _get_assets_with_existing_ticket_for_route_and_date(
+			from_warehouse, to_warehouse, today_str
+		)
+		assets = [a for a in assets if a not in already_has_ticket_same_date]
+		if not assets:
+			return
+
 		# Ensure target has a location (required for asset transfer)
 		from f2c.inventory.logistics_transfer_ticket_api import get_location_for_warehouse
 
@@ -371,9 +465,19 @@ def create_equipment_transfer_tickets_for_execution(execution_doc, on_end_of_day
 			assets=[{"asset": a, "qty": 1} for a in assets],
 		)
 		if result and result.get("ticket"):
+			ticket_name = result.get("ticket")
+			try:
+				ticket_doc = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
+				ticket_doc.farm_task_execution = getattr(execution_doc, "name", None)
+				ticket_doc.save(ignore_permissions=True)
+			except Exception as link_err:
+				frappe.log_error(
+					title="Equipment Transfer on Completion",
+					message=f"Failed to link LTT {ticket_name} to execution {getattr(execution_doc, 'name', '?')}: {link_err}",
+				)
 			frappe.log_error(
 				title="Equipment Transfer on Completion",
-				message=f"Created equipment transfer ticket {result.get('ticket')} for execution {getattr(execution_doc, 'name', '?')} from {from_warehouse} to {to_warehouse}",
+				message=f"Created equipment transfer ticket {ticket_name} for execution {getattr(execution_doc, 'name', '?')} from {from_warehouse} to {to_warehouse}",
 			)
 	except Exception as e:
 		frappe.log_error(

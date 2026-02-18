@@ -17,6 +17,7 @@
     "to_location",
     "column_break_2",
     "status",
+    "farm_task_execution",
     "stock_entry",
     "asset_movement",
     "section_break_stock",
@@ -84,6 +85,13 @@
       "reqd": 1,
       "in_list_view": 1,
       "in_standard_filter": 1
+    },
+    {
+      "fieldname": "farm_task_execution",
+      "fieldtype": "Link",
+      "label": "Farm Task Execution",
+      "options": "Farm Task Execution",
+      "in_list_view": 1
     },
     {
       "fieldname": "stock_entry",

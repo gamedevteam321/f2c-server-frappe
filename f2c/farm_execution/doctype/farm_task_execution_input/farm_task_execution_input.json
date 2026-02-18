@@ -18,6 +18,7 @@
     "issued_qty",
     "returned_qty",
     "consumed_qty",
+    "return_type",
     "batch_no",
     "pre_execution_present"
   ],
@@ -94,6 +95,14 @@
       "fieldtype": "Float",
       "label": "Consumed Qty",
       "precision": "3",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "return_type",
+      "fieldtype": "Select",
+      "label": "Return Type",
+      "options": "Non Returnable\nReturnable\nDaily Returnable\nEnd Activity Returnable",
+      "default": "Non Returnable",
       "in_list_view": 1
     },
     {
