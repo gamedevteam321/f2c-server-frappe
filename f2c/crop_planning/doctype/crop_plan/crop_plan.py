@@ -113,12 +113,14 @@ def load_pop_activities(crop_plan_name, block_idx, pop_name):
 	# Get the Crop Plan document
 	crop_plan_doc = frappe.get_doc("Crop Plan", crop_plan_name)
 	
-	# Remove existing activities for this block
+	# Remove only POP activities for this block (keep Land Preparation activities)
 	activities_to_remove = []
 	for activity in crop_plan_doc.activities:
-		if activity.block_reference == str(block_idx):
+		if activity.block_reference != str(block_idx):
+			continue
+		source = getattr(activity, "activity_source", None) or ""
+		if source in (None, "", "POP"):
 			activities_to_remove.append(activity)
-	
 	for activity in activities_to_remove:
 		crop_plan_doc.remove(activity)
 	
@@ -132,6 +134,7 @@ def load_pop_activities(crop_plan_name, block_idx, pop_name):
 			# Create new activity row
 			new_activity = crop_plan_doc.append("activities", {
 				"block_reference": str(block_idx),
+				"activity_source": "POP",
 				"sequence": pop_activity.sequence or 0,
 				"activity": activity_mapping.activity,
 				"activity_name": activity_mapping.activity_name,
@@ -164,6 +167,60 @@ def load_pop_activities(crop_plan_name, block_idx, pop_name):
 	crop_plan_doc.save()
 	
 	return created_activities
+
+
+@frappe.whitelist()
+def load_land_preparation_activities(crop_plan_name, block_idx, land_preparation_name):
+	"""
+	Load activities from Land Preparation and add them to the Crop Plan activities table for the given block.
+	Only removes existing Land Preparation activities for this block; POP activities are kept.
+
+	Args:
+		crop_plan_name: Name of the Crop Plan document
+		block_idx: Index of the block row (1-based)
+		land_preparation_name: Name of the Land Preparation document
+
+	Returns:
+		List of activities created (each dict with activity_name, sequence)
+	"""
+	land_prep_doc = frappe.get_doc("Land Preparation", land_preparation_name)
+	if not land_prep_doc.activities:
+		frappe.throw(f"Land Preparation {land_preparation_name} has no activities defined")
+
+	crop_plan_doc = frappe.get_doc("Crop Plan", crop_plan_name)
+
+	# Remove only Land Preparation activities for this block
+	activities_to_remove = []
+	for activity in crop_plan_doc.activities:
+		if activity.block_reference == str(block_idx) and getattr(activity, "activity_source", None) == "Land Preparation":
+			activities_to_remove.append(activity)
+	for activity in activities_to_remove:
+		crop_plan_doc.remove(activity)
+
+	# Find max sequence among existing activities for this block (so LP activities come first or after existing)
+	existing_sequences = [a.sequence or 0 for a in crop_plan_doc.activities if a.block_reference == str(block_idx)]
+	start_sequence = (max(existing_sequences) + 1) if existing_sequences else 1
+
+	created_activities = []
+	for idx, lp_activity in enumerate(land_prep_doc.activities):
+		new_activity = crop_plan_doc.append("activities", {
+			"block_reference": str(block_idx),
+			"activity_source": "Land Preparation",
+			"sequence": start_sequence + idx,
+			"activity": lp_activity.activity,
+			"activity_name": lp_activity.get("activity_name") or (frappe.get_cached_value("Farm Activity", lp_activity.activity, "activity_name") if lp_activity.activity else ""),
+			"activity_group_type": lp_activity.activity_group_type,
+			"duration_before_transplantation": lp_activity.duration_before_transplantation,
+			"remarks": lp_activity.remarks or ""
+		})
+		created_activities.append({
+			"activity_name": new_activity.activity_name,
+			"sequence": new_activity.sequence
+		})
+
+	crop_plan_doc.save()
+	return created_activities
+
 
 @frappe.whitelist()
 def get_blocks_for_field(field_name):

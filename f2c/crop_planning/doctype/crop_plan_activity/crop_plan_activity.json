@@ -8,11 +8,13 @@
     "show_title_field_in_link": 1,
     "field_order": [
         "block_reference",
+        "activity_source",
         "sequence",
         "activity",
         "activity_name",
         "crop_stage",
         "duration_after_stage",
+        "duration_before_transplantation",
         "is_dat",
         "dat",
         "activity_group_type",
@@ -26,6 +28,13 @@
             "fieldtype": "Data",
             "label": "Block Reference",
             "description": "Reference to parent block row (idx)"
+        },
+        {
+            "fieldname": "activity_source",
+            "fieldtype": "Select",
+            "label": "Activity Source",
+            "options": "\nPOP\nLand Preparation",
+            "description": "Whether this row came from POP or Land Preparation."
         },
         {
             "fieldname": "sequence",
@@ -59,6 +68,12 @@
             "fieldname": "duration_after_stage",
             "fieldtype": "Int",
             "label": "Duration After Stage (Days)"
+        },
+        {
+            "fieldname": "duration_before_transplantation",
+            "fieldtype": "Int",
+            "label": "Duration Before Transplantation (Days)",
+            "description": "Used for Land Preparation activities."
         },
         {
             "fieldname": "is_dat",

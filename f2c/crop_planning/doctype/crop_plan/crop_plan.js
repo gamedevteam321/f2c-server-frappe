@@ -8,6 +8,35 @@ frappe.ui.form.on('Crop Plan', {
 			frm.fields_dict.blocks.grid.wrapper.find('.activities-btn-wrapper').remove();
 		}
 		
+		// Auto-load Land Preparation activities for blocks that have land_preparation but no LP activities yet (one block per refresh to avoid loop)
+		if (!frm.is_new() && frm.doc.blocks && frm.doc.blocks.length > 0 && frm.doc.activities) {
+			let has_lp = {};
+			frm.doc.activities.forEach(function(a) {
+				if (a.activity_source === 'Land Preparation') has_lp[a.block_reference] = true;
+			});
+			for (let idx = 0; idx < frm.doc.blocks.length; idx++) {
+				let block = frm.doc.blocks[idx];
+				let block_ref = String(idx + 1);
+				if (block.land_preparation && !has_lp[block_ref]) {
+					frappe.call({
+						method: 'f2c.crop_planning.doctype.crop_plan.crop_plan.load_land_preparation_activities',
+						args: {
+							crop_plan_name: frm.doc.name,
+							block_idx: parseInt(block_ref, 10),
+							land_preparation_name: block.land_preparation
+						},
+						callback: function(r) {
+							if (r.message && r.message.length > 0) {
+								frappe.show_alert({ message: __('Loaded {0} Land Preparation activities', [r.message.length]), indicator: 'green' });
+								frm.reload_doc();
+							}
+						}
+					});
+					break;
+				}
+			}
+		}
+		
 		// Set up custom rendering for blocks table (with delay to ensure grid is ready)
 		setTimeout(function() {
 			setup_blocks_table(frm);
@@ -281,7 +310,7 @@ function setup_blocks_table(frm) {
 					should_add_buttons = !blocks_with_buttons.has(block_data.block);
 				}
 				
-				if (should_add_buttons && block_data.pop) {
+				if (should_add_buttons && (block_data.pop || block_data.land_preparation)) {
 					blocks_with_buttons.add(block_data.block);
 					
 					// Check if buttons already exist in this row (extra safety check)
@@ -292,14 +321,28 @@ function setup_blocks_table(frm) {
 					// Create button wrapper with data attribute for easy identification
 					let $btn_wrapper = $('<div class="activities-btn-wrapper" data-block-id="' + block_data.block + '" style="padding: 5px;"></div>');
 					
-					// Load Activities button
-					let $load_btn = $('<button class="btn btn-xs btn-default" style="margin-right: 5px;">')
-						.text(__('Load Activities'))
-						.on('click', function(e) {
-							e.preventDefault();
-							e.stopPropagation();
-							load_activities_from_pop(frm, row_index, block_data.pop);
-						});
+					if (block_data.pop) {
+						// Load Activities (POP) button
+						let $load_btn = $('<button class="btn btn-xs btn-default" style="margin-right: 5px;">')
+							.text(__('Load Activities'))
+							.on('click', function(e) {
+								e.preventDefault();
+								e.stopPropagation();
+								load_activities_from_pop(frm, row_index, block_data.pop);
+							});
+						$btn_wrapper.append($load_btn);
+					}
+					if (block_data.land_preparation) {
+						// Load Land Prep Activities button
+						let $load_lp_btn = $('<button class="btn btn-xs btn-default" style="margin-right: 5px;">')
+							.text(__('Load Land Prep Activities'))
+							.on('click', function(e) {
+								e.preventDefault();
+								e.stopPropagation();
+								load_activities_from_land_preparation(frm, row_index, block_data.land_preparation);
+							});
+						$btn_wrapper.append($load_lp_btn);
+					}
 					
 					// View/Edit Activities button
 					let $view_btn = $('<button class="btn btn-xs btn-primary">')
@@ -310,7 +353,7 @@ function setup_blocks_table(frm) {
 							toggle_activities_view(frm, row_index, $row);
 						});
 					
-					$btn_wrapper.append($load_btn).append($view_btn);
+					$btn_wrapper.append($view_btn);
 					
 					// Find the first static column and append buttons there
 					let $staticCol = $row.find('.grid-static-col').first();
@@ -328,13 +371,13 @@ function setup_blocks_table(frm) {
 // Load activities from POP
 function load_activities_from_pop(frm, block_idx, pop_name) {
 	frappe.confirm(
-		__('This will replace existing activities for this block. Continue?'),
+		__('This will replace existing POP activities for this block. Continue?'),
 		function() {
 			frappe.call({
 				method: 'f2c.crop_planning.doctype.crop_plan.crop_plan.load_pop_activities',
 				args: {
 					crop_plan_name: frm.doc.name,
-					block_idx: block_idx,
+					block_idx: block_idx + 1,
 					pop_name: pop_name
 				},
 				callback: function(r) {
@@ -349,6 +392,33 @@ function load_activities_from_pop(frm, block_idx, pop_name) {
 			});
 		}
 	);
+}
+
+// Load activities from Land Preparation into the Crop Plan activities table
+function load_activities_from_land_preparation(frm, block_idx, land_preparation_name) {
+	if (!land_preparation_name) return;
+	frappe.call({
+		method: 'f2c.crop_planning.doctype.crop_plan.crop_plan.load_land_preparation_activities',
+		args: {
+			crop_plan_name: frm.doc.name,
+			block_idx: block_idx + 1,
+			land_preparation_name: land_preparation_name
+		},
+		callback: function(r) {
+			if (r.message && r.message.length > 0) {
+				frappe.show_alert({
+					message: __('Loaded {0} Land Preparation activities', [r.message.length]),
+					indicator: 'green'
+				});
+				frm.reload_doc();
+			} else {
+				frappe.msgprint(__('No activities found in this Land Preparation.'));
+			}
+		},
+		error: function() {
+			frappe.msgprint(__('Failed to load Land Preparation activities.'));
+		}
+	});
 }
 
 // Toggle activities view for a block
@@ -366,8 +436,9 @@ function toggle_activities_view(frm, block_idx, $row) {
 
 // Show activities section below the block row
 function show_activities_section(frm, block_idx, $row) {
-	// Get activities for this block
-	let block_activities = frm.doc.activities ? frm.doc.activities.filter(a => a.block_reference == block_idx) : [];
+	// Get activities for this block (block_reference is 1-based)
+	let block_ref = String(block_idx + 1);
+	let block_activities = frm.doc.activities ? frm.doc.activities.filter(a => a.block_reference == block_ref) : [];
 	
 	// Create expandable section
 	let $section = $('<tr class="activities-section"><td colspan="100%"></td></tr>');
@@ -377,7 +448,7 @@ function show_activities_section(frm, block_idx, $row) {
 	$content.append('<h5>' + __('Activities for Block {0}', [block_idx]) + '</h5>');
 	
 	if (block_activities.length === 0) {
-		$content.append('<p class="text-muted">' + __('No activities loaded. Click "Load Activities" to import from POP.') + '</p>');
+		$content.append('<p class="text-muted">' + __('No activities loaded. Click "Load Activities" to import from POP or "Load Land Prep Activities" to import from Land Preparation.') + '</p>');
 	} else {
 		// Create activities table
 		let $table = $('<table class="table table-bordered table-sm"><thead><tr>' +
