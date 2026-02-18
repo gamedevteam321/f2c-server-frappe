@@ -2164,6 +2164,89 @@ def create_stock_return_ticket_for_execution(execution_name: str, stock_items: L
 	return ticket_name or ""
 
 
+NON_RETURNABLE = "Non Returnable"
+
+
+@frappe.whitelist()
+def create_input_return_ticket_for_execution(execution_name: str) -> str:
+	"""
+	Create a stock-only Logistics Transfer Ticket (field -> cluster) for inputs that have
+	return_type other than "Non Returnable". Qty to return = issued_qty - consumed_qty per row.
+	Only items with return_type in ("Returnable", "Daily Returnable", "End Activity Returnable") are included.
+	Allowed when execution status is In Review. Returns ticket name or empty string if no items to return.
+	"""
+	execution_name = (execution_name or "").strip()
+	if not execution_name:
+		frappe.throw("execution_name is required")
+	doc = frappe.get_doc("Farm Task Execution", execution_name)
+	if doc.status != "In Review":
+		frappe.throw(
+			f"Cannot create input return ticket. Execution status is {doc.status}. Only 'In Review' executions are allowed."
+		)
+	# Collect returnable qty by item from execution and day inputs (exclude Non Returnable only)
+	item_qty: Dict[str, float] = {}
+	for inp in doc.get("inputs") or []:
+		item = getattr(inp, "item", None) or (inp.get("item") if isinstance(inp, dict) else None)
+		rtype = (getattr(inp, "return_type", None) or (inp.get("return_type") if isinstance(inp, dict) else None) or "").strip()
+		if not item or rtype == NON_RETURNABLE:
+			continue
+		issued = flt(getattr(inp, "issued_qty", None) or (inp.get("issued_qty") if isinstance(inp, dict) else 0), 3)
+		consumed = flt(getattr(inp, "consumed_qty", None) or (inp.get("consumed_qty") if isinstance(inp, dict) else 0), 3)
+		qty = max(0, issued - consumed)
+		if qty > 0:
+			item = str(item).strip()
+			item_qty[item] = item_qty.get(item, 0) + qty
+	for d in frappe.get_all("Farm Task Execution Day", filters={"execution": execution_name}, fields=["name"]):
+		day_doc = frappe.get_doc("Farm Task Execution Day", d["name"])
+		for inp in day_doc.get("inputs") or []:
+			item = getattr(inp, "item", None) or (inp.get("item") if isinstance(inp, dict) else None)
+			rtype = (getattr(inp, "return_type", None) or (inp.get("return_type") if isinstance(inp, dict) else None) or "").strip()
+			if not item or rtype == NON_RETURNABLE:
+				continue
+			issued = flt(getattr(inp, "issued_qty", None) or (inp.get("issued_qty") if isinstance(inp, dict) else 0), 3)
+			consumed = flt(getattr(inp, "consumed_qty", None) or (inp.get("consumed_qty") if isinstance(inp, dict) else 0), 3)
+			qty = max(0, issued - consumed)
+			if qty > 0:
+				item = str(item).strip()
+				item_qty[item] = item_qty.get(item, 0) + qty
+	if not item_qty:
+		return ""
+	payload = [{"item_code": item, "qty": flt(qty, 3)} for item, qty in item_qty.items()]
+	field = getattr(doc, "field", None) or ""
+	if not field:
+		frappe.throw("Execution has no field; cannot resolve warehouses.")
+	from f2c.farm_execution.equipment_transfer_on_completion import (
+		get_target_warehouse_for_field,
+		get_cluster_warehouse_for_field,
+	)
+	from_warehouse = get_target_warehouse_for_field(field)
+	to_warehouse = get_cluster_warehouse_for_field(field)
+	if not from_warehouse or not to_warehouse:
+		frappe.throw("Could not resolve field or cluster warehouse for this execution.")
+	if from_warehouse == to_warehouse:
+		frappe.throw("Field and cluster warehouse are the same; cannot create return ticket.")
+	from f2c.inventory.logistics_transfer_ticket_api import create_logistics_transfer_ticket
+	result = create_logistics_transfer_ticket(
+		from_warehouse=from_warehouse,
+		to_warehouse=to_warehouse,
+		stock_items=payload,
+		assets=[],
+	)
+	ticket_name = result.get("ticket") if result else None
+	if ticket_name:
+		try:
+			ticket_doc = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
+			ticket_doc.farm_task_execution = execution_name
+			ticket_doc.save(ignore_permissions=True)
+			frappe.db.commit()
+		except Exception as link_err:
+			frappe.log_error(
+				title="Input Return Ticket Link",
+				message=f"Failed to link LTT {ticket_name} to execution {execution_name}: {link_err}",
+			)
+	return ticket_name or ""
+
+
 @frappe.whitelist()
 def recalculate_inputs(execution_name: str, use_actual_water: int = 0) -> str:
 	"""
