@@ -14,6 +14,8 @@
     "land_preparation",
     "land_preparation_name",
     "land_preparation_activities_override",
+    "template_show_land_prep",
+    "template_show_pop",
     "crop",
     "variety",
     "pop",
@@ -82,6 +84,20 @@
       "fieldtype": "Text",
       "label": "Land Preparation Activities Override",
       "description": "JSON array of activities for this block only; overrides template when set."
+    },
+    {
+      "fieldname": "template_show_land_prep",
+      "fieldtype": "Check",
+      "label": "Template Show Land Prep",
+      "default": 0,
+      "description": "When checked, show Land Preparation column for this block."
+    },
+    {
+      "fieldname": "template_show_pop",
+      "fieldtype": "Check",
+      "label": "Template Show POP",
+      "default": 0,
+      "description": "When checked, show POP column for this block."
     },
     {
       "fieldname": "crop",

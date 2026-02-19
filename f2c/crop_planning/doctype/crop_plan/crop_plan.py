@@ -460,6 +460,8 @@ def get_crop_plan_with_activities(crop_plan_name):
 				'land_preparation': getattr(block_row, 'land_preparation', None) or '',
 				'land_preparation_name': getattr(block_row, 'land_preparation_name', None) or '',
 				'land_preparation_activities_override': getattr(block_row, 'land_preparation_activities_override', None) or '',
+				'template_show_land_prep': 1 if getattr(block_row, 'template_show_land_prep', None) else 0,
+				'template_show_pop': 1 if getattr(block_row, 'template_show_pop', None) else 0,
 				'name': block_row.name if hasattr(block_row, 'name') else None,
 				'crop_configs': []
 			}
