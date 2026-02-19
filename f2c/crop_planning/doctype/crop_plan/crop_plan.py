@@ -549,6 +549,52 @@ def get_crop_plan_with_activities(crop_plan_name):
 			except Exception:
 				pass
 	
+	# Inject POP activities for blocks that have template_show_pop and a POP selected but no POP activities in the plan
+	# (so Activity Scheduling shows POP activities even if user never opened activities modal or saved after selecting POP)
+	for idx, block_info in enumerate(processed_blocks):
+		block_ref_str = str(idx + 1)
+		template_show_pop = block_info.get('template_show_pop')
+		if not template_show_pop:
+			continue
+		# Get POP name from first crop_config that has pop set
+		pop_name = ''
+		for cc in (block_info.get('crop_configs') or []):
+			pop_name = (cc.get('pop') or '').strip()
+			if pop_name:
+				break
+		if not pop_name:
+			continue
+		has_pop = any(
+			(a.get('block_reference') == block_ref_str and (a.get('activity_source') or '') == 'POP')
+			for a in activities_list
+		)
+		if has_pop:
+			continue
+		try:
+			pop_doc = frappe.get_doc("POP", pop_name)
+			if not pop_doc.activities:
+				continue
+			existing_seqs = [a.get('sequence') or 0 for a in activities_list if a.get('block_reference') == block_ref_str]
+			existing_max_seq = max(existing_seqs, default=0)
+			for i, pop_activity in enumerate(pop_doc.activities):
+				if not getattr(pop_activity, 'pop_activity_list', None):
+					continue
+				activity_mapping = frappe.get_doc("Farm Crop Activity Mapping", pop_activity.pop_activity_list)
+				activity_dict = {
+					'name': 'pop-%s-%s' % (block_ref_str, i + 1),
+					'block_reference': block_ref_str,
+					'activity_source': 'POP',
+					'sequence': existing_max_seq + i + 1,
+					'activity': activity_mapping.activity or '',
+					'activity_name': activity_mapping.activity_name or '',
+					'activity_group_type': getattr(activity_mapping, 'activity_group_type', None) or '',
+					'remarks': getattr(activity_mapping, 'remarks', None) or '',
+					'approved_inputs': []
+				}
+				activities_list.append(activity_dict)
+		except Exception:
+			pass
+	
 	crop_plan_dict['blocks'] = processed_blocks
 	crop_plan_dict['total_blocks'] = len(processed_blocks)  # Count unique blocks, not crop rows
 	
