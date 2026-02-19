@@ -478,6 +478,32 @@ def mark_received(ticket_name: str, receive_photo_url=None):
 
 
 @frappe.whitelist()
+def revert_received(ticket_name: str):
+	"""Restore a Received ticket back to In Transit by cancelling linked Stock Entry and Asset Movement."""
+	if not ticket_name:
+		frappe.throw(_("ticket_name is required"))
+	ticket = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
+	if ticket.status != "Received":
+		frappe.throw(_("Only Received tickets can be restored to In Transit"))
+
+	if ticket.stock_entry:
+		se = frappe.get_doc("Stock Entry", ticket.stock_entry)
+		if se.docstatus == 1:
+			se.cancel()
+
+	if ticket.asset_movement:
+		am = frappe.get_doc("Asset Movement", ticket.asset_movement)
+		if am.docstatus == 1:
+			am.cancel()
+
+	ticket.status = "In Transit"
+	ticket.received_on = None
+	ticket.receive_photo = None
+	ticket.save(ignore_permissions=True)
+	return {"ticket": ticket.name, "status": ticket.status}
+
+
+@frappe.whitelist()
 def mark_reported(ticket_name: str, reason: str = ""):
 	if not ticket_name:
 		frappe.throw(_("ticket_name is required"))

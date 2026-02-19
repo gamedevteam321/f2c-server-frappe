@@ -269,8 +269,10 @@ def create_report_and_mark_reported(
 	else:
 		report_doc.report_module = "On Demand"
 
-	if image_upload:
-		report_doc.image_upload = image_upload
+	# Ensure image_upload is read from request (client sends it in JSON body)
+	image_upload_value = image_upload or frappe.form_dict.get("image_upload")
+	if image_upload_value:
+		report_doc.image_upload = str(image_upload_value).strip()
 
 	if report_type == "Stock Issue":
 		report_doc.reorder_inventory = 1 if (reorder_inventory in (True, 1) or str(reorder_inventory or "").strip().lower() in ("1", "true", "yes")) else 0
