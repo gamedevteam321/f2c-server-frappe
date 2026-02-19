@@ -431,6 +431,8 @@ def extract_aadhaar_details(front_image: str, back_image: str) -> Dict:
 		}
 
 
+
+
 def _ocr_via_subprocess_parallel(front_img: Image.Image, back_img: Image.Image) -> tuple:
 	"""
 	Fallback OCR via subprocess with parallel processing (if direct OCR fails).

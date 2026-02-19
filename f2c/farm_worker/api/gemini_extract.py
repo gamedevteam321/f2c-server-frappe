@@ -292,3 +292,128 @@ def _normalize_gender(gender_str: str) -> str:
 	# Return empty string if cannot determine
 	return ""
 
+
+def extract_visiting_card_details(img: Image.Image) -> Dict:
+	"""
+	Extract supplier/contact details from a visiting card (business card) image using Gemini.
+
+	Args:
+		img: PIL Image object of the visiting card (single image).
+
+	Returns:
+		Dictionary with success, data (company_name, address_line_1, address_line_2, city, state,
+		country, pincode, phone_number, email, contact_person_name, contact_person_designation), error.
+	"""
+	try:
+		import google.generativeai as genai
+	except ImportError:
+		frappe.throw("google-generativeai is not installed. Please install it using: pip install google-generativeai")
+
+	api_key = frappe.conf.get("gemini_api_key")
+	if not api_key:
+		error_msg = "Gemini API key not configured. Please set 'gemini_api_key' in Site Config."
+		frappe.throw(error_msg)
+
+	genai.configure(api_key=api_key)
+
+	prompt = """Extract information from this visiting card / business card image.
+
+Return ONLY valid JSON with this exact structure (use empty string "" for any field not found):
+{
+  "company_name": "company or organization name",
+  "address_line_1": "first line of address (street, building)",
+  "address_line_2": "second line of address (suite, unit, etc.)",
+  "city": "city",
+  "state": "state or region",
+  "country": "country",
+  "pincode": "pincode / zip / postal code",
+  "phone_number": "phone number(s) - can combine if multiple",
+  "email": "email address",
+  "contact_person_name": "name of contact person",
+  "contact_person_designation": "designation or title (e.g. Sales Manager)"
+}
+"""
+
+	def image_to_bytes(image: Image.Image) -> bytes:
+		buffer = BytesIO()
+		image.save(buffer, format="PNG")
+		return buffer.getvalue()
+
+	img_bytes = image_to_bytes(img)
+
+	models_to_try = [
+		("gemini-2.5-flash-lite", "gemini-2.5-flash"),
+	]
+	last_error = None
+	default_data = {
+		"company_name": "",
+		"address_line_1": "",
+		"address_line_2": "",
+		"city": "",
+		"state": "",
+		"country": "",
+		"pincode": "",
+		"phone_number": "",
+		"email": "",
+		"contact_person_name": "",
+		"contact_person_designation": "",
+	}
+
+	for model_name, method_name in models_to_try:
+		try:
+			current_model = genai.GenerativeModel(model_name)
+			response = current_model.generate_content([
+				prompt,
+				{"mime_type": "image/png", "data": img_bytes},
+			])
+			response_text = response.text.strip()
+			if "```json" in response_text:
+				response_text = response_text.split("```json")[1].split("```")[0].strip()
+			elif "```" in response_text:
+				response_text = response_text.split("```")[1].split("```")[0].strip()
+
+			try:
+				extracted_data = json.loads(response_text)
+			except json.JSONDecodeError:
+				frappe.log_error(f"Failed to parse Gemini visiting card response: {response_text}", "Gemini Visiting Card Extraction")
+				extracted_data = default_data.copy()
+
+			# Ensure all keys exist
+			for key in default_data:
+				if key not in extracted_data:
+					extracted_data[key] = default_data.get(key, "")
+				elif not isinstance(extracted_data[key], str):
+					extracted_data[key] = str(extracted_data[key]) if extracted_data[key] is not None else ""
+
+			return {
+				"success": True,
+				"_api_version": f"4.0 ({model_name})",
+				"data": extracted_data,
+				"error": None,
+				"debug": {"model_used": model_name},
+			}
+		except Exception as e:
+			error_str = str(e)
+			last_error = e
+			is_rate_limit = (
+				"429" in error_str
+				or "rate limit" in error_str.lower()
+				or "quota" in error_str.lower()
+				or "resource_exhausted" in error_str.lower()
+			)
+			if is_rate_limit and model_name != models_to_try[-1][0]:
+				continue
+			if not is_rate_limit and model_name == models_to_try[0][0]:
+				continue
+			break
+
+	error_msg = f"All Gemini models failed. Last error: {str(last_error)}"
+	frappe.log_error(error_msg, "Gemini Visiting Card Extraction")
+	return {
+		"success": False,
+		"_api_version": "4.0 (All Models Failed)",
+		"data": default_data,
+		"error": error_msg,
+		"debug": {"error": str(last_error) if last_error else "Unknown error"},
+	}
+

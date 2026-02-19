@@ -3,6 +3,7 @@
 # For license information, please see license.txt
 
 from __future__ import unicode_literals
+import json
 import frappe
 from frappe.model.document import Document
 from frappe.utils import getdate
@@ -485,6 +486,66 @@ def get_crop_plan_with_activities(crop_plan_name):
 			seen_blocks.add(block_ref)
 			if block_ref in blocks_dict:
 				processed_blocks.append(blocks_dict[block_ref])
+	
+	# Inject Land Preparation activities for blocks that have land_preparation but no LP activities in the plan
+	# (so Activity Scheduling shows 6 LP + 3 POP when both templates are selected, even if LP was never saved)
+	for idx, block_info in enumerate(processed_blocks):
+		block_ref_str = str(idx + 1)
+		land_prep = block_info.get('land_preparation') or ''
+		if not land_prep:
+			continue
+		override_raw = (block_info.get('land_preparation_activities_override') or '').strip()
+		has_lp = any(
+			(a.get('block_reference') == block_ref_str and (a.get('activity_source') or '') == 'Land Preparation')
+			for a in activities_list
+		)
+		if override_raw:
+			try:
+				override_list = json.loads(override_raw)
+				if isinstance(override_list, list):
+					existing_seqs = [a.get('sequence') or 0 for a in activities_list if a.get('block_reference') == block_ref_str]
+					max_seq = max(existing_seqs, default=0)
+					for i, act in enumerate(override_list):
+						activity_dict = {
+							'name': act.get('name') or ('lp-o-%s-%s' % (block_ref_str, i)),
+							'block_reference': block_ref_str,
+							'activity_source': 'Land Preparation',
+							'sequence': act.get('sequence', max_seq + i + 1),
+							'activity': act.get('activity') or '',
+							'activity_name': act.get('activity_name') or '',
+							'activity_group_type': act.get('activity_group_type') or '',
+							'duration_before_transplantation': act.get('duration_before_transplantation'),
+							'remarks': act.get('remarks') or '',
+							'approved_inputs': act.get('approved_inputs') or []
+						}
+						activities_list.append(activity_dict)
+			except Exception:
+				pass
+		elif not has_lp:
+			try:
+				lp_doc = frappe.get_doc("Land Preparation", land_prep)
+				if lp_doc.activities:
+					existing_seqs = [a.get('sequence') or 0 for a in activities_list if a.get('block_reference') == block_ref_str]
+					existing_max_seq = max(existing_seqs, default=0)
+					for i, lp_act in enumerate(lp_doc.activities):
+						activity_name = lp_act.get('activity_name') or (
+							frappe.get_cached_value("Farm Activity", lp_act.activity, "activity_name") if lp_act.activity else ''
+						)
+						activity_dict = {
+							'name': 'lp-%s-%s' % (block_ref_str, i + 1),
+							'block_reference': block_ref_str,
+							'activity_source': 'Land Preparation',
+							'sequence': existing_max_seq + i + 1,
+							'activity': lp_act.activity or '',
+							'activity_name': activity_name,
+							'activity_group_type': lp_act.activity_group_type or '',
+							'duration_before_transplantation': lp_act.duration_before_transplantation,
+							'remarks': lp_act.remarks or '',
+							'approved_inputs': []
+						}
+						activities_list.append(activity_dict)
+			except Exception:
+				pass
 	
 	crop_plan_dict['blocks'] = processed_blocks
 	crop_plan_dict['total_blocks'] = len(processed_blocks)  # Count unique blocks, not crop rows
