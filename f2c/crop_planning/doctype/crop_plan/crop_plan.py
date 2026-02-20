@@ -421,10 +421,23 @@ def get_crop_plan_with_activities(crop_plan_name):
 			activity_inputs_map[activity_ref].extend(mix_dict['approved_inputs'])
 	
 	# Add approved_inputs back to activities for frontend compatibility
+	# Match by activity_reference first, then by (activity_name + block_reference) so Crop Plan
+	# approved input mixes show correctly in Activity Scheduling even when activity_reference differs.
 	for activity_dict in activities_list:
 		activity_name = activity_dict.get('name')
 		if activity_name and activity_name in activity_inputs_map:
 			activity_dict['approved_inputs'] = activity_inputs_map[activity_name]
+		else:
+			# Fallback: match mix by activity_name and block_reference (e.g. when mix was added with "Activity Name: Spraying")
+			act_display_name = (activity_dict.get('activity_name') or '').strip()
+			act_block_ref = str(activity_dict.get('block_reference') or '')
+			for mix_dict in approved_input_mixes_list:
+				mix_act_name = (mix_dict.get('activity_name') or '').strip()
+				mix_block_ref = str(mix_dict.get('block_reference') or '')
+				# Match by activity name and block (or any block if mix has no block_reference)
+				if act_display_name and mix_act_name == act_display_name and (mix_block_ref == act_block_ref or mix_block_ref == ''):
+					activity_dict['approved_inputs'] = mix_dict.get('approved_inputs') or []
+					break
 	
 	crop_plan_dict['activities'] = activities_list
 	crop_plan_dict['approved_input_mixes'] = approved_input_mixes_list

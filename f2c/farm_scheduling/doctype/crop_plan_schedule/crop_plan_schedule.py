@@ -1987,7 +1987,7 @@ def get_schedule_defaults(crop_plan: str, crop_plan_activity: str) -> Dict[str, 
 	act = frappe.db.get_value(
 		"Crop Plan Activity",
 		crop_plan_activity,
-		["parent", "parenttype", "parentfield", "sequence", "activity", "activity_name", "activity_group_type"],
+		["parent", "parenttype", "parentfield", "sequence", "activity", "activity_name", "activity_group_type", "block_reference"],
 		as_dict=True,
 	)
 	if not act:
@@ -2007,6 +2007,41 @@ def get_schedule_defaults(crop_plan: str, crop_plan_activity: str) -> Dict[str, 
 		"farm_task",
 	)
 
+	# Fallback 1: match by activity_name so Crop Plan approved input mix shows in Activity Scheduling.
+	# Try (activity_name + block_reference) first, then activity_name only (mix may have no block_reference).
+	if not farm_task and act.get("activity_name"):
+		act_name = (act.activity_name or "").strip()
+		act_block = act.get("block_reference")
+		mix_filters_base = {
+			"parent": crop_plan,
+			"parenttype": "Crop Plan",
+			"parentfield": "approved_input_mixes",
+			"activity_name": act_name,
+		}
+		# First try with block_reference if activity has one (exact match)
+		if act_block is not None and str(act_block).strip() != "":
+			farm_task = frappe.db.get_value(
+				"Crop Plan Approved Input Mix",
+				{**mix_filters_base, "block_reference": str(act_block).strip()},
+				"farm_task",
+			)
+		# Then try by activity_name only (mix often has no block_reference when added from UI)
+		if not farm_task:
+			farm_task = frappe.db.get_value("Crop Plan Approved Input Mix", mix_filters_base, "farm_task")
+
+	# Fallback 2: if Crop Plan has no approved input mix for this activity, use the Farm Activity's first Farm Task
+	# so Activity Scheduling can show a default mix even when the user hasn't configured mixes in the crop plan.
+	if not farm_task and act.get("activity"):
+		tasks = frappe.get_all(
+			"Farm Activity Task",
+			filters={"parent": act.activity, "parenttype": "Farm Activity", "parentfield": "farm_tasks"},
+			fields=["farm_task"],
+			order_by="idx asc",
+			limit_page_length=1,
+		)
+		if tasks:
+			farm_task = tasks[0].get("farm_task")
+
 	agt = (act.activity_group_type or "").lower()
 	lbl = (act.activity_name or "").lower()
 	is_spray = 1 if ("plant protection" in agt or "spray" in lbl) else 0
@@ -2017,6 +2052,43 @@ def get_schedule_defaults(crop_plan: str, crop_plan_activity: str) -> Dict[str, 
 		"activity_name": act.activity_name or "",
 		"is_spray": is_spray,
 		"approved_input_mix": farm_task or "",
+	}
+
+
+@frappe.whitelist()
+def get_approved_input_mix_by_activity_name(crop_plan: str, activity_name: str) -> Dict[str, Any]:
+	"""
+	Return approved_input_mix (farm_task) and task_name for a Crop Plan activity by display name.
+	Used when Activity Scheduling has activity_name but get_schedule_defaults returned no mix
+	(e.g. crop_plan_activity row name not sent or mix stored only with activity_name).
+	"""
+	if not crop_plan or not (activity_name or "").strip():
+		return {"approved_input_mix": "", "approved_input_mix_name": ""}
+	if not frappe.has_permission("Crop Plan", "read", crop_plan):
+		frappe.throw("Not permitted", frappe.PermissionError)
+	act_name = (activity_name or "").strip()
+	mix = frappe.db.get_value(
+		"Crop Plan Approved Input Mix",
+		{
+			"parent": crop_plan,
+			"parenttype": "Crop Plan",
+			"parentfield": "approved_input_mixes",
+			"activity_name": act_name,
+		},
+		["farm_task", "task_name"],
+		as_dict=True,
+	)
+	if not mix or not mix.get("farm_task"):
+		return {"approved_input_mix": "", "approved_input_mix_name": ""}
+	task_name = mix.get("task_name") or ""
+	if not task_name:
+		try:
+			task_name = frappe.db.get_value("Farm Tasks", mix.get("farm_task"), "task_name") or ""
+		except Exception:
+			pass
+	return {
+		"approved_input_mix": mix.get("farm_task") or "",
+		"approved_input_mix_name": task_name or mix.get("farm_task") or "",
 	}
 
 
