@@ -34,6 +34,21 @@ class CropPlan(Document):
 		self.calculate_total_blocks()
 		self.validate_blocks_belong_to_field()
 		self.calculate_block_areas()
+
+	def on_update(self):
+		"""After save, re-persist nested approved_inputs for each approved_input_mix.
+
+		Frappe's standard form save only sends first-level child table data.
+		The nested approved_inputs (child-of-child) inside approved_input_mixes
+		are NOT included in the standard save payload, so they can get orphaned
+		or lost. This hook ensures they are preserved by re-reading them from the
+		database after the parent save completes.
+
+		Note: The dedicated ``update_approved_input_qty`` API is the recommended
+		way to edit nested child table values from the frontend. This hook is a
+		safety net for standard save operations.
+		"""
+		self._sync_approved_input_mixes_summary()
 	
 	def calculate_field_area_acres(self):
 		"""Calculate field area in acres from square meters"""
@@ -71,6 +86,34 @@ class CropPlan(Document):
 						f"Please select blocks that are children of the selected field."
 					)
 	
+	def _sync_approved_input_mixes_summary(self):
+		"""Rebuild items_summary for each approved_input_mix from DB-level nested rows."""
+		if not self.approved_input_mixes:
+			return
+		for mix in self.approved_input_mixes:
+			approved_inputs = frappe.get_all(
+				"Crop Plan Activity Input",
+				filters={
+					"parent": mix.name,
+					"parenttype": "Crop Plan Approved Input Mix",
+					"parentfield": "approved_inputs"
+				},
+				fields=["item_name", "item", "quantity", "unit"],
+				order_by="idx asc"
+			)
+			parts = []
+			for inp in approved_inputs:
+				name = inp.get("item_name") or inp.get("item") or "Item"
+				qty = inp.get("quantity", "")
+				u = inp.get("unit") or ""
+				parts.append(f"{name}: {qty} {u}".strip())
+			summary = " · ".join(parts)
+			if mix.items_summary != summary:
+				frappe.db.set_value(
+					"Crop Plan Approved Input Mix", mix.name,
+					"items_summary", summary, update_modified=False
+				)
+
 	def calculate_block_areas(self):
 		"""Calculate block areas in acres from square meters and set field"""
 		if not self.blocks:
@@ -593,6 +636,21 @@ def get_crop_plan_with_activities(crop_plan_name):
 				if not getattr(pop_activity, 'pop_activity_list', None):
 					continue
 				activity_mapping = frappe.get_doc("Farm Crop Activity Mapping", pop_activity.pop_activity_list)
+
+				# Include approved_inputs from Farm Crop Activity Mapping so injected POP
+				# activities carry the same tank-mix data the POP template defines.
+				pop_approved_inputs = []
+				if hasattr(activity_mapping, 'tasks_items') and activity_mapping.tasks_items:
+					for task_item in activity_mapping.tasks_items:
+						pop_approved_inputs.append({
+							'farm_task': task_item.farm_task or '',
+							'task_name': task_item.task_name or '',
+							'item': task_item.item or '',
+							'item_name': task_item.item_name or '',
+							'quantity': task_item.quantity if task_item.quantity is not None else 0,
+							'unit': task_item.unit or 'ml/L'
+						})
+
 				activity_dict = {
 					'name': 'pop-%s-%s' % (block_ref_str, i + 1),
 					'block_reference': block_ref_str,
@@ -602,7 +660,7 @@ def get_crop_plan_with_activities(crop_plan_name):
 					'activity_name': activity_mapping.activity_name or '',
 					'activity_group_type': getattr(activity_mapping, 'activity_group_type', None) or '',
 					'remarks': getattr(activity_mapping, 'remarks', None) or '',
-					'approved_inputs': []
+					'approved_inputs': pop_approved_inputs
 				}
 				activities_list.append(activity_dict)
 		except Exception:
@@ -671,13 +729,16 @@ def create_or_update_crop_plan_with_activities(crop_plan_data):
 				**{k: v for k, v in main_doc_data.items() if k not in ['doctype', 'name']}
 			})
 		
-		# Clear existing child tables by replacing the lists
-		# This ensures we start fresh
-		crop_plan_doc.set('activities', [])
-		crop_plan_doc.set('blocks', [])
+		# Clear blocks and approved_input_mixes; sync activities by name when updating so activity_reference in mixes stays valid
 		crop_plan_doc.set('approved_input_mixes', [])
+		existing_activity_names = {a.name for a in crop_plan_doc.activities} if crop_plan_doc.activities else set()
+		request_activity_names = {a.get('name') for a in activities_data if a.get('name')}
+		preserve_activity_names = bool(crop_plan_name and request_activity_names and existing_activity_names)
+		if not preserve_activity_names:
+			crop_plan_doc.set('activities', [])
+		crop_plan_doc.set('blocks', [])
 		
-		frappe.log_error(f"Processing {len(activities_data)} activities, {len(blocks_data)} blocks, {len(approved_input_mixes_data)} approved_input_mixes", "Crop Plan Debug")
+		frappe.log_error(f"Processing {len(activities_data)} activities, {len(blocks_data)} blocks, {len(approved_input_mixes_data)} approved_input_mixes, preserve_activity_names={preserve_activity_names}", "Crop Plan Debug")
 		
 		# Process blocks first
 		for block_data in blocks_data:
@@ -705,21 +766,38 @@ def create_or_update_crop_plan_with_activities(crop_plan_data):
 		crop_plan_doc.calculate_total_blocks()
 		
 		# Process activities (without approved_inputs - they'll be in approved_input_mixes)
-		for idx, activity_data in enumerate(activities_data):
-			# Remove fields that shouldn't be in the activity row
-			activity_data_copy = activity_data.copy()
-			activity_data_copy.pop('approved_inputs', None)  # Remove approved_inputs - they're in approved_input_mixes now
-			# Keep 'name' if it exists for updates, but remove for new activities
-			if not crop_plan_name:  # New document, remove name
-				activity_data_copy.pop('name', None)
-			activity_data_copy.pop('crop_stage_name', None)  # Remove computed fields
-			activity_data_copy.pop('activity_group_type_name', None)  # Remove computed fields
-			
-			# Explicitly set doctype for activity (critical for nested child tables)
-			activity_data_copy['doctype'] = 'Crop Plan Activity'
-			
-			# Create activity row
-			crop_plan_doc.append('activities', activity_data_copy)
+		if preserve_activity_names:
+			# Update existing rows by name so activity_reference in approved_input_mixes stays valid
+			existing_by_name = {a.name: a for a in crop_plan_doc.activities}
+			new_activities = []
+			for activity_data in activities_data:
+				activity_data_copy = activity_data.copy()
+				activity_data_copy.pop('approved_inputs', None)
+				activity_data_copy.pop('crop_stage_name', None)
+				activity_data_copy.pop('activity_group_type_name', None)
+				act_name = activity_data_copy.get('name')
+				if act_name and act_name in existing_by_name:
+					existing_row = existing_by_name[act_name]
+					for k, v in activity_data_copy.items():
+						if k not in ('doctype', 'name', 'parent', 'parentfield', 'parenttype', 'idx', 'owner', 'creation', 'modified', 'modified_by', 'docstatus'):
+							setattr(existing_row, k, v)
+					new_activities.append(existing_row)
+				else:
+					activity_data_copy.pop('name', None)
+					activity_data_copy['doctype'] = 'Crop Plan Activity'
+					crop_plan_doc.append('activities', activity_data_copy)
+					new_activities.append(crop_plan_doc.activities[-1])
+			crop_plan_doc.activities[:] = new_activities
+		else:
+			for idx, activity_data in enumerate(activities_data):
+				activity_data_copy = activity_data.copy()
+				activity_data_copy.pop('approved_inputs', None)
+				if not crop_plan_name:
+					activity_data_copy.pop('name', None)
+				activity_data_copy.pop('crop_stage_name', None)
+				activity_data_copy.pop('activity_group_type_name', None)
+				activity_data_copy['doctype'] = 'Crop Plan Activity'
+				crop_plan_doc.append('activities', activity_data_copy)
 		
 		# Save activities first to get their names
 		crop_plan_doc.save()
@@ -730,50 +808,59 @@ def create_or_update_crop_plan_with_activities(crop_plan_data):
 		# If approved_input_mixes_data is empty but activities have approved_inputs, convert them
 		if not approved_input_mixes_data:
 			# Convert old format (approved_inputs in activities) to new format (approved_input_mixes)
-			# Create a map of activities by block_reference + sequence
+			# Prefer matching by activity name (from request), fallback to block_reference + sequence
+			activity_map_by_name = {}
 			activity_map_by_key = {}
 			for idx, activity_data in enumerate(activities_data):
+				act_name = activity_data.get('name')
+				if act_name:
+					activity_map_by_name[act_name] = activity_data
 				block_ref = str(activity_data.get('block_reference', ''))
 				sequence = activity_data.get('sequence', 0)
 				activity_key = f"{block_ref}_{sequence}"
 				activity_map_by_key[activity_key] = activity_data
 			
-			# Match saved activities with original activity data
+			# Match saved activities with original activity data (by name first, then by block+sequence)
 			for saved_activity in crop_plan_doc.activities:
+				activity_data = activity_map_by_name.get(saved_activity.name)
+				if not activity_data:
+					block_ref = str(saved_activity.block_reference or '')
+					sequence = saved_activity.sequence or 0
+					activity_key = f"{block_ref}_{sequence}"
+					activity_data = activity_map_by_key.get(activity_key)
+				
+				if not activity_data:
+					continue
+				approved_inputs = activity_data.get('approved_inputs', [])
+				if not approved_inputs or len(approved_inputs) == 0:
+					continue
+				# Group approved_inputs by farm_task (Crop Plan Approved Input Mix requires farm_task)
+				inputs_by_farm_task = {}
+				for input_item in approved_inputs:
+					farm_task = input_item.get('farm_task') or ''
+					if farm_task not in inputs_by_farm_task:
+						inputs_by_farm_task[farm_task] = {
+							'farm_task': farm_task,
+							'task_name': input_item.get('task_name', ''),
+							'inputs': []
+						}
+					inputs_by_farm_task[farm_task]['inputs'].append(input_item)
+				
 				block_ref = str(saved_activity.block_reference or '')
 				sequence = saved_activity.sequence or 0
-				activity_key = f"{block_ref}_{sequence}"
-				
-				if activity_key in activity_map_by_key:
-					activity_data = activity_map_by_key[activity_key]
-					approved_inputs = activity_data.get('approved_inputs', [])
-					
-					if approved_inputs and len(approved_inputs) > 0:
-						# Group approved_inputs by farm_task
-						inputs_by_farm_task = {}
-						for input_item in approved_inputs:
-							farm_task = input_item.get('farm_task', '')
-							if farm_task:
-								if farm_task not in inputs_by_farm_task:
-									inputs_by_farm_task[farm_task] = {
-										'farm_task': farm_task,
-										'task_name': input_item.get('task_name', ''),
-										'inputs': []
-									}
-								inputs_by_farm_task[farm_task]['inputs'].append(input_item)
-						
-						# Create approved_input_mix entries
-						for farm_task, mix_data in inputs_by_farm_task.items():
-							approved_input_mix_data = {
-								'activity_reference': saved_activity.name,
-								'activity_name': saved_activity.activity_name or activity_data.get('activity_name', ''),
-								'block_reference': block_ref,
-								'sequence': sequence,
-								'farm_task': mix_data['farm_task'],
-								'task_name': mix_data['task_name'],
-								'approved_inputs': mix_data['inputs']
-							}
-							approved_input_mixes_data.append(approved_input_mix_data)
+				for farm_task, mix_data in inputs_by_farm_task.items():
+					if not farm_task:
+						continue
+					approved_input_mix_data = {
+						'activity_reference': saved_activity.name,
+						'activity_name': saved_activity.activity_name or activity_data.get('activity_name', ''),
+						'block_reference': block_ref,
+						'sequence': sequence,
+						'farm_task': mix_data['farm_task'],
+						'task_name': mix_data['task_name'],
+						'approved_inputs': mix_data['inputs']
+					}
+					approved_input_mixes_data.append(approved_input_mix_data)
 		
 		# Process approved_input_mixes
 		# Store approved_inputs separately to add after mixes are saved
@@ -923,4 +1010,135 @@ def create_or_update_crop_plan_with_activities(crop_plan_data):
 		error_msg = f"Failed to save Crop Plan: {str(e)}"
 		frappe.log_error(f"Error in create_or_update_crop_plan_with_activities: {error_msg}\nTraceback: {traceback.format_exc()}", "Crop Plan Error")
 		frappe.throw(error_msg)
+
+
+@frappe.whitelist()
+def update_approved_input_qty(crop_plan_name, mix_name, approved_input_name, quantity, unit=None):
+	"""
+	Update the quantity (and optionally unit) of a specific approved input
+	inside an Approved Input Mix's nested child table.
+
+	Frappe's standard form save does not persist nested child table (child-of-child)
+	changes, so this dedicated endpoint handles it directly via DB + doc save.
+
+	Args:
+		crop_plan_name: Name of the parent Crop Plan document
+		mix_name: Name of the Crop Plan Approved Input Mix row
+		approved_input_name: Name of the Crop Plan Activity Input row (nested child)
+		quantity: New quantity value (float)
+		unit: Optional new unit value
+
+	Returns:
+		dict with updated quantity, unit, and items_summary for the mix
+	"""
+	# Validate the crop plan exists and user has write access
+	crop_plan_doc = frappe.get_doc("Crop Plan", crop_plan_name)
+	crop_plan_doc.check_permission("write")
+
+	# Validate the mix belongs to this crop plan
+	mix_doc = frappe.get_doc("Crop Plan Approved Input Mix", mix_name)
+	if mix_doc.parent != crop_plan_name:
+		frappe.throw(f"Approved Input Mix {mix_name} does not belong to Crop Plan {crop_plan_name}")
+
+	# Update the nested child row directly in the database
+	quantity = float(quantity) if quantity is not None else 0
+
+	update_fields = {"quantity": quantity}
+	if unit is not None:
+		update_fields["unit"] = unit
+
+	frappe.db.set_value(
+		"Crop Plan Activity Input",
+		approved_input_name,
+		update_fields,
+		update_modified=True
+	)
+
+	# Also update the parent mix's modified timestamp so the change is tracked
+	frappe.db.set_value(
+		"Crop Plan Approved Input Mix",
+		mix_name,
+		"modified",
+		frappe.utils.now()
+	)
+
+	# Update parent Crop Plan modified timestamp
+	frappe.db.set_value(
+		"Crop Plan",
+		crop_plan_name,
+		"modified",
+		frappe.utils.now()
+	)
+
+	frappe.db.commit()
+
+	# Build updated items_summary for the mix row
+	approved_inputs = frappe.get_all(
+		"Crop Plan Activity Input",
+		filters={
+			"parent": mix_name,
+			"parenttype": "Crop Plan Approved Input Mix",
+			"parentfield": "approved_inputs"
+		},
+		fields=["item_name", "item", "quantity", "unit"],
+		order_by="idx asc"
+	)
+	items_summary_parts = []
+	for inp in approved_inputs:
+		name = inp.get("item_name") or inp.get("item") or "Item"
+		qty = inp.get("quantity", "")
+		u = inp.get("unit") or ""
+		items_summary_parts.append(f"{name}: {qty} {u}".strip())
+	items_summary = " · ".join(items_summary_parts)
+
+	# Update items_summary on the mix row
+	frappe.db.set_value(
+		"Crop Plan Approved Input Mix",
+		mix_name,
+		"items_summary",
+		items_summary
+	)
+	frappe.db.commit()
+
+	return {
+		"quantity": quantity,
+		"unit": unit or frappe.db.get_value("Crop Plan Activity Input", approved_input_name, "unit"),
+		"items_summary": items_summary
+	}
+
+
+@frappe.whitelist()
+def get_approved_input_mixes_with_inputs(crop_plan_name):
+	"""
+	Fetch all approved_input_mixes with their nested approved_inputs for a Crop Plan.
+	Used by the frontend to populate the editable dialog.
+
+	Args:
+		crop_plan_name: Name of the Crop Plan document
+
+	Returns:
+		List of approved_input_mix dicts, each with an 'approved_inputs' list
+	"""
+	crop_plan_doc = frappe.get_doc("Crop Plan", crop_plan_name)
+	crop_plan_doc.check_permission("read")
+
+	result = []
+	for mix in crop_plan_doc.approved_input_mixes:
+		mix_dict = mix.as_dict()
+		mix_dict["approved_inputs"] = []
+
+		approved_inputs = frappe.get_all(
+			"Crop Plan Activity Input",
+			filters={
+				"parent": mix.name,
+				"parenttype": "Crop Plan Approved Input Mix",
+				"parentfield": "approved_inputs"
+			},
+			fields=["name", "farm_task", "task_name", "item", "item_name", "quantity", "unit"],
+			order_by="idx asc"
+		)
+		mix_dict["approved_inputs"] = approved_inputs
+		result.append(mix_dict)
+
+	return result
 

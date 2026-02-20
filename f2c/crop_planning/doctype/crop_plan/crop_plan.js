@@ -48,6 +48,16 @@ frappe.ui.form.on('Crop Plan', {
 				auto_populate_blocks(frm);
 			}, __('Actions'));
 		}
+
+		// Populate "Items (Qty · Unit)" summary for Approved Input Mixes so item values are visible in the grid
+		refresh_approved_input_mixes_summary(frm);
+
+		// Button to open child table data in an editable dialog (nested child tables don't save via standard form save)
+		if (!frm.is_new() && frm.doc.approved_input_mixes && frm.doc.approved_input_mixes.length > 0) {
+			frm.add_custom_button(__('Edit Approved Input Items'), function() {
+				show_approved_input_items_dialog(frm);
+			}, __('Approved Input Mixes'));
+		}
 	},
 	
 	field: function(frm) {
@@ -86,6 +96,9 @@ frappe.ui.form.on('Crop Plan', {
 		setTimeout(function() {
 			setup_blocks_table(frm);
 		}, 200);
+	},
+	approved_input_mixes_on_form_rendered: function(frm) {
+		refresh_approved_input_mixes_summary(frm);
 	}
 });
 
@@ -230,6 +243,196 @@ frappe.ui.form.on('Crop Plan Block', {
 		});
 	}
 });
+
+// Build a one-line summary of approved_inputs for display in the Approved Input Mixes grid
+function build_items_summary(approved_inputs) {
+	if (!approved_inputs || !approved_inputs.length) return '';
+	return approved_inputs.map(function(inp) {
+		let name = inp.item_name || inp.item || __('Item');
+		let qty = inp.quantity != null ? inp.quantity : '';
+		let u = inp.unit || '';
+		return name + ': ' + qty + (u ? ' ' + u : '');
+	}).join(' · ');
+}
+
+// Show Approved Inputs (child table) in an EDITABLE dialog.
+// Fetches from server so nested approved_inputs are loaded, then renders
+// editable quantity/unit fields that save directly via the backend API.
+function show_approved_input_items_dialog(frm) {
+	var mixes = frm.doc.approved_input_mixes || [];
+	if (!mixes.length) {
+		frappe.msgprint(__('No Approved Input Mixes in this Crop Plan.'));
+		return;
+	}
+	frappe.call({
+		method: 'f2c.crop_planning.doctype.crop_plan.crop_plan.get_approved_input_mixes_with_inputs',
+		args: { crop_plan_name: frm.doc.name },
+		callback: function(r) {
+			var loaded_mixes = r.message || [];
+			if (!loaded_mixes.length) {
+				frappe.msgprint(__('No Approved Input Mixes found.'));
+				return;
+			}
+			render_approved_input_items_dialog(frm, loaded_mixes);
+		},
+		error: function() {
+			// Fallback to the older read-only approach
+			frappe.call({
+				method: 'f2c.crop_planning.doctype.crop_plan.crop_plan.get_crop_plan_with_activities',
+				args: { crop_plan_name: frm.doc.name },
+				callback: function(r) {
+					var loaded_mixes = (r.message && r.message.approved_input_mixes) || [];
+					render_approved_input_items_dialog(frm, loaded_mixes.length ? loaded_mixes : mixes);
+				}
+			});
+		}
+	});
+}
+
+function render_approved_input_items_dialog(frm, mixes) {
+	var unit_options = ['kg', 'g', 'ml', 'L', 'ml/L', 'g/L', 'Bags/Acre', 'Per Manufacturer'];
+	var body = [];
+	// Track all editable inputs for saving
+	var editable_inputs = [];
+
+	mixes.forEach(function(mix, mix_idx) {
+		var title = (mix.activity_name || __('Activity')) + ' → ' + (mix.task_name || mix.farm_task || __('Mix'));
+		body.push('<div class="mix-section" style="margin-bottom: 16px;">');
+		body.push('<strong style="font-size: 13px;">' + (mix_idx + 1) + '. ' + frappe.utils.escape_html(title) + '</strong>');
+		var inputs = mix.approved_inputs || [];
+		if (!inputs.length) {
+			body.push('<p class="text-muted" style="margin: 6px 0 0 0;">' + __('No items') + '</p>');
+		} else {
+			body.push('<table class="table table-bordered table-condensed" style="margin-top: 6px; font-size: 12px;">');
+			body.push('<thead><tr>');
+			body.push('<th>' + __('Approved Input') + '</th>');
+			body.push('<th style="width: 120px;">' + __('Quantity') + '</th>');
+			body.push('<th style="width: 130px;">' + __('Unit') + '</th>');
+			body.push('</tr></thead><tbody>');
+			inputs.forEach(function(inp, inp_idx) {
+				var inp_name = inp.item_name || inp.item || '—';
+				var qty = inp.quantity != null ? inp.quantity : 0;
+				var unit = inp.unit || 'ml/L';
+				var input_id = 'inp_' + mix_idx + '_' + inp_idx;
+
+				// Build unit <select> options
+				var unit_select = '<select class="form-control input-xs" data-input-id="' + input_id + '" data-field="unit" style="font-size: 12px; height: 28px;">';
+				unit_options.forEach(function(u) {
+					unit_select += '<option value="' + u + '"' + (u === unit ? ' selected' : '') + '>' + u + '</option>';
+				});
+				unit_select += '</select>';
+
+				body.push('<tr>');
+				body.push('<td>' + frappe.utils.escape_html(inp_name) + '</td>');
+				body.push('<td><input type="number" step="0.001" class="form-control input-xs" data-input-id="' + input_id + '" data-field="quantity" value="' + qty + '" style="font-size: 12px; height: 28px;" /></td>');
+				body.push('<td>' + unit_select + '</td>');
+				body.push('</tr>');
+
+				editable_inputs.push({
+					id: input_id,
+					mix_name: mix.name,
+					approved_input_name: inp.name,
+					original_qty: qty,
+					original_unit: unit
+				});
+			});
+			body.push('</tbody></table>');
+		}
+		body.push('</div>');
+	});
+
+	var d = new frappe.ui.Dialog({
+		title: __('Edit Approved Input Items'),
+		size: 'large',
+		fields: [{ fieldtype: 'HTML', fieldname: 'items_html', options: body.join('') }],
+		primary_action_label: __('Save Changes'),
+		primary_action: function() {
+			// Collect changed inputs
+			var changes = [];
+			editable_inputs.forEach(function(inp_info) {
+				var $qty = d.$wrapper.find('[data-input-id="' + inp_info.id + '"][data-field="quantity"]');
+				var $unit = d.$wrapper.find('[data-input-id="' + inp_info.id + '"][data-field="unit"]');
+				var new_qty = parseFloat($qty.val()) || 0;
+				var new_unit = $unit.val() || inp_info.original_unit;
+
+				if (new_qty !== inp_info.original_qty || new_unit !== inp_info.original_unit) {
+					changes.push({
+						mix_name: inp_info.mix_name,
+						approved_input_name: inp_info.approved_input_name,
+						quantity: new_qty,
+						unit: new_unit
+					});
+				}
+			});
+
+			if (!changes.length) {
+				frappe.show_alert({ message: __('No changes to save.'), indicator: 'blue' });
+				d.hide();
+				return;
+			}
+
+			// Save each change via the backend API
+			var saved = 0;
+			var errors = 0;
+			var total = changes.length;
+
+			d.disable_primary_action();
+			frappe.show_alert({ message: __('Saving {0} change(s)...', [total]), indicator: 'blue' });
+
+			changes.forEach(function(change) {
+				frappe.call({
+					method: 'f2c.crop_planning.doctype.crop_plan.crop_plan.update_approved_input_qty',
+					args: {
+						crop_plan_name: frm.doc.name,
+						mix_name: change.mix_name,
+						approved_input_name: change.approved_input_name,
+						quantity: change.quantity,
+						unit: change.unit
+					},
+					async: true,
+					callback: function(r) {
+						saved++;
+						check_done();
+					},
+					error: function() {
+						errors++;
+						check_done();
+					}
+				});
+			});
+
+			function check_done() {
+				if (saved + errors >= total) {
+					d.enable_primary_action();
+					if (errors > 0) {
+						frappe.show_alert({ message: __('Saved {0} changes, {1} failed.', [saved, errors]), indicator: 'orange' });
+					} else {
+						frappe.show_alert({ message: __('All {0} changes saved successfully.', [saved]), indicator: 'green' });
+						d.hide();
+						frm.reload_doc();
+					}
+				}
+			}
+		}
+	});
+	d.show();
+}
+
+// Populate items_summary for each Approved Input Mix row so item values are visible in the doctype form
+function refresh_approved_input_mixes_summary(frm) {
+	if (!frm.doc.approved_input_mixes || !frm.doc.approved_input_mixes.length) return;
+	let modified = false;
+	frm.doc.approved_input_mixes.forEach(function(mix) {
+		let summary = build_items_summary(mix.approved_inputs);
+		if (mix.items_summary !== summary) {
+			frappe.model.set_value(mix.doctype, mix.name, 'items_summary', summary);
+			modified = true;
+		}
+	});
+	if (modified && frm.fields_dict.approved_input_mixes && frm.fields_dict.approved_input_mixes.grid) {
+		frm.refresh_field('approved_input_mixes');
+	}
+}
 
 // Set up blocks table with custom buttons and expandable activities
 // Use debounce to prevent multiple simultaneous executions

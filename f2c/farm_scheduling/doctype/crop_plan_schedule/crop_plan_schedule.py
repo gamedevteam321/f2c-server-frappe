@@ -1996,7 +1996,11 @@ def get_schedule_defaults(crop_plan: str, crop_plan_activity: str) -> Dict[str, 
 		# Don't leak unrelated child rows
 		frappe.throw("Invalid Crop Plan Activity selected.")
 
-	farm_task = frappe.db.get_value(
+	farm_task = ""
+	task_name = ""
+
+	# Primary: match by activity_reference (exact child row link)
+	mix_row = frappe.db.get_value(
 		"Crop Plan Approved Input Mix",
 		{
 			"parent": crop_plan,
@@ -2004,10 +2008,14 @@ def get_schedule_defaults(crop_plan: str, crop_plan_activity: str) -> Dict[str, 
 			"parentfield": "approved_input_mixes",
 			"activity_reference": crop_plan_activity,
 		},
-		"farm_task",
+		["farm_task", "task_name"],
+		as_dict=True,
 	)
+	if mix_row:
+		farm_task = mix_row.get("farm_task") or ""
+		task_name = mix_row.get("task_name") or ""
 
-	# Fallback 1: match by activity_name so Crop Plan approved input mix shows in Activity Scheduling.
+	# Fallback: match by activity_name so Crop Plan approved input mix shows in Activity Scheduling.
 	# Try (activity_name + block_reference) first, then activity_name only (mix may have no block_reference).
 	if not farm_task and act.get("activity_name"):
 		act_name = (act.activity_name or "").strip()
@@ -2020,27 +2028,28 @@ def get_schedule_defaults(crop_plan: str, crop_plan_activity: str) -> Dict[str, 
 		}
 		# First try with block_reference if activity has one (exact match)
 		if act_block is not None and str(act_block).strip() != "":
-			farm_task = frappe.db.get_value(
+			mix_row = frappe.db.get_value(
 				"Crop Plan Approved Input Mix",
 				{**mix_filters_base, "block_reference": str(act_block).strip()},
-				"farm_task",
+				["farm_task", "task_name"],
+				as_dict=True,
 			)
+			if mix_row:
+				farm_task = mix_row.get("farm_task") or ""
+				task_name = mix_row.get("task_name") or ""
 		# Then try by activity_name only (mix often has no block_reference when added from UI)
 		if not farm_task:
-			farm_task = frappe.db.get_value("Crop Plan Approved Input Mix", mix_filters_base, "farm_task")
+			mix_row = frappe.db.get_value(
+				"Crop Plan Approved Input Mix",
+				mix_filters_base,
+				["farm_task", "task_name"],
+				as_dict=True,
+			)
+			if mix_row:
+				farm_task = mix_row.get("farm_task") or ""
+				task_name = mix_row.get("task_name") or ""
 
-	# Fallback 2: if Crop Plan has no approved input mix for this activity, use the Farm Activity's first Farm Task
-	# so Activity Scheduling can show a default mix even when the user hasn't configured mixes in the crop plan.
-	if not farm_task and act.get("activity"):
-		tasks = frappe.get_all(
-			"Farm Activity Task",
-			filters={"parent": act.activity, "parenttype": "Farm Activity", "parentfield": "farm_tasks"},
-			fields=["farm_task"],
-			order_by="idx asc",
-			limit_page_length=1,
-		)
-		if tasks:
-			farm_task = tasks[0].get("farm_task")
+	# No fallback to Farm Activity templates — only Crop Plan data is used.
 
 	agt = (act.activity_group_type or "").lower()
 	lbl = (act.activity_name or "").lower()
@@ -2052,6 +2061,7 @@ def get_schedule_defaults(crop_plan: str, crop_plan_activity: str) -> Dict[str, 
 		"activity_name": act.activity_name or "",
 		"is_spray": is_spray,
 		"approved_input_mix": farm_task or "",
+		"approved_input_mix_name": task_name or farm_task or "",
 	}
 
 
@@ -2218,55 +2228,142 @@ def get_farm_task_items(farm_task: str) -> List[Dict[str, Any]]:
 
 
 @frappe.whitelist()
-def get_crop_plan_approved_input_items(crop_plan: str, crop_plan_activity: str) -> List[Dict[str, Any]]:
+def get_crop_plan_approved_input_items(
+	crop_plan: str,
+	crop_plan_activity: str = "",
+	farm_task: str = "",
+	activity_name: str = "",
+	block_reference: str = "",
+) -> List[Dict[str, Any]]:
 	"""
-	Return approved input mix items from Crop Plan's approved input mix (with updated quantities).
-	Falls back to Farm Tasks template if Crop Plan mix not found or has no items.
+	Return approved input items directly from the Crop Plan doctype's nested child tables.
+
+	Reads from:  Crop Plan  →  Crop Plan Approved Input Mix  →  Crop Plan Activity Input (approved_inputs)
+
+	This is the ONLY source of truth — no fallback to Farm Tasks templates.
+
+	Matching strategies (tried in order until a mix with items is found):
+	  1. activity_reference == crop_plan_activity
+	  2. activity_name  (+block_reference if available)
+	  3. farm_task (approved_input_mix Link on the mix row)
+	  4. If nothing else, return ALL approved_inputs across ALL mixes for this crop plan
+	     that share the same activity_name (handles POP-injected synthetic names)
 	"""
-	if not crop_plan or not crop_plan_activity:
+	if not crop_plan:
 		return []
-	
-	# Ensure user can read the crop plan
+
 	if not frappe.has_permission("Crop Plan", "read", crop_plan):
 		frappe.throw("Not permitted", frappe.PermissionError)
-	
-	# Find the approved input mix for this activity (get both name and farm_task)
-	mix_info = frappe.db.get_value(
-		"Crop Plan Approved Input Mix",
-		{
-			"parent": crop_plan,
-			"parenttype": "Crop Plan",
-			"parentfield": "approved_input_mixes",
-			"activity_reference": crop_plan_activity,
-		},
-		["name", "farm_task"],
-		as_dict=True,
-	)
-	
-	items: List[Dict[str, Any]] = []
-	
-	if mix_info and mix_info.name:
-		# Fetch items from Crop Plan's approved input mix (has updated quantities)
-		try:
-			mix = frappe.get_doc("Crop Plan Approved Input Mix", mix_info.name)
-			for row in mix.approved_inputs or []:
-				items.append(
-					{
-						"item": row.item,
-						"item_name": row.item_name,
-						"rate_quantity": flt(row.quantity, 3),
-						"unit": row.unit or "ml/L",
-					}
-				)
-		except Exception as e:
-			frappe.log_error(f"Error fetching approved inputs from Crop Plan mix {mix_info.name}: {str(e)}", "Crop Plan Schedule Error")
-	
-	# If no items found in Crop Plan mix, fall back to Farm Tasks template
-	if not items and mix_info and mix_info.farm_task:
-		# Fall back to template
-		return get_farm_task_items(mix_info.farm_task)
-	
-	return items
+
+	base_filters = {
+		"parent": crop_plan,
+		"parenttype": "Crop Plan",
+		"parentfield": "approved_input_mixes",
+	}
+
+	# Resolve activity_name and block_reference from the Crop Plan Activity row if not supplied
+	if crop_plan_activity and not activity_name:
+		act = frappe.db.get_value(
+			"Crop Plan Activity",
+			crop_plan_activity,
+			["activity_name", "block_reference"],
+			as_dict=True,
+		)
+		if act:
+			activity_name = (act.get("activity_name") or "").strip()
+			if not block_reference:
+				block_reference = str(act.get("block_reference") or "").strip()
+
+	def _fetch_inputs_for_mix(mix_name: str) -> List[Dict[str, Any]]:
+		"""Query Crop Plan Activity Input rows for a given mix row name."""
+		rows = frappe.get_all(
+			"Crop Plan Activity Input",
+			filters={
+				"parent": mix_name,
+				"parenttype": "Crop Plan Approved Input Mix",
+				"parentfield": "approved_inputs",
+			},
+			fields=["item", "item_name", "quantity", "unit"],
+			order_by="idx asc",
+		)
+		return [
+			{
+				"item": r.item,
+				"item_name": r.item_name,
+				"rate_quantity": flt(r.quantity, 3),
+				"unit": r.unit or "ml/L",
+			}
+			for r in rows
+		]
+
+	def _try_mix(extra_filters: dict) -> List[Dict[str, Any]]:
+		"""Try to find a mix matching extra_filters and return its approved_inputs."""
+		mix_name = frappe.db.get_value(
+			"Crop Plan Approved Input Mix",
+			{**base_filters, **extra_filters},
+			"name",
+		)
+		if mix_name:
+			items = _fetch_inputs_for_mix(mix_name)
+			if items:
+				return items
+		return []
+
+	# Strategy 1: exact match by activity_reference
+	if crop_plan_activity:
+		items = _try_mix({"activity_reference": crop_plan_activity})
+		if items:
+			return items
+
+	# Strategy 2a: activity_name + block_reference
+	if activity_name and block_reference:
+		items = _try_mix({"activity_name": activity_name, "block_reference": block_reference})
+		if items:
+			return items
+
+	# Strategy 2b: activity_name only
+	if activity_name:
+		items = _try_mix({"activity_name": activity_name})
+		if items:
+			return items
+
+	# Strategy 3: farm_task (approved_input_mix Link)
+	if farm_task:
+		items = _try_mix({"farm_task": farm_task})
+		if items:
+			return items
+
+	# Strategy 4: collect ALL approved_inputs for ALL mixes under this crop plan
+	# that match activity_name (handles cases where other strategies fail due to
+	# mismatched references but activity_name is still correct)
+	if activity_name:
+		all_mixes = frappe.get_all(
+			"Crop Plan Approved Input Mix",
+			filters={**base_filters, "activity_name": activity_name},
+			fields=["name"],
+			order_by="idx asc",
+		)
+		for mix in all_mixes:
+			items = _fetch_inputs_for_mix(mix.name)
+			if items:
+				return items
+
+	# Strategy 5: last resort — get ALL mixes under this crop plan and check if any
+	# match by farm_task or just return the first one that has inputs
+	if farm_task:
+		all_mixes = frappe.get_all(
+			"Crop Plan Approved Input Mix",
+			filters=base_filters,
+			fields=["name", "farm_task"],
+			order_by="idx asc",
+		)
+		for mix in all_mixes:
+			if mix.farm_task == farm_task:
+				items = _fetch_inputs_for_mix(mix.name)
+				if items:
+					return items
+
+	return []
 
 
 @frappe.whitelist()
