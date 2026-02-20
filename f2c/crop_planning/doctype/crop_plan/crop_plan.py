@@ -4,6 +4,7 @@
 
 from __future__ import unicode_literals
 import json
+import re
 import frappe
 from frappe.model.document import Document
 from frappe.utils import getdate
@@ -14,19 +15,30 @@ SQ_METERS_TO_ACRES = 0.000247105
 class CropPlan(Document):
 	def autoname(self):
 		"""
-		Custom naming: CP-{field_name}-{date}
-		Example: CP-Field1-2025-12-08
+		Custom naming: CP-{field_name}-{date}-{seq}
+		Example: CP-Field1-2025-12-08-1, CP-Field1-2025-12-08-2
 		"""
 		if self.field and self.date:
 			# Get the field name from Geo Fencing Area
 			field_doc = frappe.get_doc("Geo Fencing Area", self.field)
 			field_name = field_doc.area_name or self.field
-			
 			# Format date as YYYY-MM-DD
 			date_str = getdate(self.date).strftime("%Y-%m-%d")
-			
-			# Create the name
-			self.name = f"CP-{field_name}-{date_str}"
+			prefix = f"CP-{field_name}-{date_str}-"
+			# Get existing names with this prefix (only CP-{field}-{date}-{digits} counted)
+			existing = frappe.get_all(
+				"Crop Plan",
+				filters={"name": ["like", f"{prefix}%"]},
+				fields=["name"],
+				pluck="name",
+			)
+			existing_numbers = []
+			for name in existing:
+				match = re.search(rf"^{re.escape(prefix)}(\d+)$", name)
+				if match:
+					existing_numbers.append(int(match.group(1)))
+			next_seq = 1 if not existing_numbers else max(existing_numbers) + 1
+			self.name = f"{prefix}{next_seq}"
 	
 	def validate(self):
 		"""Validate document and calculate total blocks"""
@@ -728,6 +740,13 @@ def create_or_update_crop_plan_with_activities(crop_plan_data):
 				'doctype': 'Crop Plan',
 				**{k: v for k, v in main_doc_data.items() if k not in ['doctype', 'name']}
 			})
+			# If autoname produced a name that already exists (e.g. same field+date), update instead of insert
+			if frappe.db.exists('Crop Plan', crop_plan_doc.name):
+				crop_plan_name = crop_plan_doc.name
+				crop_plan_doc = frappe.get_doc('Crop Plan', crop_plan_name)
+				for key, value in main_doc_data.items():
+					if key not in ['doctype', 'name']:
+						setattr(crop_plan_doc, key, value)
 		
 		# Clear blocks and approved_input_mixes; sync activities by name when updating so activity_reference in mixes stays valid
 		crop_plan_doc.set('approved_input_mixes', [])

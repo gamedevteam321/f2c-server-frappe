@@ -2,7 +2,7 @@
     "actions": [],
     "allow_import": 1,
     "allow_rename": 1,
-    "autoname": "format:CP-{field_name}-{date}",
+    "autoname": "naming:autoname",
     "creation": "2025-12-08 00:00:00.000000",
     "doctype": "DocType",
     "document_type": "Document",
