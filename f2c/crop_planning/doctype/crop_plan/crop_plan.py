@@ -217,8 +217,12 @@ class CropPlan(Document):
 				
 				processed_mixes.append(mix_row)
 		
-		# Optional: cleanup orphaned mixes if needed
-		# self.set("approved_input_mixes", processed_mixes)
+		# Only replace mixes when at least one activity had approved_inputs to sync.
+		# If nothing was processed, leave existing mixes untouched to avoid wiping
+		# mixes that were saved via the explicit nested-save path in
+		# create_or_update_crop_plan_with_activities.
+		if processed_mixes:
+			self.set("approved_input_mixes", processed_mixes)
 
 @frappe.whitelist()
 def load_pop_activities(crop_plan_name, block_idx, pop_name):
@@ -292,9 +296,47 @@ def load_pop_activities(crop_plan_name, block_idx, pop_name):
 				"sequence": pop_activity.sequence or 0
 			})
 	
-	# Save the document
+	# Save the document (this creates Crop Plan Approved Input Mix rows via sync_activities_to_mixes)
 	crop_plan_doc.save()
-	
+	frappe.db.commit()
+	crop_plan_doc.reload()
+
+	# Explicitly persist nested approved_inputs for each mix (Frappe does not save child-of-child automatically)
+	for mix in crop_plan_doc.approved_input_mixes:
+		if not mix.name:
+			continue
+		# Find the matching activity to get its approved_inputs
+		matching_activity = None
+		for act in crop_plan_doc.activities:
+			if act.name == mix.activity_reference:
+				matching_activity = act
+				break
+		if not matching_activity or not getattr(matching_activity, 'approved_inputs', None):
+			continue
+		# Filter inputs for this mix's farm_task
+		inputs_for_mix = [
+			inp for inp in matching_activity.approved_inputs
+			if (inp.get('farm_task') or '') == (mix.farm_task or '')
+		]
+		if not inputs_for_mix:
+			continue
+		try:
+			mix_doc = frappe.get_doc("Crop Plan Approved Input Mix", mix.name)
+			mix_doc.approved_inputs = []
+			for inp_data in inputs_for_mix:
+				mix_doc.append("approved_inputs", {
+					"farm_task": inp_data.get("farm_task") or '',
+					"task_name": inp_data.get("task_name") or '',
+					"item": inp_data.get("item") or '',
+					"item_name": inp_data.get("item_name") or '',
+					"quantity": inp_data.get("quantity") if inp_data.get("quantity") is not None else 0,
+					"unit": inp_data.get("unit") or 'ml/L'
+				})
+			mix_doc.save()
+			frappe.db.commit()
+		except Exception as e:
+			frappe.log_error(f"Error saving approved_inputs for mix {mix.name}: {str(e)}", "Load POP Activities Error")
+
 	return created_activities
 
 
@@ -960,7 +1002,13 @@ def create_or_update_crop_plan_with_activities(crop_plan_data):
 		# Extract activities, blocks, and approved_input_mixes data (make copies to avoid modifying original)
 		activities_data = list(crop_plan_data.get('activities', []))
 		blocks_data = list(crop_plan_data.get('blocks', []))
-		approved_input_mixes_data = list(crop_plan_data.get('approved_input_mixes', []))
+		# Use a sentinel to distinguish "key not sent" (new plan) from "key sent as []" (editing with no mixes).
+		_MISSING = object()
+		_raw_mixes = crop_plan_data.get('approved_input_mixes', _MISSING)
+		approved_input_mixes_data = list(_raw_mixes) if _raw_mixes is not _MISSING else []
+		# True when the frontend explicitly sent the approved_input_mixes key (even as an empty list).
+		# Used below to decide whether to clear existing mixes from the DB.
+		approved_input_mixes_explicitly_sent = _raw_mixes is not _MISSING
 		crop_plan_name = crop_plan_data.get('name')
 		
 		# Create a copy of crop_plan_data without child tables for the main document
@@ -981,8 +1029,9 @@ def create_or_update_crop_plan_with_activities(crop_plan_data):
 				**{k: v for k, v in main_doc_data.items() if k not in ['doctype', 'name']}
 			})
 		
-		# Clear blocks and approved_input_mixes; sync activities by name when updating so activity_reference in mixes stays valid
-		crop_plan_doc.set('approved_input_mixes', [])
+		# Clear blocks; sync activities by name when updating so activity_reference in mixes stays valid.
+		# Do NOT clear approved_input_mixes here — the dedicated clear block after the first save+reload
+		# handles that to avoid destroying existing mix data before new mixes are built.
 		existing_activity_names = {a.name for a in crop_plan_doc.activities} if crop_plan_doc.activities else set()
 		request_activity_names = {a.get('name') for a in activities_data if a.get('name')}
 		preserve_activity_names = bool(crop_plan_name and request_activity_names and existing_activity_names)
@@ -1114,13 +1163,72 @@ def create_or_update_crop_plan_with_activities(crop_plan_data):
 					}
 					approved_input_mixes_data.append(approved_input_mix_data)
 		
+		# Remap activity_reference in approved_input_mixes_data to the freshly saved activity names.
+		# After crop_plan_doc.save() + reload(), activity rows may have new names (when preserve_activity_names=False
+		# or when activities were recreated). Build a lookup from the saved activities so mixes always
+		# point to a valid activity_reference, preventing orphaned mixes in get_crop_plan_with_activities.
+		saved_act_by_name = {a.name: a for a in crop_plan_doc.activities if a.name}
+		saved_act_by_key = {}  # activity_name|block_reference|sequence -> saved activity
+		saved_act_by_name_block: dict = {}  # activity_name|block_reference -> [saved activity, ...]
+		name_block_counters: dict = {}
+		for a in crop_plan_doc.activities:
+			key = f"{(a.activity_name or '').strip()}|{a.block_reference}|{a.sequence or 0}"
+			saved_act_by_key[key] = a
+			nb_key = f"{(a.activity_name or '').strip()}|{a.block_reference}"
+			if nb_key not in saved_act_by_name_block:
+				saved_act_by_name_block[nb_key] = []
+			saved_act_by_name_block[nb_key].append(a)
+
+		for mix_data in approved_input_mixes_data:
+			old_ref = mix_data.get('activity_reference', '')
+			# If the reference already points to a valid saved activity, keep it
+			if old_ref and old_ref in saved_act_by_name:
+				continue
+			# Try to resolve via activity_name + block_reference + sequence
+			mix_act_name = (mix_data.get('activity_name') or '').strip()
+			mix_block_ref = str(mix_data.get('block_reference') or '')
+			mix_seq = mix_data.get('sequence') or 0
+			resolved = None
+			key = f"{mix_act_name}|{mix_block_ref}|{mix_seq}"
+			if key in saved_act_by_key:
+				resolved = saved_act_by_key[key]
+			if not resolved:
+				# Fallback: match by activity_name + block_reference (handles sequence shifts)
+				nb_key = f"{mix_act_name}|{mix_block_ref}"
+				candidates = saved_act_by_name_block.get(nb_key, [])
+				if candidates:
+					counter = name_block_counters.get(nb_key, 0)
+					if counter < len(candidates):
+						resolved = candidates[counter]
+						name_block_counters[nb_key] = counter + 1
+			if resolved:
+				mix_data['activity_reference'] = resolved.name
+
 		# Process approved_input_mixes
 		# Store approved_inputs separately to add after mixes are saved
 		# Use activity_reference + farm_task as key to match after reload
 		mixes_with_inputs = []  # Store (activity_ref, farm_task, approved_inputs_data) tuples
 		total_mixes_saved = 0
 		total_inputs_saved = 0
-		
+
+		# Clear existing approved_input_mixes before appending new ones to prevent duplicate rows
+		# accumulating across repeated saves. The frontend always sends the full list, so a full
+		# replacement is correct. We delete the nested approved_inputs rows first (grand-child),
+		# then the mix rows themselves (child), directly via frappe.db to avoid doc-save loops.
+		# Use approved_input_mixes_explicitly_sent (not just truthiness) so that an explicitly sent
+		# empty list (e.g. when POP is unchecked) still triggers the clear of existing mix rows.
+		if approved_input_mixes_explicitly_sent:
+			existing_mix_names = [m.name for m in crop_plan_doc.approved_input_mixes if m.name]
+			if existing_mix_names:
+				for old_mix_name in existing_mix_names:
+					try:
+						frappe.db.delete("Crop Plan Activity Input", {"parent": old_mix_name, "parenttype": "Crop Plan Approved Input Mix"})
+						frappe.db.delete("Crop Plan Approved Input Mix", {"name": old_mix_name})
+					except Exception:
+						pass
+			crop_plan_doc.set("approved_input_mixes", [])
+			frappe.db.commit()
+
 		for mix_data in approved_input_mixes_data:
 			try:
 				# Extract approved_inputs from mix
@@ -1218,39 +1326,9 @@ def create_or_update_crop_plan_with_activities(crop_plan_data):
 				else:
 					frappe.log_error(f"Mix row {mix_key} has no name after save", "Crop Plan Error")
 		
-		# Reload the main document to reflect changes from mix documents
-		if total_inputs_saved > 0:
-			crop_plan_doc.reload()
-		
-		# Verify saved data by reloading
-		crop_plan_doc.reload()
-		
-		# Verify approved_input_mixes were saved
-		verified_mixes = len(crop_plan_doc.approved_input_mixes) if hasattr(crop_plan_doc, 'approved_input_mixes') else 0
-		verified_inputs = 0
-		for mix in crop_plan_doc.approved_input_mixes:
-			# Manually query for approved_inputs to verify they were saved
-			try:
-				inputs = frappe.get_all(
-					"Crop Plan Activity Input",
-					filters={
-						"parent": mix.name,
-						"parenttype": "Crop Plan Approved Input Mix",
-						"parentfield": "approved_inputs"
-					},
-					fields=["*"]
-				)
-				verified_inputs += len(inputs)
-			except Exception as e:
-				frappe.log_error(f"Error verifying approved_inputs for mix {mix.name}: {str(e)}", "Crop Plan Error")
-		
-		# Final save to ensure all changes are committed
-		crop_plan_doc.save()
-		frappe.db.commit()
-		
 		# Log for debugging
 		frappe.log_error(
-			f"After save: {len(activities_data)} activities, {total_mixes_saved} approved_input_mixes with {total_inputs_saved} approved_inputs appended, verified: {verified_mixes} mixes with {verified_inputs} inputs in DB, total_blocks: {crop_plan_doc.total_blocks}",
+			f"After save: {len(activities_data)} activities, {total_mixes_saved} approved_input_mixes with {total_inputs_saved} approved_inputs appended, total_blocks: {crop_plan_doc.total_blocks}",
 			"Crop Plan Save"
 		)
 		

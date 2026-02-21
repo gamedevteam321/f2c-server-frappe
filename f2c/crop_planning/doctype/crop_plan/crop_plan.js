@@ -580,7 +580,7 @@ function load_activities_from_pop(frm, block_idx, pop_name) {
 				method: 'f2c.crop_planning.doctype.crop_plan.crop_plan.load_pop_activities',
 				args: {
 					crop_plan_name: frm.doc.name,
-					block_idx: block_idx + 1,
+					block_idx: block_idx,
 					pop_name: pop_name
 				},
 				callback: function(r) {
@@ -604,7 +604,7 @@ function load_activities_from_land_preparation(frm, block_idx, land_preparation_
 		method: 'f2c.crop_planning.doctype.crop_plan.crop_plan.load_land_preparation_activities',
 		args: {
 			crop_plan_name: frm.doc.name,
-			block_idx: block_idx + 1,
+			block_idx: block_idx,
 			land_preparation_name: land_preparation_name
 		},
 		callback: function(r) {
