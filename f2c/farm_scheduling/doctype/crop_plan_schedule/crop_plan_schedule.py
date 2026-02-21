@@ -2344,6 +2344,101 @@ def get_farm_task_items(farm_task: str) -> List[Dict[str, Any]]:
 
 
 @frappe.whitelist()
+def get_approved_input_mix_and_items_from_crop_plan(
+	crop_plan: str,
+	activity_name: str = "",
+	block_reference: str = "",
+	crop_plan_activity: str = "",
+) -> Dict[str, Any]:
+	"""
+	Return approved_input_mix, approved_input_mix_name, and items from the Crop Plan only.
+	Use this first in Activity Scheduling so the actual Crop Plan data (e.g. 4SSPZN and its
+	customized quantities) is shown, not the Farm Activity fallback (e.g. 1SS).
+	"""
+	result = {"approved_input_mix": "", "approved_input_mix_name": "", "items": []}
+	if not crop_plan:
+		return result
+	if not frappe.has_permission("Crop Plan", "read", crop_plan):
+		frappe.throw("Not permitted", frappe.PermissionError)
+	base_filters = {
+		"parent": crop_plan,
+		"parenttype": "Crop Plan",
+		"parentfield": "approved_input_mixes",
+	}
+	activity_name = (activity_name or "").strip()
+	block_reference = (block_reference or "").strip()
+	if crop_plan_activity and not activity_name:
+		act = frappe.db.get_value(
+			"Crop Plan Activity",
+			crop_plan_activity,
+			["activity_name", "block_reference"],
+			as_dict=True,
+		)
+		if act:
+			activity_name = (act.get("activity_name") or "").strip()
+			if not block_reference:
+				block_reference = str(act.get("block_reference") or "").strip()
+
+	def _mix_row_and_items(extra_filters: dict) -> Tuple[Optional[Dict], List[Dict[str, Any]]]:
+		mix_row = frappe.db.get_value(
+			"Crop Plan Approved Input Mix",
+			{**base_filters, **extra_filters},
+			["name", "farm_task", "task_name"],
+			as_dict=True,
+		)
+		if not mix_row or not mix_row.get("farm_task"):
+			return None, []
+		rows = frappe.get_all(
+			"Crop Plan Activity Input",
+			filters={
+				"parent": mix_row.name,
+				"parenttype": "Crop Plan Approved Input Mix",
+				"parentfield": "approved_inputs",
+			},
+			fields=["item", "item_name", "quantity", "unit"],
+			order_by="idx asc",
+		)
+		items = [
+			{"item": r.item, "item_name": r.item_name, "rate_quantity": flt(r.quantity, 3), "unit": r.unit or "ml/L"}
+			for r in rows
+		]
+		return mix_row, items
+
+	# Try activity_reference, then activity_name+block_reference, then activity_name only
+	if crop_plan_activity:
+		mix_row, items = _mix_row_and_items({"activity_reference": crop_plan_activity})
+		if mix_row and (mix_row.get("farm_task") or items):
+			task_name = mix_row.get("task_name") or ""
+			if not task_name:
+				task_name = frappe.db.get_value("Farm Tasks", mix_row.get("farm_task"), "task_name") or ""
+			result["approved_input_mix"] = mix_row.get("farm_task") or ""
+			result["approved_input_mix_name"] = task_name or result["approved_input_mix"]
+			result["items"] = items
+			return result
+	if activity_name and block_reference:
+		mix_row, items = _mix_row_and_items({"activity_name": activity_name, "block_reference": block_reference})
+		if mix_row and (mix_row.get("farm_task") or items):
+			task_name = mix_row.get("task_name") or ""
+			if not task_name:
+				task_name = frappe.db.get_value("Farm Tasks", mix_row.get("farm_task"), "task_name") or ""
+			result["approved_input_mix"] = mix_row.get("farm_task") or ""
+			result["approved_input_mix_name"] = task_name or result["approved_input_mix"]
+			result["items"] = items
+			return result
+	if activity_name:
+		mix_row, items = _mix_row_and_items({"activity_name": activity_name})
+		if mix_row and (mix_row.get("farm_task") or items):
+			task_name = mix_row.get("task_name") or ""
+			if not task_name:
+				task_name = frappe.db.get_value("Farm Tasks", mix_row.get("farm_task"), "task_name") or ""
+			result["approved_input_mix"] = mix_row.get("farm_task") or ""
+			result["approved_input_mix_name"] = task_name or result["approved_input_mix"]
+			result["items"] = items
+			return result
+	return result
+
+
+@frappe.whitelist()
 def get_crop_plan_approved_input_items(
 	crop_plan: str,
 	crop_plan_activity: str = "",
