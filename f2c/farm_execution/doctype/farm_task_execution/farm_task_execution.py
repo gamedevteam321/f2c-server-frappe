@@ -90,6 +90,25 @@ class FarmTaskExecution(Document):
 						"Farm Task Execution on_update Error",
 					)
 			
+			# Update linked Crop Plan Schedule status if execution is aborted
+			if self.status == "Aborted" and self.schedule_ref:
+				try:
+					schedule_status = frappe.db.get_value("Crop Plan Schedule", self.schedule_ref, "status")
+					# Only update if schedule is not already in a terminal state
+					if schedule_status and schedule_status not in ("Aborted", "Completed", "Rescheduled"):
+						frappe.db.set_value(
+							"Crop Plan Schedule",
+							self.schedule_ref,
+							"status",
+							"Aborted",
+							update_modified=False,
+						)
+				except Exception as e:
+					frappe.log_error(
+						f"Error updating Crop Plan Schedule status to Aborted for {self.schedule_ref}: {str(e)}",
+						"Farm Task Execution on_update Error",
+					)
+
 			# Update linked On Demand Activity status if execution is completed
 			if self.status == "Completed" and self.on_demand_activity_ref:
 				try:
