@@ -23,8 +23,8 @@
         "blocks",
         "section_break_activities",
         "activities",
-        "section_break_approved_input_mixes",
-        "approved_input_mixes"
+        "section_break_approved_inputs",
+        "approved_inputs"
     ],
     "fields": [
         {
@@ -111,15 +111,15 @@
             "options": "Crop Plan Activity"
         },
         {
-            "fieldname": "section_break_approved_input_mixes",
+            "fieldname": "section_break_approved_inputs",
             "fieldtype": "Section Break",
-            "label": "Approved Input Mixes"
+            "label": "Approved Inputs"
         },
         {
-            "fieldname": "approved_input_mixes",
+            "fieldname": "approved_inputs",
             "fieldtype": "Table",
-            "label": "Approved Input Mixes",
-            "options": "Crop Plan Approved Input Mix"
+            "label": "Approved Inputs",
+            "options": "Crop Plan Activity Input"
         }
     ],
     "index_web_pages_for_search": 1,

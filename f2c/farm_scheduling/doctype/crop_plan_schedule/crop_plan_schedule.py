@@ -164,76 +164,44 @@ class CropPlanSchedule(Document):
 		if self.status not in ["Draft", "Scheduled"]:
 			return
 
-		# Find the corresponding approved_input_mix row in the Crop Plan
-		mix_doc_name = frappe.db.get_value(
-			"Crop Plan Approved Input Mix",
-			{
+		# Find the corresponding approved_inputs in the Crop Plan
+		approved_inputs = frappe.get_all(
+			"Crop Plan Activity Input",
+			filters={
 				"parent": self.crop_plan,
 				"parenttype": "Crop Plan",
-				"parentfield": "approved_input_mixes",
+				"parentfield": "approved_inputs",
 				"activity_reference": self.crop_plan_activity,
 			},
-			"name",
+			fields=["farm_task", "item", "item_name", "quantity", "unit"],
+			order_by="idx asc",
 		)
 		
-		if not mix_doc_name:
+		if not approved_inputs:
 			# Fallback matching: match by activity name and sequence if reference is missing/stale
-			mix_doc_name = frappe.db.get_value(
-				"Crop Plan Approved Input Mix",
-				{
-					"parent": self.crop_plan,
-					"parenttype": "Crop Plan",
-					"parentfield": "approved_input_mixes",
-					"activity_name": self.activity_name,
-					"sequence": self.sequence,
-				},
-				"name",
-			)
-		
-		if not mix_doc_name:
-			return
-
-		# Get the farm_task (mix ID)
-		mix_data = frappe.db.get_value(
-			"Crop Plan Approved Input Mix",
-			mix_doc_name,
-			["farm_task"],
-			as_dict=True
-		)
-		
-		if mix_data:
-			self.approved_input_mix = mix_data.farm_task
-			
-			# Always sync inputs to ensure consistency with the plan.
-			# Always sync inputs to ensure consistency with the plan.
-			# Inputs are stored in the mix's own sub-table (authoritative source) or the Farm Tasks doc fallback.
-			self.set("inputs", [])
-			
 			approved_inputs = frappe.get_all(
 				"Crop Plan Activity Input",
 				filters={
-					"parent": mix_doc_name,
-					"parenttype": "Crop Plan Approved Input Mix",
-					"parentfield": "approved_inputs"
+					"parent": self.crop_plan,
+					"parenttype": "Crop Plan",
+					"parentfield": "approved_inputs",
+					"activity_name": self.activity_name,
+					"sequence": self.sequence,
 				},
-				fields=["item", "item_name", "quantity", "unit"],
-				order_by="idx asc"
+				fields=["farm_task", "item", "item_name", "quantity", "unit"],
+				order_by="idx asc",
 			)
+		
+		if not approved_inputs:
+			return
+
+		farm_task = approved_inputs[0].get("farm_task")
+		
+		if farm_task:
+			self.approved_input_mix = farm_task
 			
-			# Fallback: if no items are in the intermediate table, check the Farm Tasks document directly
-			if not approved_inputs and mix_data.farm_task:
-				try:
-					ft_doc = frappe.get_doc("Farm Tasks", mix_data.farm_task)
-					if ft_doc.items:
-						for row in ft_doc.items:
-							approved_inputs.append({
-								"item": row.item,
-								"item_name": row.item_name,
-								"quantity": flt(row.quantity, 3),
-								"unit": row.unit or "ml/L"
-							})
-				except Exception:
-					pass
+			# Always sync inputs to ensure consistency with the plan.
+			self.set("inputs", [])
 			
 			for input_item in approved_inputs:
 				item_code = getattr(input_item, "item", None) or (input_item.get("item") if isinstance(input_item, dict) else None)
@@ -2115,55 +2083,55 @@ def get_schedule_defaults(
 	farm_task = ""
 	task_name = ""
 
-	# Primary: match by activity_reference (exact child row link)
-	mix_row = frappe.db.get_value(
-		"Crop Plan Approved Input Mix",
+	# Primary: match by activity_reference
+	input_row = frappe.db.get_value(
+		"Crop Plan Activity Input",
 		{
 			"parent": crop_plan,
 			"parenttype": "Crop Plan",
-			"parentfield": "approved_input_mixes",
+			"parentfield": "approved_inputs",
 			"activity_reference": crop_plan_activity,
 		},
 		["farm_task", "task_name"],
 		as_dict=True,
 	)
-	if mix_row:
-		farm_task = mix_row.get("farm_task") or ""
-		task_name = mix_row.get("task_name") or ""
+	if input_row:
+		farm_task = input_row.get("farm_task") or ""
+		task_name = input_row.get("task_name") or ""
 
-	# Fallback: match by activity_name so Crop Plan approved input mix shows in Activity Scheduling.
-	# Try (activity_name + block_reference) first, then activity_name only (mix may have no block_reference).
+	# Fallback: match by activity_name
 	if not farm_task and act.get("activity_name"):
 		act_name = (act.activity_name or "").strip()
 		act_block = act.get("block_reference")
+		act_group = (act.get("activity_group_type") or "").strip()
 		mix_filters_base = {
 			"parent": crop_plan,
 			"parenttype": "Crop Plan",
-			"parentfield": "approved_input_mixes",
+			"parentfield": "approved_inputs",
 			"activity_name": act_name,
 		}
-		# First try with block_reference if activity has one (exact match)
+		if act_group:
+			mix_filters_base["activity_group_type"] = act_group
 		if act_block is not None and str(act_block).strip() != "":
-			mix_row = frappe.db.get_value(
-				"Crop Plan Approved Input Mix",
+			input_row = frappe.db.get_value(
+				"Crop Plan Activity Input",
 				{**mix_filters_base, "block_reference": str(act_block).strip()},
 				["farm_task", "task_name"],
 				as_dict=True,
 			)
-			if mix_row:
-				farm_task = mix_row.get("farm_task") or ""
-				task_name = mix_row.get("task_name") or ""
-		# Then try by activity_name only (mix often has no block_reference when added from UI)
+			if input_row:
+				farm_task = input_row.get("farm_task") or ""
+				task_name = input_row.get("task_name") or ""
 		if not farm_task:
-			mix_row = frappe.db.get_value(
-				"Crop Plan Approved Input Mix",
+			input_row = frappe.db.get_value(
+				"Crop Plan Activity Input",
 				mix_filters_base,
 				["farm_task", "task_name"],
 				as_dict=True,
 			)
-			if mix_row:
-				farm_task = mix_row.get("farm_task") or ""
-				task_name = mix_row.get("task_name") or ""
+			if input_row:
+				farm_task = input_row.get("farm_task") or ""
+				task_name = input_row.get("task_name") or ""
 
 	# No fallback to Farm Activity templates — only Crop Plan data is used.
 
@@ -2182,7 +2150,7 @@ def get_schedule_defaults(
 
 
 @frappe.whitelist()
-def get_approved_input_mix_by_activity_name(crop_plan: str, activity_name: str) -> Dict[str, Any]:
+def get_approved_input_mix_by_activity_name(crop_plan: str, activity_name: str, activity_group_type: str = "") -> Dict[str, Any]:
 	"""
 	Return approved_input_mix (farm_task) and task_name for a Crop Plan activity by display name.
 	Used when Activity Scheduling has activity_name but get_schedule_defaults returned no mix
@@ -2193,28 +2161,33 @@ def get_approved_input_mix_by_activity_name(crop_plan: str, activity_name: str) 
 	if not frappe.has_permission("Crop Plan", "read", crop_plan):
 		frappe.throw("Not permitted", frappe.PermissionError)
 	act_name = (activity_name or "").strip()
-	mix = frappe.db.get_value(
-		"Crop Plan Approved Input Mix",
-		{
-			"parent": crop_plan,
-			"parenttype": "Crop Plan",
-			"parentfield": "approved_input_mixes",
-			"activity_name": act_name,
-		},
+	act_group = (activity_group_type or "").strip()
+	filters = {
+		"parent": crop_plan,
+		"parenttype": "Crop Plan",
+		"parentfield": "approved_inputs",
+		"activity_name": act_name,
+	}
+	if act_group:
+		filters["activity_group_type"] = act_group
+
+	input_row = frappe.db.get_value(
+		"Crop Plan Activity Input",
+		filters,
 		["farm_task", "task_name"],
 		as_dict=True,
 	)
-	if not mix or not mix.get("farm_task"):
+	if not input_row or not input_row.get("farm_task"):
 		return {"approved_input_mix": "", "approved_input_mix_name": ""}
-	task_name = mix.get("task_name") or ""
+	task_name = input_row.get("task_name") or ""
 	if not task_name:
 		try:
-			task_name = frappe.db.get_value("Farm Tasks", mix.get("farm_task"), "task_name") or ""
+			task_name = frappe.db.get_value("Farm Tasks", input_row.get("farm_task"), "task_name") or ""
 		except Exception:
 			pass
 	return {
-		"approved_input_mix": mix.get("farm_task") or "",
-		"approved_input_mix_name": task_name or mix.get("farm_task") or "",
+		"approved_input_mix": input_row.get("farm_task") or "",
+		"approved_input_mix_name": task_name or input_row.get("farm_task") or "",
 	}
 
 
@@ -2266,9 +2239,9 @@ def get_activity_options(crop_plan: str, blocks_json: str) -> List[Dict[str, Any
 
 	# Precompute mix mapping: activity_reference -> farm_task
 	activity_ref_to_farm_task: Dict[str, str] = {}
-	for mix in doc.approved_input_mixes or []:
-		if mix.activity_reference and mix.farm_task:
-			activity_ref_to_farm_task[str(mix.activity_reference)] = str(mix.farm_task)
+	for input_row in doc.approved_inputs or []:
+		if input_row.activity_reference and input_row.farm_task:
+			activity_ref_to_farm_task[str(input_row.activity_reference)] = str(input_row.farm_task)
 
 	# For labels, pull activity_name from the Crop Plan activities (first match)
 	options: List[Dict[str, Any]] = []
@@ -2380,27 +2353,28 @@ def get_approved_input_mix_and_items_from_crop_plan(
 				block_reference = str(act.get("block_reference") or "").strip()
 
 	def _mix_row_and_items(extra_filters: dict) -> Tuple[Optional[Dict], List[Dict[str, Any]]]:
-		mix_row = frappe.db.get_value(
-			"Crop Plan Approved Input Mix",
-			{**base_filters, **extra_filters},
-			["name", "farm_task", "task_name"],
-			as_dict=True,
-		)
-		if not mix_row or not mix_row.get("farm_task"):
-			return None, []
 		rows = frappe.get_all(
 			"Crop Plan Activity Input",
-			filters={
-				"parent": mix_row.name,
-				"parenttype": "Crop Plan Approved Input Mix",
-				"parentfield": "approved_inputs",
-			},
-			fields=["item", "item_name", "quantity", "unit"],
+			filters={**base_filters, **extra_filters},
+			fields=["farm_task", "task_name", "item", "item_name", "quantity", "unit"],
 			order_by="idx asc",
 		)
+		if not rows:
+			return None, []
+		first_row = rows[0]
+		if not first_row.get("farm_task"):
+			return None, []
+		
+		mix_row = {
+			"name": "flat-mix",
+			"farm_task": first_row.farm_task,
+			"task_name": first_row.task_name
+		}
+		
+		# Now filter rows that share the same farm_task (since one extra_filter might match multiple tasks if activity_name is ambiguous)
 		items = [
 			{"item": r.item, "item_name": r.item_name, "rate_quantity": flt(r.quantity, 3), "unit": r.unit or "ml/L"}
-			for r in rows
+			for r in rows if r.farm_task == first_row.farm_task
 		]
 		return mix_row, items
 
@@ -2469,7 +2443,7 @@ def get_crop_plan_approved_input_items(
 	base_filters = {
 		"parent": crop_plan,
 		"parenttype": "Crop Plan",
-		"parentfield": "approved_input_mixes",
+		"parentfield": "approved_inputs",
 	}
 
 	# Resolve activity_name and block_reference from the Crop Plan Activity row if not supplied
@@ -2485,162 +2459,62 @@ def get_crop_plan_approved_input_items(
 			if not block_reference:
 				block_reference = str(act.get("block_reference") or "").strip()
 
-	def _fetch_inputs_for_mix(mix_name: str) -> List[Dict[str, Any]]:
-		"""Query Crop Plan Activity Input rows for a given mix row name."""
+	def _try_filters(extra_filters: dict) -> List[Dict[str, Any]]:
 		rows = frappe.get_all(
 			"Crop Plan Activity Input",
-			filters={
-				"parent": mix_name,
-				"parenttype": "Crop Plan Approved Input Mix",
-				"parentfield": "approved_inputs",
-			},
-			fields=["item", "item_name", "quantity", "unit"],
-			order_by="idx asc",
-		)
-		return [
-			{
-				"item": r.item,
-				"item_name": r.item_name,
-				"rate_quantity": flt(r.quantity, 3),
-				"unit": r.unit or "ml/L",
-			}
-			for r in rows
-		]
-
-	def _try_mix(extra_filters: dict) -> List[Dict[str, Any]]:
-		"""Try to find a mix matching extra_filters and return its approved_inputs.
-		Uses db.get_value (first match only). Prefer _try_all_mixes when multiple
-		mixes may match the same filters (e.g. two Spraying mixes on same block)."""
-		mix_name = frappe.db.get_value(
-			"Crop Plan Approved Input Mix",
-			{**base_filters, **extra_filters},
-			"name",
-		)
-		if mix_name:
-			items = _fetch_inputs_for_mix(mix_name)
-			if items:
-				return items
-		return []
-
-	def _try_all_mixes(extra_filters: dict) -> List[Dict[str, Any]]:
-		"""Try ALL mixes matching extra_filters and return inputs from the first one
-		that has items. This handles the case where multiple mixes match the same
-		name-based filters (e.g. 4SSPZN and 2VN both have activity_name='Spraying')
-		but only one of them has actual input rows saved."""
-		all_matches = frappe.get_all(
-			"Crop Plan Approved Input Mix",
 			filters={**base_filters, **extra_filters},
-			fields=["name"],
+			fields=["farm_task", "item", "item_name", "quantity", "unit"],
 			order_by="idx asc",
 		)
-		for m in all_matches:
-			items = _fetch_inputs_for_mix(m.name)
-			if items:
-				return items
-		return []
-
-	# Strategy 1: exact match by activity_reference
-	if crop_plan_activity:
-		items = _try_mix({"activity_reference": crop_plan_activity})
-		if items:
-			return items
-
-		# Strategy 1.5: the correct mix exists (via activity_reference) but its sub-table has no items.
-		# This happens when inputs were saved at the Crop Plan Activity level (e.g. via Frappe
-		# form or POP injection) but were not propagated into the mix's own sub-table.
-		# Read directly from the activity row's own approved_inputs, filtered by farm_task so
-		# we only get inputs for THIS specific mix (not other mixes on the same activity).
-		if farm_task:
-			rows = frappe.get_all(
-				"Crop Plan Activity Input",
-				filters={
-					"parent": crop_plan_activity,
-					"parenttype": "Crop Plan Activity",
-					"parentfield": "approved_inputs",
-					"farm_task": farm_task,
-				},
-				fields=["item", "item_name", "quantity", "unit"],
-				order_by="idx asc",
-			)
-			if rows:
-				return [
-					{
+		if not rows:
+			return []
+		# Return rows matching the farm_task of the first row to keep it restricted to one mix.
+		# Extract only the unique grouping to avoid repeating inputs if multiple activities share the same mix
+		first_farm_task = rows[0].get("farm_task")
+		if not first_farm_task:
+			return []
+		
+		# Deduplicate to just one Mix definition (one instance of the items)
+		seen_items = set()
+		unique_items = []
+		for r in rows:
+			if r.farm_task == first_farm_task:
+				key =f"{r.item}|{r.item_name}|{r.quantity}"
+				if key not in seen_items:
+					seen_items.add(key)
+					unique_items.append({
 						"item": r.item,
 						"item_name": r.item_name,
 						"rate_quantity": flt(r.quantity, 3),
 						"unit": r.unit or "ml/L",
-					}
-					for r in rows
-				]
+					})
+		return unique_items
 
-	# Strategy 2a-ft: activity_name + farm_task + block_reference (most precise name-based match).
-	# Uses _try_all_mixes so we don't stop at the first DB row if it happens to have 0 items.
-	# Must run before the ambiguous 2a/2b so two same-named activities on the same block
-	# (e.g. Nutrition Management / Spraying and Plant Protection / Spraying) each get their
-	# correct mix rather than both getting the first one db.get_value happens to return.
+	# Strategy 1: exact match
+	if crop_plan_activity:
+		items = _try_filters({"activity_reference": crop_plan_activity})
+		if items: return items
+	
 	if activity_name and block_reference and farm_task:
-		items = _try_all_mixes({"activity_name": activity_name, "farm_task": farm_task})
-		if items:
-			return items
+		items = _try_filters({"activity_name": activity_name, "block_reference": block_reference, "farm_task": farm_task})
+		if items: return items
 
-	# Strategy 2b-ft: activity_name + farm_task (no block_reference)
 	if activity_name and farm_task:
-		items = _try_all_mixes({"activity_name": activity_name, "farm_task": farm_task})
-		if items:
-			return items
+		items = _try_filters({"activity_name": activity_name, "farm_task": farm_task})
+		if items: return items
 
-	# Strategy 2a: activity_name + block_reference (without farm_task — kept as wider fallback)
 	if activity_name and block_reference:
-		items = _try_mix({"activity_name": activity_name, "block_reference": block_reference})
-		if items:
-			return items
+		items = _try_filters({"activity_name": activity_name, "block_reference": block_reference})
+		if items: return items
 
-	# Strategy 2b: activity_name only
 	if activity_name:
-		items = _try_mix({"activity_name": activity_name})
-		if items:
-			return items
+		items = _try_filters({"activity_name": activity_name})
+		if items: return items
 
-	# Strategy 3: farm_task (approved_input_mix Link)
 	if farm_task:
-		items = _try_mix({"farm_task": farm_task})
-		if items:
-			return items
+		items = _try_filters({"farm_task": farm_task})
+		if items: return items
 
-	# Strategy 4: collect ALL approved_inputs for ALL mixes under this crop plan
-	# that match activity_name (handles cases where other strategies fail due to
-	# mismatched references but activity_name is still correct)
-	if activity_name:
-		all_mixes = frappe.get_all(
-			"Crop Plan Approved Input Mix",
-			filters={**base_filters, "activity_name": activity_name},
-			fields=["name"],
-			order_by="idx asc",
-		)
-		for mix in all_mixes:
-			items = _fetch_inputs_for_mix(mix.name)
-			if items:
-				return items
-
-	# Strategy 5: last resort — get ALL mixes under this crop plan and check if any
-	# match by farm_task or just return the first one that has inputs
-	if farm_task:
-		all_mixes = frappe.get_all(
-			"Crop Plan Approved Input Mix",
-			filters=base_filters,
-			fields=["name", "farm_task"],
-			order_by="idx asc",
-		)
-		for mix in all_mixes:
-			if mix.farm_task == farm_task:
-				items = _fetch_inputs_for_mix(mix.name)
-				if items:
-					return items
-
-	# Strategy 6: last-last-resort — read items directly from the Farm Tasks document.
-	# This handles the case where the Crop Plan Approved Input Mix exists (approved_input_mix
-	# link is set) but the child table rows (`Crop Plan Activity Input` under the mix)
-	# were never populated. The Farm Tasks doc itself always has the canonical items.
 	if farm_task:
 		try:
 			ft_doc = frappe.get_doc("Farm Tasks", farm_task)
@@ -2670,7 +2544,7 @@ def get_common_approved_input_mix(
 	"""
 	Find a common Farm Task (Approved Input Mix) for the selected blocks + activity.
 
-	We match using the Crop Plan's `approved_input_mixes` child table which stores `activity_reference`
+	We match using the Crop Plan's `approved_inputs` child table which stores `activity_reference`
 	(the name of the Crop Plan Activity row).
 
 	Returns:
@@ -2724,7 +2598,7 @@ def get_common_approved_input_mix(
 			continue
 
 		found_task = None
-		for mix in doc.approved_input_mixes or []:
+		for mix in doc.approved_inputs or []:
 			if mix.activity_reference == act_ref and mix.farm_task:
 				found_task = mix.farm_task
 				break
