@@ -504,7 +504,7 @@ def revert_received(ticket_name: str):
 
 
 @frappe.whitelist()
-def mark_reported(ticket_name: str, reason: str = ""):
+def mark_reported(ticket_name: str, reason: str = "", report_image: str = ""):
 	if not ticket_name:
 		frappe.throw(_("ticket_name is required"))
 	ticket = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
@@ -512,6 +512,8 @@ def mark_reported(ticket_name: str, reason: str = ""):
 		frappe.throw(_("Cannot report a Received/Cancelled ticket"))
 	ticket.status = "Reported"
 	ticket.report_reason = reason or ticket.report_reason
+	if report_image:
+		ticket.report_image = report_image
 	ticket.save(ignore_permissions=True)
 	return {"ticket": ticket.name, "status": ticket.status}
 

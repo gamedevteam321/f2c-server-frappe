@@ -32,7 +32,8 @@
     "received_on",
     "receive_photo",
     "section_break_report",
-    "report_reason"
+    "report_reason",
+    "report_image"
   ],
   "fields": [
     {
@@ -183,6 +184,11 @@
       "fieldname": "report_reason",
       "fieldtype": "Small Text",
       "label": "Report Reason"
+    },
+    {
+      "fieldname": "report_image",
+      "fieldtype": "Attach Image",
+      "label": "Report Image"
     }
   ],
   "permissions": [
