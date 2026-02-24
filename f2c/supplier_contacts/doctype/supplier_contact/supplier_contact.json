@@ -49,7 +49,7 @@
   {"fieldname": "contact_person_designation", "fieldtype": "Data", "label": "Contact Person Designation"},
   {"fieldname": "supplier_type_section", "fieldtype": "Section Break", "label": "Supplier Type"},
   {"fieldname": "farm_supplier_type", "fieldtype": "Link", "label": "Farm Supplier Type", "options": "Farm Supplier Type"},
-  {"fieldname": "farm_supplier_sub_type", "fieldtype": "Data", "label": "Farm Supplier Sub Type"},
+  {"fieldname": "farm_supplier_sub_type", "fieldtype": "Small Text", "label": "Farm Supplier Sub Type"},
   {"fieldname": "meeting_section", "fieldtype": "Section Break", "label": "Meeting and Followup"},
   {"fieldname": "meetings", "fieldtype": "Table", "label": "Meetings", "options": "Supplier Contact Meeting"},
   {"fieldname": "attachments_section", "fieldtype": "Section Break", "label": "Attachments"},
