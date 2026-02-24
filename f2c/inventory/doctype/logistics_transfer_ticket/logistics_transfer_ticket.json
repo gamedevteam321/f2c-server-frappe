@@ -16,6 +16,7 @@
     "from_location",
     "to_location",
     "column_break_2",
+    "transfer_type",
     "status",
     "farm_task_execution",
     "stock_entry",
@@ -75,6 +76,15 @@
     {
       "fieldname": "column_break_2",
       "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "transfer_type",
+      "fieldtype": "Select",
+      "label": "Transfer Type",
+      "options": "\nInternal\nExternal",
+      "default": "Internal",
+      "in_list_view": 1,
+      "in_standard_filter": 1
     },
     {
       "fieldname": "status",
