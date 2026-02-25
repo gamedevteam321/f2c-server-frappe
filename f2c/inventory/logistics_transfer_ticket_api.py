@@ -486,6 +486,8 @@ def create_logistics_transfer_ticket(
 		"stock_entry": stock_entry_name,
 		"asset_movement": asset_movement_name,
 		"status": "Pending Pickup",
+		"pickup_phase": "Upcoming",
+		"drop_off_phase": None,
 		"stock_items": [
 			{"item_code": r.get("item_code"), "qty": flt(r.get("qty"))} for r in (stock_items or []) if r.get("item_code")
 		],
@@ -520,6 +522,7 @@ def mark_dispatched(ticket_name: str, dispatch_photo_url=None):
 	if ticket.status != "Pending Pickup":
 		frappe.throw(_("Only Pending Pickup tickets can be dispatched"))
 	ticket.status = "In Transit"
+	ticket.pickup_phase = "In Transit"
 	ticket.dispatched_on = now_datetime()
 	photo_json = _normalize_photo_urls(dispatch_photo_url)
 	if photo_json:
@@ -548,6 +551,7 @@ def mark_received(ticket_name: str, receive_photo_url=None):
 			am.submit()
 
 	ticket.status = "Received"
+	ticket.drop_off_phase = "Delivered"
 	ticket.received_on = now_datetime()
 	photo_json = _normalize_photo_urls(receive_photo_url)
 	if photo_json:
@@ -576,10 +580,57 @@ def revert_received(ticket_name: str):
 			am.cancel()
 
 	ticket.status = "In Transit"
+	ticket.drop_off_phase = "In Transit"
 	ticket.received_on = None
 	ticket.receive_photo = None
 	ticket.save(ignore_permissions=True)
 	return {"ticket": ticket.name, "status": ticket.status}
+
+
+@frappe.whitelist()
+def start_pickup(ticket_name: str):
+	"""Set pickup phase to Not Started when user opens Start Pickup (e.g. driver accepted)."""
+	if not ticket_name:
+		frappe.throw(_("ticket_name is required"))
+	ticket = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
+	if ticket.status != "Pending Pickup":
+		frappe.throw(_("Only Pending Pickup tickets can start pickup"))
+	if getattr(ticket, "pickup_phase", None) != "Upcoming":
+		frappe.throw(_("Pickup already started or in progress"))
+	ticket.pickup_phase = "Not Started"
+	ticket.save(ignore_permissions=True)
+	return {"ticket": ticket.name, "pickup_phase": ticket.pickup_phase}
+
+
+@frappe.whitelist()
+def mark_picked_up(ticket_name: str):
+	"""Mark pickup complete; start drop-off phase (Not Started)."""
+	if not ticket_name:
+		frappe.throw(_("ticket_name is required"))
+	ticket = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
+	if getattr(ticket, "pickup_phase", None) != "In Transit":
+		frappe.throw(_("Pickup must be In Transit before marking Picked Up"))
+	if ticket.status != "In Transit":
+		frappe.throw(_("Ticket must be In Transit to mark Picked Up"))
+	ticket.pickup_phase = "Picked Up"
+	ticket.drop_off_phase = "Not Started"
+	ticket.save(ignore_permissions=True)
+	return {"ticket": ticket.name, "pickup_phase": ticket.pickup_phase, "drop_off_phase": ticket.drop_off_phase, "status": ticket.status}
+
+
+@frappe.whitelist()
+def start_drop_off(ticket_name: str):
+	"""Set drop-off phase to In Transit (driver en route to destination)."""
+	if not ticket_name:
+		frappe.throw(_("ticket_name is required"))
+	ticket = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
+	if getattr(ticket, "pickup_phase", None) != "Picked Up":
+		frappe.throw(_("Pickup must be Picked Up before starting drop off"))
+	if getattr(ticket, "drop_off_phase", None) != "Not Started":
+		frappe.throw(_("Drop off already started or in progress"))
+	ticket.drop_off_phase = "In Transit"
+	ticket.save(ignore_permissions=True)
+	return {"ticket": ticket.name, "drop_off_phase": ticket.drop_off_phase}
 
 
 @frappe.whitelist()
