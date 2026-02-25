@@ -205,42 +205,104 @@ def get_warehouses_for_geo_area(geo_area: str, strict_geo_area: int = 0):
 	return {"geo_area": geo_area, "warehouses": combined}
 
 
+def _get_default_company():
+	"""Return first company for tracking-only tickets when both ends are Other."""
+	companies = frappe.get_all("Company", pluck="name", limit_page_length=1)
+	return companies[0] if companies else None
+
+
 @frappe.whitelist()
 def create_logistics_transfer_ticket(
-	from_warehouse: str,
-	to_warehouse: str,
+	from_warehouse: str | None = None,
+	to_warehouse: str | None = None,
 	stock_items: list[dict] | None = None,
 	assets: list | None = None,
+	transfer_type: str = "Internal",
+	from_location_type: str = "Warehouse",
+	to_location_type: str = "Warehouse",
+	from_address: str | None = None,
+	from_latitude: float | None = None,
+	from_longitude: float | None = None,
+	to_address: str | None = None,
+	to_latitude: float | None = None,
+	to_longitude: float | None = None,
 ):
 	"""
-	Create ONE Logistics Transfer Ticket that links:
-	- draft Stock Entry (Material Transfer) with multiple lines
-	- draft Asset Movement (Transfer) with multiple assets
+	Create ONE Logistics Transfer Ticket.
+	When both From and To are Warehouse: creates draft Stock Entry and optionally Asset Movement.
+	When either end is Other (external location): no Stock Entry/Asset Movement (tracking-only).
 	"""
-	if not from_warehouse or not to_warehouse:
-		frappe.throw(_("from_warehouse and to_warehouse are required"))
-	# Allow same warehouse for input-only (stock_items, no assets) so pickable/receivable entries are always created for approved inputs
 	stock_items = stock_items or []
 	assets = assets or []
-	if from_warehouse == to_warehouse and assets:
-		frappe.throw(_("From and To Warehouse cannot be same"))
-	if from_warehouse == to_warehouse and not stock_items:
-		frappe.throw(_("From and To Warehouse cannot be same"))
 
-	if not stock_items and not assets:
-		frappe.throw(_("Select at least one stock item or asset"))
+	# Normalize location types
+	from_location_type = (from_location_type or "Warehouse").strip()
+	to_location_type = (to_location_type or "Warehouse").strip()
+	if from_location_type not in ("Warehouse", "Other"):
+		from_location_type = "Warehouse"
+	if to_location_type not in ("Warehouse", "Other"):
+		to_location_type = "Warehouse"
 
-	company = frappe.db.get_value("Warehouse", from_warehouse, "company")
-	if not company:
-		frappe.throw(_("From Warehouse has no Company"))
+	# Validation by location type
+	if from_location_type == "Warehouse":
+		if not from_warehouse:
+			frappe.throw(_("From Warehouse is required when From Location Type is Warehouse"))
+	else:
+		from_warehouse = None
+		if from_latitude is None and from_longitude is None:
+			frappe.throw(_("From Latitude and Longitude are required when From Location Type is Other"))
+		from_lat = flt(from_latitude)
+		from_lng = flt(from_longitude)
+		if from_lat == 0 and from_lng == 0:
+			frappe.throw(_("From Latitude and Longitude are required when From Location Type is Other"))
 
-	# Resolve from/to locations (best effort)
-	from_loc = get_location_for_warehouse(from_warehouse).get("location")
-	to_loc = get_location_for_warehouse(to_warehouse).get("location")
+	if to_location_type == "Warehouse":
+		if not to_warehouse:
+			frappe.throw(_("To Warehouse is required when To Location Type is Warehouse"))
+	else:
+		to_warehouse = None
+		if to_latitude is None and to_longitude is None:
+			frappe.throw(_("To Latitude and Longitude are required when To Location Type is Other"))
+		to_lat = flt(to_latitude)
+		to_lng = flt(to_longitude)
+		if to_lat == 0 and to_lng == 0:
+			frappe.throw(_("To Latitude and Longitude are required when To Location Type is Other"))
+
+	if from_location_type == "Warehouse" and to_location_type == "Warehouse":
+		if from_warehouse == to_warehouse and assets:
+			frappe.throw(_("From and To Warehouse cannot be same"))
+		if from_warehouse == to_warehouse and not stock_items:
+			frappe.throw(_("From and To Warehouse cannot be same"))
+		if not stock_items and not assets:
+			frappe.throw(_("Select at least one stock item or asset"))
+
+	# When either end is Other: tracking-only, no SE/AM
+	both_warehouse = from_location_type == "Warehouse" and to_location_type == "Warehouse"
+	if both_warehouse:
+		company = frappe.db.get_value("Warehouse", from_warehouse, "company")
+		if not company:
+			frappe.throw(_("From Warehouse has no Company"))
+		from_loc = get_location_for_warehouse(from_warehouse).get("location")
+		to_loc = get_location_for_warehouse(to_warehouse).get("location")
+	else:
+		company = None
+		if from_warehouse:
+			company = frappe.db.get_value("Warehouse", from_warehouse, "company")
+		if not company and to_warehouse:
+			company = frappe.db.get_value("Warehouse", to_warehouse, "company")
+		if not company:
+			company = _get_default_company()
+		if not company:
+			frappe.throw(_("Could not determine Company for transfer ticket"))
+		from_loc = get_location_for_warehouse(from_warehouse).get("location") if from_warehouse else None
+		to_loc = get_location_for_warehouse(to_warehouse).get("location") if to_warehouse else None
 
 	stock_entry_name = None
+	asset_movement_name = None
+	asset_item_rows_for_ticket: list[dict] = []
 	available_items_for_entry = []
-	if stock_items:
+
+	if both_warehouse and stock_items:
 		# Check availability for each item before creating Stock Entry
 		# All items (available or not) will still be included in ticket.stock_items below
 		for row in stock_items:
@@ -317,9 +379,7 @@ def create_logistics_transfer_ticket(
 			se.insert(ignore_permissions=True)
 			stock_entry_name = se.name
 
-	asset_movement_name = None
-	asset_item_rows_for_ticket: list[dict] = []
-	if assets:
+	if both_warehouse and assets:
 		# For asset transfers, destination Location must exist. If it doesn't, ERPNext will treat
 		# target_location as source_location and throw: "Source and Target Location cannot be same".
 		if not to_loc:
@@ -406,22 +466,41 @@ def create_logistics_transfer_ticket(
 			am.insert(ignore_permissions=True)
 			asset_movement_name = am.name
 
-	ticket = frappe.get_doc(
-		{
-			"doctype": "Logistics Transfer Ticket",
-			"from_warehouse": from_warehouse,
-			"to_warehouse": to_warehouse,
-			"from_location": from_loc,
-			"to_location": to_loc,
-			"stock_entry": stock_entry_name,
-			"asset_movement": asset_movement_name,
-			"status": "Pending Pickup",
-			"stock_items": [
-				{"item_code": r.get("item_code"), "qty": flt(r.get("qty"))} for r in (stock_items or []) if r.get("item_code")
-			],
-			"asset_items": [{"asset": r.get("asset"), "qty": r.get("qty") or 1} for r in asset_item_rows_for_ticket if r.get("asset")],
-		}
-	)
+	# External transfer: accept assets for ticket.asset_items (no Asset Movement)
+	if not both_warehouse and assets:
+		for a in assets:
+			asset_name = a.get("asset") if isinstance(a, dict) else a
+			qty = max(1, flt(a.get("qty") or 1)) if isinstance(a, dict) else 1
+			if asset_name and qty > 0:
+				asset_item_rows_for_ticket.append({"asset": asset_name, "qty": qty})
+
+	ticket_data = {
+		"doctype": "Logistics Transfer Ticket",
+		"from_warehouse": from_warehouse or None,
+		"to_warehouse": to_warehouse or None,
+		"from_location": from_loc,
+		"to_location": to_loc,
+		"transfer_type": transfer_type or "Internal",
+		"from_location_type": from_location_type,
+		"to_location_type": to_location_type,
+		"stock_entry": stock_entry_name,
+		"asset_movement": asset_movement_name,
+		"status": "Pending Pickup",
+		"stock_items": [
+			{"item_code": r.get("item_code"), "qty": flt(r.get("qty"))} for r in (stock_items or []) if r.get("item_code")
+		],
+		"asset_items": [{"asset": r.get("asset"), "qty": r.get("qty") or 1} for r in asset_item_rows_for_ticket if r.get("asset")],
+	}
+	if from_location_type == "Other":
+		ticket_data["from_address"] = (from_address or "").strip() or None
+		ticket_data["from_latitude"] = flt(from_latitude)
+		ticket_data["from_longitude"] = flt(from_longitude)
+	if to_location_type == "Other":
+		ticket_data["to_address"] = (to_address or "").strip() or None
+		ticket_data["to_latitude"] = flt(to_latitude)
+		ticket_data["to_longitude"] = flt(to_longitude)
+
+	ticket = frappe.get_doc(ticket_data)
 	ticket.insert(ignore_permissions=True)
 
 	return {

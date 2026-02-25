@@ -12,9 +12,17 @@
   "field_order": [
     "from_warehouse",
     "to_warehouse",
+    "from_location_type",
+    "to_location_type",
     "column_break_1",
     "from_location",
     "to_location",
+    "from_address",
+    "from_latitude",
+    "from_longitude",
+    "to_address",
+    "to_latitude",
+    "to_longitude",
     "column_break_2",
     "transfer_type",
     "status",
@@ -41,7 +49,6 @@
       "fieldtype": "Link",
       "label": "From Warehouse",
       "options": "Warehouse",
-      "reqd": 1,
       "in_list_view": 1,
       "in_standard_filter": 1
     },
@@ -50,9 +57,22 @@
       "fieldtype": "Link",
       "label": "To Warehouse",
       "options": "Warehouse",
-      "reqd": 1,
       "in_list_view": 1,
       "in_standard_filter": 1
+    },
+    {
+      "fieldname": "from_location_type",
+      "fieldtype": "Select",
+      "label": "From Location Type",
+      "options": "\nWarehouse\nOther",
+      "default": "Warehouse"
+    },
+    {
+      "fieldname": "to_location_type",
+      "fieldtype": "Select",
+      "label": "To Location Type",
+      "options": "\nWarehouse\nOther",
+      "default": "Warehouse"
     },
     {
       "fieldname": "column_break_1",
@@ -73,6 +93,40 @@
       "options": "Location",
       "read_only": 1,
       "in_list_view": 1
+    },
+    {
+      "fieldname": "from_address",
+      "fieldtype": "Small Text",
+      "label": "From Address"
+    },
+    {
+      "fieldname": "from_latitude",
+      "fieldtype": "Float",
+      "label": "From Latitude",
+      "precision": 8
+    },
+    {
+      "fieldname": "from_longitude",
+      "fieldtype": "Float",
+      "label": "From Longitude",
+      "precision": 8
+    },
+    {
+      "fieldname": "to_address",
+      "fieldtype": "Small Text",
+      "label": "To Address"
+    },
+    {
+      "fieldname": "to_latitude",
+      "fieldtype": "Float",
+      "label": "To Latitude",
+      "precision": 8
+    },
+    {
+      "fieldname": "to_longitude",
+      "fieldtype": "Float",
+      "label": "To Longitude",
+      "precision": 8
     },
     {
       "fieldname": "column_break_2",
