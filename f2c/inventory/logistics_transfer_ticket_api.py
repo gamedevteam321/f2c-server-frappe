@@ -1,7 +1,7 @@
 import json
 import frappe
 from frappe import _
-from frappe.utils import cint, flt, now_datetime
+from frappe.utils import cint, flt, get_datetime, now_datetime
 
 
 def _normalize_photo_urls(value):
@@ -226,6 +226,8 @@ def create_logistics_transfer_ticket(
 	to_address: str | None = None,
 	to_latitude: float | None = None,
 	to_longitude: float | None = None,
+	planned_pickup_on: str | None = None,
+	planned_drop_off_on: str | None = None,
 ):
 	"""
 	Create ONE Logistics Transfer Ticket.
@@ -502,8 +504,21 @@ def create_logistics_transfer_ticket(
 		ticket_data["to_latitude"] = flt(to_latitude)
 		ticket_data["to_longitude"] = flt(to_longitude)
 
+	if planned_pickup_on:
+		ticket_data["planned_pickup_on"] = get_datetime(planned_pickup_on)
+	if planned_drop_off_on:
+		ticket_data["planned_drop_off_on"] = get_datetime(planned_drop_off_on)
+
 	ticket = frappe.get_doc(ticket_data)
 	ticket.insert(ignore_permissions=True)
+
+	# Default planned dates to creation when not provided
+	if not ticket_data.get("planned_pickup_on"):
+		ticket.planned_pickup_on = ticket.creation
+	if not ticket_data.get("planned_drop_off_on"):
+		ticket.planned_drop_off_on = ticket.creation
+	if ticket.planned_pickup_on or ticket.planned_drop_off_on:
+		ticket.save(ignore_permissions=True)
 
 	return {
 		"ticket": ticket.name,
@@ -637,11 +652,14 @@ def start_drop_off(ticket_name: str):
 def mark_reported(ticket_name: str, reason: str = "", report_image: str = ""):
 	if not ticket_name:
 		frappe.throw(_("ticket_name is required"))
+	reason = (reason or "").strip()
+	if not reason:
+		frappe.throw(_("Report reason is required."))
 	ticket = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
 	if ticket.status in ("Received", "Cancelled"):
 		frappe.throw(_("Cannot report a Received/Cancelled ticket"))
 	ticket.status = "Reported"
-	ticket.report_reason = reason or ticket.report_reason
+	ticket.report_reason = reason
 	if report_image:
 		ticket.report_image = report_image
 	ticket.save(ignore_permissions=True)

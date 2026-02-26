@@ -1,6 +1,6 @@
 import frappe
 from frappe import _
-from frappe.utils import now_datetime
+from frappe.utils import now_datetime, get_datetime
 
 
 @frappe.whitelist()
@@ -45,12 +45,13 @@ def get_logistics_tickets(transfer_type=None, status=None, from_warehouse=None,
 
 
 @frappe.whitelist()
-def resolve_reported_ticket(ticket_name, resolution_type, notes=None):
+def resolve_reported_ticket(ticket_name, resolution_type, notes=None, planned_pickup_on=None):
     """
     Resolve a Reported ticket.
     resolution_type:
       - 'solved'      → move to Received (mark as delivered)
-      - 'reschedule'  → move back to Pending Pickup (restart the pickup)
+      - 'reschedule'  → move back to Pending Pickup (restart the pickup).
+        Optional planned_pickup_on: datetime string for when pickup is planned (e.g. ISO or YYYY-MM-DD HH:mm:ss).
     """
     ticket = frappe.get_doc('Logistics Transfer Ticket', ticket_name)
 
@@ -70,6 +71,8 @@ def resolve_reported_ticket(ticket_name, resolution_type, notes=None):
     elif resolution_type == 'reschedule':
         ticket.status = 'Pending Pickup'
         ticket.dispatched_on = None
+        if planned_pickup_on:
+            ticket.planned_pickup_on = get_datetime(planned_pickup_on)
         if notes:
             ticket.report_reason = (ticket.report_reason or '') + '\n[Resolved - Rescheduled]: ' + notes
         ticket.save(ignore_permissions=True)
@@ -139,3 +142,49 @@ def get_warehouse_location_coords(warehouse):
         pass
 
     return None
+
+
+@frappe.whitelist()
+def get_ltt_location_coords_batch(ticket_names):
+    """
+    Return pickup and drop-off coordinates for multiple LTTs.
+    ticket_names: list of Logistics Transfer Ticket names.
+    Returns: { ticket_name: { "pickup": { "lat", "lng" } | null, "drop_off": { "lat", "lng" } | null }, ... }
+    """
+    from frappe.utils import flt
+
+    if not ticket_names:
+        return {}
+    if isinstance(ticket_names, str):
+        ticket_names = frappe.parse_json(ticket_names) or []
+    result = {}
+    for name in ticket_names:
+        if not name:
+            continue
+        try:
+            doc = frappe.get_doc("Logistics Transfer Ticket", name)
+        except Exception:
+            result[name] = {"pickup": None, "drop_off": None}
+            continue
+        pickup = None
+        drop_off = None
+        from_lt = (doc.from_location_type or "Warehouse").strip()
+        to_lt = (doc.to_location_type or "Warehouse").strip()
+        if from_lt == "Warehouse" and doc.from_warehouse:
+            wh_coords = get_warehouse_location_coords(doc.from_warehouse)
+            if wh_coords and wh_coords.get("lat") is not None and wh_coords.get("lng") is not None:
+                pickup = {"lat": float(wh_coords["lat"]), "lng": float(wh_coords["lng"])}
+        else:
+            lat, lng = getattr(doc, "from_latitude", None), getattr(doc, "from_longitude", None)
+            if lat is not None and lng is not None and (flt(lat) != 0 or flt(lng) != 0):
+                pickup = {"lat": float(lat), "lng": float(lng)}
+        if to_lt == "Warehouse" and doc.to_warehouse:
+            wh_coords = get_warehouse_location_coords(doc.to_warehouse)
+            if wh_coords and wh_coords.get("lat") is not None and wh_coords.get("lng") is not None:
+                drop_off = {"lat": float(wh_coords["lat"]), "lng": float(wh_coords["lng"])}
+        else:
+            lat, lng = getattr(doc, "to_latitude", None), getattr(doc, "to_longitude", None)
+            if lat is not None and lng is not None and (flt(lat) != 0 or flt(lng) != 0):
+                drop_off = {"lat": float(lat), "lng": float(lng)}
+        result[name] = {"pickup": pickup, "drop_off": drop_off}
+    return result

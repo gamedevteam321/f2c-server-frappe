@@ -36,6 +36,8 @@
     "section_break_assets",
     "asset_items",
     "section_break_timestamps",
+    "planned_pickup_on",
+    "planned_drop_off_on",
     "dispatched_on",
     "dispatch_photo",
     "column_break_3",
@@ -218,6 +220,16 @@
       "fieldtype": "Section Break",
       "label": "Timestamps",
       "collapsible": 1
+    },
+    {
+      "fieldname": "planned_pickup_on",
+      "fieldtype": "Datetime",
+      "label": "Planned Pickup On"
+    },
+    {
+      "fieldname": "planned_drop_off_on",
+      "fieldtype": "Datetime",
+      "label": "Planned Drop Off On"
     },
     {
       "fieldname": "dispatched_on",
