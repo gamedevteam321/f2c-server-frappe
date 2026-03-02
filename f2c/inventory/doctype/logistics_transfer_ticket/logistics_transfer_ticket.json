@@ -42,6 +42,7 @@
     "dispatch_photo",
     "column_break_3",
     "received_on",
+    "delivered_on",
     "receive_photo",
     "section_break_report",
     "report_reason",
@@ -159,7 +160,7 @@
       "fieldname": "pickup_phase",
       "fieldtype": "Select",
       "label": "Pick up Phase",
-      "options": "\nUpcoming\nNot Started\nIn Transit\nPicked Up",
+      "options": "\nUpcoming\nNot Started\nIn Transit\nAt Pickup Point\nPicked Up",
       "default": "Upcoming",
       "read_only": 1
     },
@@ -167,7 +168,7 @@
       "fieldname": "drop_off_phase",
       "fieldtype": "Select",
       "label": "Drop off Phase",
-      "options": "\nNot Started\nIn Transit\nDelivered",
+      "options": "\nNot Started\nIn Transit\nAt Drop Off Point\nDelivered",
       "read_only": 1
     },
     {
@@ -250,6 +251,12 @@
       "fieldname": "received_on",
       "fieldtype": "Datetime",
       "label": "Received On",
+      "read_only": 1
+    },
+    {
+      "fieldname": "delivered_on",
+      "fieldtype": "Datetime",
+      "label": "Delivered On",
       "read_only": 1
     },
     {
