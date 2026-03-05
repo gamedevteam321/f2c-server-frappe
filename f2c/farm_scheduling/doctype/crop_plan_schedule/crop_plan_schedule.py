@@ -1795,7 +1795,7 @@ def get_available_assets_for_cluster(
 		
 		# Method 1: Find assets by location (if locations are available)
 		if location_list:
-			asset_filters = [["location", "in", location_list]]
+			asset_filters = [["location", "in", location_list], ["docstatus", "<", 2]]
 			if asset_category:
 				asset_filters.append(["asset_category", "like", f"%{asset_category}%"])
 			
@@ -1856,7 +1856,7 @@ def get_available_assets_for_cluster(
 				matching_location_ids = [loc.name for loc in matching_locations]
 				
 				if matching_location_ids:
-					asset_filters = [["location", "in", matching_location_ids]]
+					asset_filters = [["location", "in", matching_location_ids], ["docstatus", "<", 2]]
 					if asset_category:
 						asset_filters.append(["asset_category", "like", f"%{asset_category}%"])
 					
@@ -1885,7 +1885,7 @@ def get_available_assets_for_cluster(
 					
 					if all_locations:
 						matching_location_ids = [loc.name for loc in all_locations]
-						asset_filters = [["location", "in", matching_location_ids]]
+						asset_filters = [["location", "in", matching_location_ids], ["docstatus", "<", 2]]
 						if asset_category:
 							asset_filters.append(["asset_category", "like", f"%{asset_category}%"])
 						
@@ -1901,15 +1901,15 @@ def get_available_assets_for_cluster(
 		# Method 4: Last resort - get all assets with category and check if their location maps to cluster warehouses
 		if not assets and warehouse_list:
 			try:
-				# Get all assets with the category
-				asset_filters = []
+				# Get all assets with the category (draft and submitted)
+				asset_filters = [["docstatus", "<", 2]]
 				if asset_category:
 					asset_filters.append(["asset_category", "like", f"%{asset_category}%"])
 				
 				all_assets = frappe.get_all(
 					"Asset",
 					fields=["name", "asset_name", "asset_category", "location", "status"],
-					filters=asset_filters if asset_filters else None,
+					filters=asset_filters,
 					limit=1000
 				)
 				

@@ -1677,7 +1677,7 @@ def get_available_assets_for_cluster(
 		
 		# Method 1: Find assets by location (if locations are available)
 		if location_list:
-			asset_filters = [["location", "in", location_list]]
+			asset_filters = [["location", "in", location_list], ["docstatus", "<", 2]]
 			if asset_category:
 				asset_filters.append(["asset_category", "like", f"%{asset_category}%"])
 			
@@ -1738,7 +1738,7 @@ def get_available_assets_for_cluster(
 				matching_location_ids = [loc.name for loc in matching_locations]
 				
 				if matching_location_ids:
-					asset_filters = [["location", "in", matching_location_ids]]
+					asset_filters = [["location", "in", matching_location_ids], ["docstatus", "<", 2]]
 					if asset_category:
 						asset_filters.append(["asset_category", "like", f"%{asset_category}%"])
 					

@@ -111,9 +111,7 @@ class Machinery(Document):
 
 		try:
 			asset_doc.insert(ignore_permissions=True)
-			# Keep behavior consistent with ERPNext flows: a usable Asset is typically Submitted.
-			asset_doc.flags.ignore_permissions = True
-			asset_doc.submit()
+			# Leave Asset in Draft so user can review before submitting.
 		except Exception as e:
 			frappe.throw(_("Failed to auto-create Asset: {0}").format(str(e)))
 

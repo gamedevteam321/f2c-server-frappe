@@ -556,7 +556,7 @@ def get_assets_for_warehouse(warehouse: str):
 		assets = frappe.get_all(
 			"Asset",
 			fields=["name", "asset_name", "item_code", "asset_category", "location", "status", "asset_quantity"],
-			filters=[["location", "=", location]],
+			filters=[["location", "=", location], ["docstatus", "<", 2]],
 			limit=1000
 		)
 	
@@ -591,7 +591,7 @@ def get_assets_for_warehouse(warehouse: str):
 				assets = frappe.get_all(
 					"Asset",
 					fields=["name", "asset_name", "item_code", "asset_category", "location", "status", "asset_quantity"],
-					filters=[["location", "in", matching_locations]],
+					filters=[["location", "in", matching_locations], ["docstatus", "<", 2]],
 					limit=1000
 				)
 	
@@ -620,7 +620,7 @@ def get_assets_for_warehouse(warehouse: str):
 				assets = frappe.get_all(
 					"Asset",
 					fields=["name", "asset_name", "item_code", "asset_category", "location", "status", "asset_quantity"],
-					filters=[["location", "in", matching_locations]],
+					filters=[["location", "in", matching_locations], ["docstatus", "<", 2]],
 					limit=1000
 				)
 	

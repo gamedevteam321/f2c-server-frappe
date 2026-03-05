@@ -144,9 +144,9 @@ delete_file_data_content = ["f2c.file_storage.delete_file_data_content"]
 # ---------------
 # Override standard doctype classes
 
-# override_doctype_class = {
-# 	"ToDo": "custom_app.overrides.CustomToDo"
-# }
+override_doctype_class = {
+	"Asset Movement": "f2c.inventory.overrides.asset_movement.F2CAssetMovement",
+}
 
 # Document Events
 # ---------------
