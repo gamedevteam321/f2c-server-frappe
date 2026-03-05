@@ -417,3 +417,71 @@ Return ONLY valid JSON with this exact structure (use empty string "" for any fi
 		"debug": {"error": str(last_error) if last_error else "Unknown error"},
 	}
 
+
+def identify_same_person_from_extractions(extractions: list) -> Dict:
+	"""
+	Given a list of visiting card extraction results (each with contact_person_name, phone_number, email, etc.),
+	return which extractions refer to the same person. Uses Gemini text-only.
+
+	Returns:
+		{"success": True, "groups": [[0, 1], [2]]} meaning extractions 0 and 1 are one person, 2 is another.
+		Or {"success": False, "error": "..."}.
+	"""
+	try:
+		import google.generativeai as genai
+	except ImportError:
+		return {"success": False, "error": "google-generativeai is not installed", "groups": []}
+
+	api_key = frappe.conf.get("gemini_api_key")
+	if not api_key:
+		return {"success": False, "error": "Gemini API key not configured", "groups": []}
+
+	genai.configure(api_key=api_key)
+	if not extractions or not isinstance(extractions, list):
+		return {"success": True, "groups": [[i] for i in range(len(extractions) or 1)]}
+
+	prompt = """You are given a list of contact extractions from visiting card images (one extraction per image).
+Each extraction has: company_name, contact_person_name, contact_person_designation, phone_number, email.
+
+Determine which extractions refer to the SAME person (e.g. front and back of one card, or same person on two cards).
+Return ONLY valid JSON with this exact structure:
+{"groups": [[0, 1], [2]]}
+
+Here each inner array is a list of extraction indices (0-based) that are the same person.
+So [[0, 1], [2]] means extractions 0 and 1 are one person, extraction 2 is a different person.
+
+Extractions (one per index):
+"""
+	for i, ex in enumerate(extractions):
+		if isinstance(ex, dict):
+			prompt += f"\nIndex {i}: {json.dumps(ex, ensure_ascii=False)}\n"
+		else:
+			prompt += f"\nIndex {i}: {ex}\n"
+
+	try:
+		model = genai.GenerativeModel("gemini-2.0-flash")
+		response = model.generate_content(prompt)
+		text = (response.text or "").strip()
+		if "```json" in text:
+			text = text.split("```json")[1].split("```")[0].strip()
+		elif "```" in text:
+			text = text.split("```")[1].split("```")[0].strip()
+		out = json.loads(text)
+		groups = out.get("groups")
+		if not isinstance(groups, list):
+			return {"success": True, "groups": [[i] for i in range(len(extractions))]}
+		# Validate: each index 0..n-1 appears exactly once
+		seen = set()
+		for g in groups:
+			if not isinstance(g, list):
+				continue
+			for idx in g:
+				if isinstance(idx, int) and 0 <= idx < len(extractions):
+					seen.add(idx)
+		if len(seen) != len(extractions):
+			return {"success": True, "groups": [[i] for i in range(len(extractions))]}
+		return {"success": True, "groups": groups}
+	except Exception as e:
+		frappe.log_error(f"identify_same_person_from_extractions: {str(e)}", "Gemini Same Person")
+		return {"success": False, "error": str(e), "groups": [[i] for i in range(len(extractions))]}
+
