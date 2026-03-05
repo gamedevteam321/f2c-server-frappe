@@ -327,8 +327,8 @@ Return ONLY valid JSON with this exact structure (use empty string "" for any fi
   "state": "state or region",
   "country": "country",
   "pincode": "pincode / zip / postal code",
-  "phone_number": "phone number(s) - can combine if multiple",
-  "email": "email address",
+  "phone_number": "phone number(s) - if multiple, put each on a new line (one per line)",
+  "email": "email address(es) - if multiple, put each on a new line (one per line)",
   "contact_person_name": "name of contact person",
   "contact_person_designation": "designation or title (e.g. Sales Manager)"
 }
