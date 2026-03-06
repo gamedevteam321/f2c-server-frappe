@@ -635,6 +635,28 @@ def get_assets_for_warehouse(warehouse: str):
 
 
 @frappe.whitelist()
+def get_all_assets():
+	"""
+	Return all assets (draft and submitted, not cancelled) for use when
+	"All" is selected in Warehouse Inventory Equipments tab.
+	"""
+	assets = frappe.get_all(
+		"Asset",
+		fields=["name", "asset_name", "item_code", "asset_category", "location", "status", "asset_quantity"],
+		filters=[["docstatus", "<", 2]],
+		limit=5000,
+		order_by="modified desc",
+	)
+	# Use location as warehouse display when no warehouse mapping (for "all" view)
+	out = []
+	for a in assets:
+		row = dict(a)
+		row["warehouse"] = row.get("location") or ""
+		out.append(row)
+	return {"assets": out, "count": len(out)}
+
+
+@frappe.whitelist()
 def get_available_balance(item_code: str, warehouse: str):
 	"""
 	Get available stock balance for an item in a warehouse.

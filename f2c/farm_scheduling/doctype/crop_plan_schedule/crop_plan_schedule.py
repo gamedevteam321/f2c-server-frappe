@@ -1750,11 +1750,34 @@ def get_available_assets_for_cluster(
 		
 		frappe.log_error(f"get_available_assets_for_cluster: Found cluster={cluster} for target_area={target_area}", "Asset Filter Debug")
 		
-		# Get all warehouses in this cluster
+		# Build list of all geo areas in cluster (cluster + fields + blocks) so we include
+		# warehouses linked at cluster, field, or block level (equipment may be in any of these)
+		cluster_geo_areas = [cluster]
+		try:
+			child_areas = frappe.get_all(
+				"Geo Fencing Area",
+				filters={"parent_area": cluster},
+				fields=["name"],
+				limit_page_length=0
+			)
+			for area in child_areas:
+				cluster_geo_areas.append(area.name)
+				blocks = frappe.get_all(
+					"Geo Fencing Area",
+					filters={"parent_area": area.name},
+					fields=["name"],
+					limit_page_length=0
+				)
+				for b in blocks:
+					cluster_geo_areas.append(b.name)
+		except Exception:
+			pass
+		
+		# Get all warehouses linked to cluster or any descendant area (field/block)
 		warehouses = frappe.get_all(
 			"Geo Fencing Area Warehouse",
 			fields=["warehouse"],
-			filters={"parent": cluster, "parenttype": "Geo Fencing Area"},
+			filters={"parent": ["in", cluster_geo_areas], "parenttype": "Geo Fencing Area"},
 			limit_page_length=0
 		)
 		cluster_warehouse_list = [w.warehouse for w in warehouses if w.warehouse]
@@ -1805,6 +1828,25 @@ def get_available_assets_for_cluster(
 				filters=asset_filters,
 				limit=1000
 			)
+		
+		# Method 1b: If no assets yet, use same per-warehouse lookup as Equipments page (field 1, etc.)
+		# so assets shown under a cluster warehouse in inventory appear in scheduling
+		if not assets and warehouse_list:
+			from f2c.inventory.logistics_transfer_ticket_api import get_assets_for_warehouse
+			seen_names = set()
+			for wh in warehouse_list:
+				try:
+					result = get_assets_for_warehouse(wh)
+					wh_assets = result.get("assets") or []
+					for a in wh_assets:
+						if a.get("name") and a["name"] not in seen_names:
+							if not asset_category or ((a.get("asset_category") or "").lower().find(asset_category.lower()) >= 0):
+								assets.append(a)
+								seen_names.add(a["name"])
+				except Exception:
+					continue
+			if assets:
+				frappe.log_error(f"get_available_assets_for_cluster: Method 1b found {len(assets)} assets via get_assets_for_warehouse", "Asset Filter Debug")
 		
 		# Method 2: If no assets found by location, try finding assets by location name pattern matching
 		# Build location names for cluster and all its children, then find assets with matching location names

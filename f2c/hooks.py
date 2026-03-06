@@ -50,6 +50,7 @@ doctype_js = {
 # List-view customization for doctypes
 doctype_list_js = {
 	"Location": "public/js/location_list_geo_fencing_sync.js",
+	"Asset": "public/js/asset_list_override.js",
 }
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
@@ -185,6 +186,9 @@ doc_events = {
 	},
 	"Asset": {
 		"on_update": "f2c.inventory.warehouse_stock_sync_hooks.trigger_warehouse_stock_sync_on_asset_update",
+	},
+	"Item": {
+		"before_validate": "f2c.inventory.item_hsn_default.set_default_gst_hsn_code_for_fixed_asset",
 	},
 }
 
