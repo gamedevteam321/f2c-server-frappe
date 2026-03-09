@@ -77,8 +77,8 @@ class HandTool(Document):
 				"available_for_use_date": available_for_use_date,
 				"gross_purchase_amount": self.price or 0,
 				"is_existing_asset": 1 if is_existing_asset else 0,
-				"asset_owner": "Company",
-				"asset_owner_company": self.company,
+				"asset_owner": getattr(self, "asset_owner", None) or "Company",
+				"asset_owner_company": (getattr(self, "asset_owner_company", None) or self.company) if (getattr(self, "asset_owner", None) or "Company") == "Company" else None,
 				"asset_quantity": 1,
 			}
 		)

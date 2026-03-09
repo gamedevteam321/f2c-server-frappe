@@ -21,6 +21,8 @@
     "purchase_date",
     "is_existing_asset",
     "available_for_use_date",
+    "asset_owner",
+    "asset_owner_company",
     "purchase_receipt",
     "purchase_invoice",
     "asset_name",
@@ -112,6 +114,22 @@
       "fieldname": "available_for_use_date",
       "fieldtype": "Date",
       "label": "Available-for-use Date"
+    },
+    {
+      "default": "Company",
+      "depends_on": "eval:!doc.asset",
+      "fieldname": "asset_owner",
+      "fieldtype": "Select",
+      "label": "Asset Owner",
+      "options": "\nCompany\nSupplier\nCustomer"
+    },
+    {
+      "allow_on_submit": 1,
+      "depends_on": "eval:!doc.asset && doc.asset_owner == \"Company\"",
+      "fieldname": "asset_owner_company",
+      "fieldtype": "Link",
+      "label": "Asset Owner Company",
+      "options": "Company"
     },
     {
       "depends_on": "eval:!doc.asset && !doc.is_existing_asset",
@@ -216,6 +234,7 @@
       "label": "Price"
     },
     {
+      "allow_on_submit": 1,
       "fieldname": "status",
       "fieldtype": "Select",
       "label": "Status",
@@ -229,16 +248,19 @@
       "label": "Additional"
     },
     {
+      "allow_on_submit": 1,
       "fieldname": "features",
       "fieldtype": "Text",
       "label": "Features"
     },
     {
+      "allow_on_submit": 1,
       "fieldname": "description",
       "fieldtype": "Text",
       "label": "Description"
     },
     {
+      "allow_on_submit": 1,
       "description": "Stores dynamic spec fields (Base + Category + Sub-category overlays) as JSON.",
       "fieldname": "specs_json",
       "fieldtype": "JSON",
