@@ -6,9 +6,10 @@ This module does not import numpy or heavy OCR deps, so it works on arm64 even i
 """
 
 import base64
+import json
 import frappe
 from io import BytesIO
-from typing import Dict
+from typing import Dict, List, Any
 
 try:
 	from PIL import Image
@@ -64,3 +65,18 @@ def extract_visiting_card_details(image: str) -> Dict:
 				"contact_person_designation": "",
 			},
 		}
+
+
+@frappe.whitelist(allow_guest=False)
+def identify_same_person_from_extractions(extractions: str = "[]") -> Dict:
+	"""
+	Given a JSON list of visiting card extraction results, return which refer to the same person.
+	Returns {"success": True, "groups": [[0, 1], [2]]} or {"success": False, "error": "..."}.
+	"""
+	try:
+		if isinstance(extractions, str):
+			extractions = json.loads(extractions)
+		from f2c.farm_worker.api.gemini_extract import identify_same_person_from_extractions as gemini_identify
+		return gemini_identify(extractions)
+	except Exception as e:
+		return {"success": False, "error": str(e), "groups": []}
