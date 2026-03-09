@@ -468,6 +468,12 @@ def mark_received(ticket_name: str, receive_photo_url=None):
 		if am.docstatus == 0:
 			am.submit()
 
+	new_status = _get_equipment_status_for_destination_warehouse(ticket.to_warehouse)
+	if new_status and getattr(ticket, "asset_items", None):
+		for row in ticket.asset_items:
+			if row.get("asset"):
+				_set_equipment_status_for_asset(row.asset, new_status)
+
 	ticket.status = "Received"
 	ticket.received_on = now_datetime()
 	photo_json = _normalize_photo_urls(receive_photo_url)
@@ -495,6 +501,12 @@ def revert_received(ticket_name: str):
 		am = frappe.get_doc("Asset Movement", ticket.asset_movement)
 		if am.docstatus == 1:
 			am.cancel()
+
+	new_status = _get_equipment_status_for_destination_warehouse(ticket.from_warehouse)
+	if new_status and getattr(ticket, "asset_items", None):
+		for row in ticket.asset_items:
+			if row.get("asset"):
+				_set_equipment_status_for_asset(row.asset, new_status)
 
 	ticket.status = "In Transit"
 	ticket.received_on = None
@@ -542,6 +554,41 @@ def _get_equipment_status_for_asset(asset_name: str) -> str | None:
 		if status:
 			return status
 	return None
+
+
+def _get_equipment_status_for_destination_warehouse(warehouse: str) -> str | None:
+	"""
+	Return equipment status to set based on warehouse's geo type.
+	Field -> In Use; Cluster or Farm -> Available; else None (do not change).
+	"""
+	if not warehouse:
+		return None
+	try:
+		location_result = get_location_for_warehouse(warehouse)
+	except Exception:
+		return None
+	geo_area = location_result.get("geo_area") if location_result else None
+	if not geo_area:
+		return None
+	area_type = frappe.db.get_value("Geo Fencing Area", geo_area, "geo_fencing_type")
+	if area_type == "Field":
+		return "In Use"
+	if area_type in ("Cluster", "Farm"):
+		return "Available"
+	return None
+
+
+def _set_equipment_status_for_asset(asset_name: str, status: str) -> None:
+	"""
+	Set status on the equipment doc (Machinery, Implement, Hand Tool, Other Tool) linked to this Asset.
+	"""
+	if not asset_name or not status:
+		return
+	for doctype in ("Machinery", "Implement", "Hand Tool", "Other Tool"):
+		name = frappe.db.get_value(doctype, {"asset": asset_name}, "name")
+		if name:
+			frappe.db.set_value(doctype, name, "status", status)
+			break
 
 
 @frappe.whitelist()

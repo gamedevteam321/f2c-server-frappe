@@ -124,6 +124,7 @@
     {
       "fieldname": "default_status",
       "fieldtype": "Select",
+      "hidden": 1,
       "label": "Default Status",
       "options": "\nAvailable\nIn Use\nMaintenance\nRetired",
       "default": "Available"
