@@ -3,6 +3,12 @@
 
 frappe.ui.form.on('Crop Plan', {
 	refresh: function(frm) {
+		// Date: auto-fetch today when creating, always read-only (not editable)
+		if (frm.is_new()) {
+			frm.set_value('date', frappe.datetime.get_today());
+		}
+		frm.set_df_property('date', 'read_only', 1);
+
 		// Clean up any existing buttons first
 		if (frm.fields_dict.blocks && frm.fields_dict.blocks.grid && frm.fields_dict.blocks.grid.wrapper) {
 			frm.fields_dict.blocks.grid.wrapper.find('.activities-btn-wrapper').remove();
