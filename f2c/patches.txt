@@ -10,3 +10,5 @@ f2c.patches.farm_task_execution_status_ready
 f2c.patches.farm_task_execution_status_paused_to_on_hold
 f2c.patches.equipment_remarks_to_return_type
 f2c.patches.backfill_farm_report_ticket_report_module
+f2c.patches.asset_naming_series
+f2c.patches.asset_naming_series_to_ast

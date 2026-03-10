@@ -24,11 +24,36 @@ def ensure_irrigation_types() -> None:
 		).insert(ignore_permissions=True)
 
 
+def ensure_item_group_default_gst_hsn_code_field() -> None:
+	"""Add Custom Field on Item Group for default GST HSN Code (India Compliance). Idempotent."""
+	if not frappe.db.table_exists("GST HSN Code"):
+		return
+	if frappe.db.exists("Custom Field", {"dt": "Item Group", "fieldname": "default_gst_hsn_code"}):
+		return
+	try:
+		frappe.get_doc(
+			{
+				"doctype": "Custom Field",
+				"dt": "Item Group",
+				"fieldname": "default_gst_hsn_code",
+				"label": "Default GST HSN Code",
+				"fieldtype": "Link",
+				"options": "GST HSN Code",
+				"insert_after": "parent_item_group",
+				"description": "Default HSN/SAC code for Items in this group (used when creating fixed-asset Items).",
+			}
+		).insert(ignore_permissions=True)
+		frappe.db.commit()
+	except Exception:
+		frappe.log_error(frappe.get_traceback(), "f2c ensure_item_group_default_gst_hsn_code_field failed")
+
+
 def after_migrate() -> None:
 	"""Hook: run after `bench migrate`."""
 	try:
 		ensure_irrigation_types()
 		seed_water_source()
+		ensure_item_group_default_gst_hsn_code_field()
 	except Exception:
 		# Never block migrations due to seed failures
 		frappe.log_error(frappe.get_traceback(), "f2c.after_migrate seed_defaults failed")

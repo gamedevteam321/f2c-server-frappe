@@ -126,11 +126,11 @@ def _get_assets_for_warehouse(warehouse: str) -> list[dict]:
 	if not location:
 		return []
 
-	# Query assets by location
+	# Query assets by location (draft and submitted)
 	assets = frappe.get_all(
 		"Asset",
 		fields=["name", "asset_name", "status", "location", "asset_category"],
-		filters=[["location", "=", location]],
+		filters=[["location", "=", location], ["docstatus", "<", 2]],
 		limit=1000
 	)
 

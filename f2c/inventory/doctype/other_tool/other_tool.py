@@ -77,8 +77,8 @@ class OtherTool(Document):
 				"available_for_use_date": available_for_use_date,
 				"gross_purchase_amount": self.price or 0,
 				"is_existing_asset": 1 if is_existing_asset else 0,
-				"asset_owner": "Company",
-				"asset_owner_company": self.company,
+				"asset_owner": getattr(self, "asset_owner", None) or "Company",
+				"asset_owner_company": (getattr(self, "asset_owner_company", None) or self.company) if (getattr(self, "asset_owner", None) or "Company") == "Company" else None,
 				"asset_quantity": 1,
 			}
 		)
@@ -94,8 +94,7 @@ class OtherTool(Document):
 
 		try:
 			asset_doc.insert(ignore_permissions=True)
-			asset_doc.flags.ignore_permissions = True
-			asset_doc.submit()
+			# Leave Asset in Draft so user can review before submitting.
 		except Exception as e:
 			frappe.throw(_("Failed to auto-create Asset: {0}").format(str(e)))
 
