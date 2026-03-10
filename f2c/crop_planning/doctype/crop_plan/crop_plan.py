@@ -5,7 +5,6 @@
 from __future__ import unicode_literals
 import json
 import frappe
-from frappe import _
 from frappe.model.document import Document
 from frappe.utils import getdate
 
@@ -31,29 +30,9 @@ class CropPlan(Document):
 	
 	def validate(self):
 		"""Validate document and calculate total blocks"""
-		self.validate_no_backdate()
-		self.validate_date_not_changed()
 		self.calculate_field_area_acres()
 		self.validate_blocks_belong_to_field()
 		self.calculate_block_areas()
-
-	def validate_no_backdate(self):
-		"""On create, auto-set date to today. Date is not editable by user."""
-		if self.is_new():
-			self.date = getdate()
-			return
-		if not self.date:
-			return
-		if getdate(self.date) < getdate():
-			frappe.throw(_("Crop Plan date cannot be in the past. Please select today's date or a future date."))
-
-	def validate_date_not_changed(self):
-		"""Do not allow changing the date after the Crop Plan has been saved."""
-		if self.is_new() or not self.date:
-			return
-		existing_date = frappe.db.get_value("Crop Plan", self.name, "date")
-		if existing_date and getdate(self.date) != getdate(existing_date):
-			frappe.throw(_("Date cannot be changed after the Crop Plan has been saved."))
 
 	def on_update(self):
 		"""After save, perform any necessary operations"""
@@ -841,18 +820,8 @@ def create_or_update_crop_plan_with_activities(crop_plan_data):
 		
 		main_doc_data = {k: v for k, v in crop_plan_data.items() if k not in ['activities', 'blocks', 'approved_inputs', 'approved_input_mixes', 'name']}
 		
-		# On create, auto-set date to today (not editable by user)
-		if not crop_plan_name:
-			main_doc_data['date'] = getdate()
-		
 		if crop_plan_name:
 			crop_plan_doc = frappe.get_doc('Crop Plan', crop_plan_name)
-			# Do not allow changing date on existing Crop Plan
-			if 'date' in main_doc_data:
-				existing_date = frappe.db.get_value('Crop Plan', crop_plan_name, 'date')
-				if existing_date and getdate(main_doc_data['date']) != getdate(existing_date):
-					frappe.throw(_("Date cannot be changed after the Crop Plan has been saved."))
-				main_doc_data = {k: v for k, v in main_doc_data.items() if k != 'date'}
 			for key, value in main_doc_data.items():
 				if key not in ['doctype', 'name']:
 					setattr(crop_plan_doc, key, value)
