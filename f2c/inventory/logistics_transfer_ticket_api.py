@@ -47,9 +47,34 @@ def _geo_area_path_names(geo_area_name: str) -> list[str]:
 
 
 def _build_location_name_for_geo_area(geo_area_name: str) -> str:
-	# naming convention: Farm-Cluster-Field-Block (based on area_name hierarchy)
-	parts = _geo_area_path_names(geo_area_name)
-	return "-".join([p.strip() for p in parts if p and str(p).strip()])
+	"""
+	Build location_name that matches Location records created by create_locations_from_geo_warehouses.
+	Must use the same logic as f2c.farm_to_crop.location_sync._build_location_name_from_area
+	(Farm/Cluster/Field/Block only) so warehouse->location lookup finds the correct Location.
+	"""
+	from f2c.farm_to_crop.location_sync import _build_location_name_from_area
+	return _build_location_name_from_area(geo_area_name)
+
+
+def _get_location_by_name(location_name: str):
+	"""
+	Return Location docname for the given location_name.
+	Tries exact match first, then case-insensitive match so that differing casing
+	between Geo Fencing Area (area_name) and stored Location does not break lookup.
+	"""
+	if not (location_name or "").strip():
+		return None
+	# Exact match first (fast path)
+	loc = frappe.db.get_value("Location", {"location_name": location_name}, "name")
+	if loc:
+		return loc
+	# Case-insensitive fallback (e.g. prod DB collation or data entry differs from local)
+	result = frappe.db.sql(
+		"SELECT name FROM `tabLocation` WHERE LOWER(TRIM(location_name)) = LOWER(TRIM(%s)) LIMIT 1",
+		(location_name,),
+		as_dict=False,
+	)
+	return result[0][0] if result else None
 
 
 @frappe.whitelist()
@@ -122,7 +147,7 @@ def get_location_for_warehouse(warehouse: str):
 		return {"warehouse": warehouse, "geo_area": None, "location": None, "location_name": None}
 
 	location_name = _build_location_name_for_geo_area(geo_area)
-	loc = frappe.db.get_value("Location", {"location_name": location_name}, "name")
+	loc = _get_location_by_name(location_name)
 	return {"warehouse": warehouse, "geo_area": geo_area, "location": loc, "location_name": location_name}
 
 
@@ -131,7 +156,7 @@ def get_location_for_geo_area(geo_area: str):
 	if not geo_area:
 		frappe.throw(_("geo_area is required"))
 	location_name = _build_location_name_for_geo_area(geo_area)
-	loc = frappe.db.get_value("Location", {"location_name": location_name}, "name")
+	loc = _get_location_by_name(location_name)
 	return {"geo_area": geo_area, "location": loc, "location_name": location_name}
 
 

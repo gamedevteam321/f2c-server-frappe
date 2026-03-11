@@ -285,11 +285,27 @@ def create_locations_from_geo_warehouses(update_existing: int = 0):
 	existing_names = set(
 		n for (n,) in frappe.db.sql("select location_name from `tabLocation`", as_list=True) if n
 	)
+	# Case-insensitive set so we don't create duplicates when only casing differs
+	existing_names_lower = set((n or "").lower() for n in existing_names)
 
 	created = 0
 	skipped_existing = 0
 	updated_existing = 0
 	errors = []
+
+	def _get_location_docname_by_name(location_name_str):
+		"""Get Location name (docname) by location_name, case-insensitive."""
+		if not (location_name_str or "").strip():
+			return None
+		docname = frappe.db.get_value("Location", {"location_name": location_name_str}, "name")
+		if docname:
+			return docname
+		result = frappe.db.sql(
+			"SELECT name FROM `tabLocation` WHERE LOWER(TRIM(location_name)) = LOWER(TRIM(%s)) LIMIT 1",
+			(location_name_str,),
+			as_dict=False,
+		)
+		return result[0][0] if result else None
 
 	for warehouse, geo_area in pairs:
 		try:
@@ -300,13 +316,13 @@ def create_locations_from_geo_warehouses(update_existing: int = 0):
 
 			geojson_str, lat, lon = _geojson_and_latlng_from_geo_area(geo_area)
 
-			if location_name in existing_names:
+			if location_name.lower() in existing_names_lower:
 				if not int(update_existing):
 					skipped_existing += 1
 					continue
 
 				# Backfill coords if possible (do not overwrite non-empty fields)
-				docname = frappe.db.get_value("Location", {"location_name": location_name}, "name")
+				docname = _get_location_docname_by_name(location_name)
 				if not docname:
 					skipped_existing += 1
 					continue
@@ -340,6 +356,7 @@ def create_locations_from_geo_warehouses(update_existing: int = 0):
 			)
 			loc.insert(ignore_permissions=True)
 			existing_names.add(location_name)
+			existing_names_lower.add(location_name.lower())
 			created += 1
 
 		except Exception as e:
