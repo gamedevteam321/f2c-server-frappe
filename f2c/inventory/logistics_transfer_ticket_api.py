@@ -3,6 +3,9 @@ import frappe
 from frappe import _
 from frappe.utils import cint, flt, now_datetime
 
+# Include both Draft (0) and Submitted (1) Assets in inventory views; exclude Cancelled (2)
+ASSET_DOCSTATUS_NOT_CANCELLED = [0, 1]
+
 
 def _normalize_photo_urls(value):
 	"""Accept single URL string, list of URLs, or JSON string; return JSON string of list of URL strings."""
@@ -643,8 +646,9 @@ def get_assets_for_warehouse(warehouse: str):
 		assets = frappe.get_all(
 			"Asset",
 			fields=["name", "asset_name", "item_code", "asset_category", "location", "status", "asset_quantity"],
-			filters=[["location", "=", location], ["docstatus", "<", 2]],
-			limit=1000
+			filters=[["location", "=", location], ["docstatus", "in", ASSET_DOCSTATUS_NOT_CANCELLED]],
+			limit=1000,
+			ignore_permissions=True,
 		)
 	
 	# Method 2: Fallback - try to find assets by location name pattern matching
@@ -678,8 +682,9 @@ def get_assets_for_warehouse(warehouse: str):
 				assets = frappe.get_all(
 					"Asset",
 					fields=["name", "asset_name", "item_code", "asset_category", "location", "status", "asset_quantity"],
-					filters=[["location", "in", matching_locations], ["docstatus", "<", 2]],
-					limit=1000
+					filters=[["location", "in", matching_locations], ["docstatus", "in", ASSET_DOCSTATUS_NOT_CANCELLED]],
+					limit=1000,
+					ignore_permissions=True,
 				)
 	
 	# Method 3: Last resort - try matching by warehouse name in location names
@@ -707,8 +712,9 @@ def get_assets_for_warehouse(warehouse: str):
 				assets = frappe.get_all(
 					"Asset",
 					fields=["name", "asset_name", "item_code", "asset_category", "location", "status", "asset_quantity"],
-					filters=[["location", "in", matching_locations], ["docstatus", "<", 2]],
-					limit=1000
+					filters=[["location", "in", matching_locations], ["docstatus", "in", ASSET_DOCSTATUS_NOT_CANCELLED]],
+					limit=1000,
+					ignore_permissions=True,
 				)
 	
 	# When equipment location is a Field-type warehouse, show status as In Use
@@ -742,23 +748,28 @@ def get_all_assets():
 	assets = frappe.get_all(
 		"Asset",
 		fields=["name", "asset_name", "item_code", "asset_category", "location", "status", "asset_quantity"],
-		filters=[["docstatus", "<", 2]],
+		filters=[["docstatus", "in", ASSET_DOCSTATUS_NOT_CANCELLED]],
 		limit=5000,
 		order_by="modified desc",
+		ignore_permissions=True,
 	)
 	# When equipment location is a Field-type warehouse, show status as In Use
-	# Build location -> geo_fencing_type once for all assets
+	# Build location -> geo_fencing_type once for all assets (skip areas that fail so one bad area doesn't break response)
 	areas = frappe.get_all(
 		"Geo Fencing Area",
 		fields=["name", "geo_fencing_type"],
 		limit=2000,
+		ignore_permissions=True,
 	)
 	loc_to_type = {}
 	for area in areas:
-		res = get_location_for_geo_area(area["name"])
-		loc = res.get("location") if res else None
-		if loc and area.get("geo_fencing_type"):
-			loc_to_type[loc] = area["geo_fencing_type"]
+		try:
+			res = get_location_for_geo_area(area["name"])
+			loc = res.get("location") if res else None
+			if loc and area.get("geo_fencing_type"):
+				loc_to_type[loc] = area["geo_fencing_type"]
+		except Exception:
+			continue
 	# Use location as warehouse display when no warehouse mapping (for "all" view)
 	# Enrich with equipment status (Available, In Use, Maintenance, Retired) from source doc
 	out = []

@@ -2,7 +2,7 @@ import frappe
 from frappe.model.document import Document
 from frappe.query_builder.functions import Sum
 from frappe.utils import flt, now_datetime
-from f2c.inventory.logistics_transfer_ticket_api import get_location_for_warehouse
+from f2c.inventory.logistics_transfer_ticket_api import get_location_for_warehouse, ASSET_DOCSTATUS_NOT_CANCELLED
 
 
 class WarehouseStock(Document):
@@ -126,12 +126,13 @@ def _get_assets_for_warehouse(warehouse: str) -> list[dict]:
 	if not location:
 		return []
 
-	# Query assets by location (draft and submitted)
+	# Query assets by location (draft and submitted, not cancelled); ignore_permissions for inventory view
 	assets = frappe.get_all(
 		"Asset",
 		fields=["name", "asset_name", "status", "location", "asset_category"],
-		filters=[["location", "=", location], ["docstatus", "<", 2]],
-		limit=1000
+		filters=[["location", "=", location], ["docstatus", "in", ASSET_DOCSTATUS_NOT_CANCELLED]],
+		limit=1000,
+		ignore_permissions=True,
 	)
 
 	# Build snapshot rows
@@ -208,12 +209,13 @@ def _get_warehouses_with_assets() -> list[str]:
 			if not location:
 				continue
 			
-			# Check if there are any assets at this location
+			# Check if there are any assets at this location (draft + submitted; ignore_permissions for inventory view)
 			assets = frappe.get_all(
 				"Asset",
 				fields=["name"],
-				filters=[["location", "=", location]],
-				limit=1
+				filters=[["location", "=", location], ["docstatus", "in", ASSET_DOCSTATUS_NOT_CANCELLED]],
+				limit=1,
+				ignore_permissions=True,
 			)
 			
 			if assets:
