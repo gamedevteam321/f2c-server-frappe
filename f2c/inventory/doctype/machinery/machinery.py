@@ -127,8 +127,8 @@ class Machinery(Document):
 			parts.append(self.model.strip())
 		if (self.machinery_type or "").strip():
 			parts.append(self.machinery_type.strip())
-		if (self.serial_number or "").strip():
-			parts.append(f"SN:{self.serial_number.strip()}")
+		if (self.chassis_number or "").strip():
+			parts.append(f"CH:{self.chassis_number.strip()}")
 		if parts:
 			return " - ".join(parts)
 		if (self.machinery_name or "").strip():

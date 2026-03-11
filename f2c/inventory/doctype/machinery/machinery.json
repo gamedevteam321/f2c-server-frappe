@@ -36,7 +36,8 @@
     "machinery_name",
     "brand",
     "model",
-    "serial_number",
+    "chassis_number",
+    "engine_registration_number",
     "column_break_basic_1",
     "year",
     "price",
@@ -263,9 +264,14 @@
       "label": "Model"
     },
     {
-      "fieldname": "serial_number",
+      "fieldname": "chassis_number",
       "fieldtype": "Data",
-      "label": "Serial Number"
+      "label": "Chassis Number"
+    },
+    {
+      "fieldname": "engine_registration_number",
+      "fieldtype": "Data",
+      "label": "Engine Registration Number"
     },
     {
       "fieldname": "column_break_basic_1",

@@ -1,6 +1,7 @@
 [pre_model_sync]
 # Patches added in this section will be executed before doctypes are migrated
 # Read docs to understand patches: https://frappeframework.com/docs/v14/user/en/database-migrations
+f2c.patches.machinery_serial_to_chassis_and_engine_reg
 f2c.patches.rename_agent_to_broker
 f2c.patches.rename_farm_report_to_farm_report_ticket
 
