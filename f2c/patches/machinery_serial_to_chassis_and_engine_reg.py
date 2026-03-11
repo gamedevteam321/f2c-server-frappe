@@ -10,8 +10,10 @@ def execute():
     if not frappe.db.exists("DocType", "Machinery"):
         return
 
-    table = "tabMachinery"
-    columns = [c.get("name") for c in frappe.db.sql("SHOW COLUMNS FROM `tabMachinery`", as_dict=True)]
+    columns = [
+        c.get("Field") or c.get("field") or c.get("name")
+        for c in frappe.db.sql("SHOW COLUMNS FROM `tabMachinery`", as_dict=True)
+    ]
 
     if "serial_number" in columns and "chassis_number" not in columns:
         frappe.db.sql("ALTER TABLE `tabMachinery` CHANGE COLUMN `serial_number` `chassis_number` TEXT")
