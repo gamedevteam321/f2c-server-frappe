@@ -223,8 +223,6 @@ def create_report_and_mark_reported(
 		frappe.throw("Block is required to create a Farm Report. Please ensure the task has a Block selected.")
 	if not context.get("activity"):
 		frappe.throw("Activity is required to create a Farm Report.")
-	if not resolved_stage:
-		frappe.throw("Stage is required to create a Farm Report.")
 
 	report_doc = frappe.get_doc({"doctype": "Farm Report"})
 	report_doc.report_type = report_type

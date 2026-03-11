@@ -80,8 +80,7 @@
       "in_list_view": 1,
       "in_standard_filter": 1,
       "label": "Stage",
-      "options": "Crop Stage",
-      "reqd": 1
+      "options": "Crop Stage"
     },
     {
       "fieldname": "stage_name",
