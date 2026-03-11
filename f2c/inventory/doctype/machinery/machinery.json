@@ -30,6 +30,8 @@
     "hero_image",
     "column_break_img",
     "gallery",
+    "equipment_doc_section",
+    "equipment_documents",
     "basic_info_section",
     "machinery_template",
     "machinery_type",
@@ -38,6 +40,7 @@
     "model",
     "chassis_number",
     "engine_registration_number",
+    "serial_number",
     "column_break_basic_1",
     "year",
     "price",
@@ -226,6 +229,17 @@
       "options": "Equipment Image"
     },
     {
+      "fieldname": "equipment_doc_section",
+      "fieldtype": "Section Break",
+      "label": "Equipment Documents"
+    },
+    {
+      "fieldname": "equipment_documents",
+      "fieldtype": "Table",
+      "label": "Documents (PDF, DOCX)",
+      "options": "Equipment Document"
+    },
+    {
       "fieldname": "basic_info_section",
       "fieldtype": "Section Break",
       "label": "Basic Info"
@@ -272,6 +286,11 @@
       "fieldname": "engine_registration_number",
       "fieldtype": "Data",
       "label": "Engine Registration Number"
+    },
+    {
+      "fieldname": "serial_number",
+      "fieldtype": "Data",
+      "label": "Serial Number"
     },
     {
       "fieldname": "column_break_basic_1",

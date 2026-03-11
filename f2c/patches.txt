@@ -7,6 +7,7 @@ f2c.patches.rename_farm_report_to_farm_report_ticket
 
 [post_model_sync]
 # Patches added in this section will be executed after doctypes are migrated
+f2c.patches.add_machinery_serial_number
 f2c.patches.farm_task_execution_status_ready
 f2c.patches.farm_task_execution_status_paused_to_on_hold
 f2c.patches.equipment_remarks_to_return_type
