@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+import mimetypes
 import os
 import time
 from urllib.parse import urlencode
@@ -57,6 +58,23 @@ def get_signed_file_proxy_url(file_url: str, expires_in_seconds: int = 300):
 	}
 
 
+@frappe.whitelist(methods=["POST"])
+def make_file_public(file_url: str):
+	"""Ensure an uploaded file is public and return its updated file_url."""
+	file_url = (file_url or "").strip()
+	if not file_url:
+		frappe.throw(_("File URL is required"))
+
+	file = _validate_file_access(file_url)
+	if not getattr(file, "is_private", 0):
+		return {"file_url": file.file_url}
+
+	file.is_private = 0
+	file.save(ignore_permissions=True)
+	frappe.db.commit()
+	return {"file_url": file.file_url}
+
+
 @frappe.whitelist(allow_guest=True, methods=["GET"])
 def proxy_file(file_url: str, expires: str, signature: str):
 	"""Stream a previously signed file URL inline for browser previews."""
@@ -80,9 +98,10 @@ def proxy_file(file_url: str, expires: str, signature: str):
 
 	file = _validate_file_access(file_url)
 	filename = os.path.basename(file.file_name or file_url)
+	content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
 
 	frappe.local.response.filename = filename
 	frappe.local.response.filecontent = file.get_content()
 	frappe.local.response.type = "download"
 	frappe.local.response.display_content_as = "inline"
-	frappe.local.response.content_type = file.content_type
+	frappe.local.response.content_type = content_type
