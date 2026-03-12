@@ -505,6 +505,9 @@ def get_crop_plan_with_activities(crop_plan_name):
 	for idx, block_info in enumerate(processed_blocks):
 		block_ref_str = str(idx + 1)
 		land_prep = block_info.get('land_preparation') or ''
+		template_show_land_prep = 1 if block_info.get('template_show_land_prep') else 0
+		if not template_show_land_prep:
+			continue
 		if not land_prep:
 			continue
 		override_raw = (block_info.get('land_preparation_activities_override') or '').strip()
