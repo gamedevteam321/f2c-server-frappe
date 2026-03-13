@@ -48,12 +48,31 @@ def ensure_item_group_default_gst_hsn_code_field() -> None:
 		frappe.log_error(frappe.get_traceback(), "f2c ensure_item_group_default_gst_hsn_code_field failed")
 
 
+def ensure_equipment_parts_item_groups() -> None:
+	"""Create Item Groups for Equipment Report parts list (per equipment type). Idempotent."""
+	from f2c.scripts.populate_equipment_parts import EQUIPMENT_PARTS_GROUPS
+	for group_name in EQUIPMENT_PARTS_GROUPS:
+		if frappe.db.exists("Item Group", group_name):
+			continue
+		try:
+			frappe.get_doc(
+				{"doctype": "Item Group", "item_group_name": group_name}
+			).insert(ignore_permissions=True)
+			frappe.db.commit()
+		except Exception:
+			frappe.log_error(
+				frappe.get_traceback(),
+				f"f2c ensure_equipment_parts_item_groups ({group_name}) failed",
+			)
+
+
 def after_migrate() -> None:
 	"""Hook: run after `bench migrate`."""
 	try:
 		ensure_irrigation_types()
 		seed_water_source()
 		ensure_item_group_default_gst_hsn_code_field()
+		ensure_equipment_parts_item_groups()
 	except Exception:
 		# Never block migrations due to seed failures
 		frappe.log_error(frappe.get_traceback(), "f2c.after_migrate seed_defaults failed")
