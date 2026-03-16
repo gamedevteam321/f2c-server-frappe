@@ -30,6 +30,8 @@
     "hero_image",
     "column_break_img",
     "gallery",
+    "equipment_doc_section",
+    "equipment_documents",
     "basic_info_section",
     "other_tool_template",
     "other_tool_type",
@@ -173,6 +175,17 @@
       "options": "Equipment Image"
     },
     {
+      "fieldname": "equipment_doc_section",
+      "fieldtype": "Section Break",
+      "label": "Equipment Documents"
+    },
+    {
+      "fieldname": "equipment_documents",
+      "fieldtype": "Table",
+      "label": "Documents (PDF, DOCX)",
+      "options": "Equipment Document"
+    },
+    {
       "fieldname": "basic_info_section",
       "fieldtype": "Section Break",
       "label": "Basic Info"
@@ -239,7 +252,7 @@
       "fieldtype": "Select",
       "label": "Status",
       "in_list_view": 1,
-      "options": "\nAvailable\nIn Use\nMaintenance\nRetired",
+      "options": "\nAvailable\nIn Use\nMaintenance\nRepair\nRetired",
       "default": "Available"
     },
     {

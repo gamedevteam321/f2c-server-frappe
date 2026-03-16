@@ -584,6 +584,31 @@ def _get_equipment_status_for_asset(asset_name: str) -> str | None:
 	return None
 
 
+def _get_equipment_hero_image_for_asset(asset_name: str) -> str | None:
+	"""
+	Return hero_image from the equipment doc (Machinery, Implement, Hand Tool, Other Tool)
+	linked to this Asset, so warehouse inventory can show the same image as Equipment List.
+	"""
+	if not asset_name:
+		return None
+	for doctype in ("Machinery", "Implement", "Hand Tool", "Other Tool"):
+		hero = frappe.db.get_value(doctype, {"asset": asset_name}, "hero_image")
+		if hero:
+			return hero
+	return None
+
+
+def _get_equipment_doc_for_asset(asset_name: str) -> tuple[str, str] | None:
+	"""Return (doctype, name) of the equipment document linked to this Asset, or None."""
+	if not asset_name:
+		return None
+	for doctype in ("Machinery", "Implement", "Hand Tool", "Other Tool"):
+		name = frappe.db.get_value(doctype, {"asset": asset_name}, "name")
+		if name:
+			return (doctype, name)
+	return None
+
+
 def _get_equipment_status_for_destination_warehouse(warehouse: str) -> str | None:
 	"""
 	Return equipment status to set based on warehouse's geo type.
@@ -645,7 +670,7 @@ def get_assets_for_warehouse(warehouse: str):
 	if location:
 		assets = frappe.get_all(
 			"Asset",
-			fields=["name", "asset_name", "item_code", "asset_category", "location", "status", "asset_quantity"],
+			fields=["name", "asset_name", "item_code", "asset_category", "location", "status", "asset_quantity", "image"],
 			filters=[["location", "=", location], ["docstatus", "in", ASSET_DOCSTATUS_NOT_CANCELLED]],
 			limit=1000,
 			ignore_permissions=True,
@@ -681,7 +706,7 @@ def get_assets_for_warehouse(warehouse: str):
 			if matching_locations:
 				assets = frappe.get_all(
 					"Asset",
-					fields=["name", "asset_name", "item_code", "asset_category", "location", "status", "asset_quantity"],
+					fields=["name", "asset_name", "item_code", "asset_category", "location", "status", "asset_quantity", "image"],
 					filters=[["location", "in", matching_locations], ["docstatus", "in", ASSET_DOCSTATUS_NOT_CANCELLED]],
 					limit=1000,
 					ignore_permissions=True,
@@ -711,7 +736,7 @@ def get_assets_for_warehouse(warehouse: str):
 			if matching_locations:
 				assets = frappe.get_all(
 					"Asset",
-					fields=["name", "asset_name", "item_code", "asset_category", "location", "status", "asset_quantity"],
+					fields=["name", "asset_name", "item_code", "asset_category", "location", "status", "asset_quantity", "image"],
 					filters=[["location", "in", matching_locations], ["docstatus", "in", ASSET_DOCSTATUS_NOT_CANCELLED]],
 					limit=1000,
 					ignore_permissions=True,
@@ -722,12 +747,21 @@ def get_assets_for_warehouse(warehouse: str):
 	if geo_area:
 		area_type = frappe.db.get_value("Geo Fencing Area", geo_area, "geo_fencing_type")
 		location_is_field = (area_type == "Field")
-	# Enrich each asset with equipment status (Available, In Use, Maintenance, Retired) from source doc
+	# Enrich each asset with equipment status, image, and equipment doc ref (for View modal)
 	for a in assets:
 		if location_is_field:
 			a["equipment_status"] = "In Use"
 		else:
 			a["equipment_status"] = _get_equipment_status_for_asset(a.get("name"))
+		# Use equipment hero_image when Asset has no image, so warehouse matches Equipment List
+		if not (a.get("image") or "").strip():
+			hero = _get_equipment_hero_image_for_asset(a.get("name"))
+			if hero:
+				a["image"] = hero
+		# Equipment doc (doctype, name) so warehouse can open Equipment View modal like Equipment List
+		equipment = _get_equipment_doc_for_asset(a.get("name"))
+		if equipment:
+			a["equipment_doctype"], a["equipment_name"] = equipment
 	
 	return {
 		"warehouse": warehouse,
@@ -747,7 +781,7 @@ def get_all_assets():
 	"""
 	assets = frappe.get_all(
 		"Asset",
-		fields=["name", "asset_name", "item_code", "asset_category", "location", "status", "asset_quantity"],
+		fields=["name", "asset_name", "item_code", "asset_category", "location", "status", "asset_quantity", "image"],
 		filters=[["docstatus", "in", ASSET_DOCSTATUS_NOT_CANCELLED]],
 		limit=5000,
 		order_by="modified desc",
@@ -771,7 +805,7 @@ def get_all_assets():
 		except Exception:
 			continue
 	# Use location as warehouse display when no warehouse mapping (for "all" view)
-	# Enrich with equipment status (Available, In Use, Maintenance, Retired) from source doc
+	# Enrich with equipment status and image (hero_image from equipment doc when Asset.image missing)
 	out = []
 	for a in assets:
 		row = dict(a)
@@ -780,6 +814,13 @@ def get_all_assets():
 			row["equipment_status"] = "In Use"
 		else:
 			row["equipment_status"] = _get_equipment_status_for_asset(row.get("name"))
+		if not (row.get("image") or "").strip():
+			hero = _get_equipment_hero_image_for_asset(row.get("name"))
+			if hero:
+				row["image"] = hero
+		equipment = _get_equipment_doc_for_asset(row.get("name"))
+		if equipment:
+			row["equipment_doctype"], row["equipment_name"] = equipment
 		out.append(row)
 	return {"assets": out, "count": len(out)}
 

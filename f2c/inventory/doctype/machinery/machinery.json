@@ -312,7 +312,7 @@
       "fieldtype": "Select",
       "label": "Status",
       "in_list_view": 1,
-      "options": "\nAvailable\nIn Use\nMaintenance\nRetired",
+      "options": "\nAvailable\nIn Use\nMaintenance\nRepair\nRetired",
       "default": "Available"
     },
     {

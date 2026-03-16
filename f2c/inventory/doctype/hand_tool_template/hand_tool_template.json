@@ -28,6 +28,10 @@
     "specs_section",
     "material",
     "dimensions",
+    "capacity",
+    "pressure_rating",
+    "connection_type",
+    "usage",
     "weight",
     "default_description",
     "default_features",
@@ -137,7 +141,29 @@
     {
       "fieldname": "dimensions",
       "fieldtype": "Data",
-      "label": "Dimensions"
+      "label": "Size"
+    },
+    {
+      "fieldname": "capacity",
+      "fieldtype": "Data",
+      "label": "Capacity",
+      "description": "Varies by tool type"
+    },
+    {
+      "fieldname": "pressure_rating",
+      "fieldtype": "Data",
+      "label": "Pressure Rating",
+      "description": "e.g. bar/psi"
+    },
+    {
+      "fieldname": "connection_type",
+      "fieldtype": "Data",
+      "label": "Connection Type"
+    },
+    {
+      "fieldname": "usage",
+      "fieldtype": "Text",
+      "label": "Usage"
     },
     {
       "fieldname": "weight",

@@ -11,13 +11,27 @@
   "index_web_pages_for_search": 1,
   "engine": "InnoDB",
   "field_order": [
+    "basic_info_section",
+    "hand_tool_template",
+    "hand_tool_type",
+    "tool_name",
+    "status",
+    "item_code",
+    "company",
+    "location",
+    "column_break_basic",
+    "brand",
+    "model",
+    "material",
+    "price",
+    "image_section",
+    "hero_image",
+    "column_break_img",
+    "gallery",
     "asset_info_section",
     "asset",
     "column_break_asset_link",
     "create_asset_note",
-    "item_code",
-    "company",
-    "location",
     "purchase_date",
     "is_existing_asset",
     "available_for_use_date",
@@ -26,23 +40,16 @@
     "purchase_receipt",
     "purchase_invoice",
     "asset_name",
-    "image_section",
-    "hero_image",
-    "column_break_img",
-    "gallery",
-    "basic_info_section",
-    "hand_tool_template",
-    "hand_tool_type",
-    "tool_name",
-    "brand",
-    "model",
-    "column_break_basic",
-    "material",
+    "equipment_doc_section",
+    "equipment_documents",
+    "specs_section",
     "dimensions",
-    "weight",
-    "price",
-    "status",
+    "capacity",
+    "pressure_rating",
+    "connection_type",
+    "usage",
     "additional_section",
+    "weight",
     "features",
     "description",
     "specs_json"
@@ -56,7 +63,7 @@
     {
       "fieldname": "asset",
       "fieldtype": "Link",
-      "label": "Asset (Optional: link an existing Asset)",
+      "label": "Link Existing Asset",
       "options": "Asset",
       "in_list_view": 1,
       "in_standard_filter": 1
@@ -173,6 +180,44 @@
       "options": "Equipment Image"
     },
     {
+      "fieldname": "equipment_doc_section",
+      "fieldtype": "Section Break",
+      "label": "Equipment documents (PDF, DOCX, images)"
+    },
+    {
+      "fieldname": "equipment_documents",
+      "fieldtype": "Table",
+      "label": "Documents (PDF, DOCX, images)",
+      "options": "Equipment Document"
+    },
+    {
+      "fieldname": "specs_section",
+      "fieldtype": "Section Break",
+      "label": "Tools & Accessories Specs"
+    },
+    {
+      "fieldname": "capacity",
+      "fieldtype": "Data",
+      "label": "Capacity",
+      "description": "Varies by tool type"
+    },
+    {
+      "fieldname": "pressure_rating",
+      "fieldtype": "Data",
+      "label": "Pressure Rating",
+      "description": "e.g. bar/psi"
+    },
+    {
+      "fieldname": "connection_type",
+      "fieldtype": "Data",
+      "label": "Connection Type"
+    },
+    {
+      "fieldname": "usage",
+      "fieldtype": "Text",
+      "label": "Usage"
+    },
+    {
       "fieldname": "basic_info_section",
       "fieldtype": "Section Break",
       "label": "Basic Info"
@@ -222,7 +267,7 @@
     {
       "fieldname": "dimensions",
       "fieldtype": "Data",
-      "label": "Dimensions"
+      "label": "Size"
     },
     {
       "fieldname": "weight",
@@ -240,7 +285,7 @@
       "fieldtype": "Select",
       "label": "Status",
       "in_list_view": 1,
-      "options": "\nAvailable\nIn Use\nMaintenance\nRetired",
+      "options": "\nAvailable\nIn Use\nMaintenance\nRepair\nRetired",
       "default": "Available"
     },
     {

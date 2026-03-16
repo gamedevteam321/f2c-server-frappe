@@ -156,7 +156,8 @@ def create_equipment_report_ticket(
 	doc.insert(ignore_permissions=True)
 	frappe.db.commit()
 
-	_set_equipment_status(asset.strip(), "Maintenance")
+	# Set equipment status to report type so UI shows "Maintenance" or "Repair" accordingly
+	_set_equipment_status(asset.strip(), report_type)
 
 	return {"name": doc.name}
 
