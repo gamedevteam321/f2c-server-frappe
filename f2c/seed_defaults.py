@@ -48,6 +48,25 @@ def ensure_item_group_default_gst_hsn_code_field() -> None:
 		frappe.log_error(frappe.get_traceback(), "f2c ensure_item_group_default_gst_hsn_code_field failed")
 
 
+def ensure_default_gst_hsn_code_00000000() -> None:
+	"""Create default GST HSN Code '00000000' when India Compliance is installed. Idempotent."""
+	if not frappe.db.table_exists("GST HSN Code"):
+		return
+	if frappe.db.exists("GST HSN Code", "00000000"):
+		return
+	try:
+		frappe.get_doc(
+			{
+				"doctype": "GST HSN Code",
+				"hsn_code": "00000000",
+				"description": "Default / Not specified",
+			}
+		).insert(ignore_permissions=True)
+		frappe.db.commit()
+	except Exception:
+		frappe.log_error(frappe.get_traceback(), "f2c ensure_default_gst_hsn_code_00000000 failed")
+
+
 def ensure_equipment_parts_item_groups() -> None:
 	"""Create Item Groups for Equipment Report parts list (per equipment type). Idempotent."""
 	from f2c.scripts.populate_equipment_parts import EQUIPMENT_PARTS_GROUPS
@@ -72,6 +91,7 @@ def after_migrate() -> None:
 		ensure_irrigation_types()
 		seed_water_source()
 		ensure_item_group_default_gst_hsn_code_field()
+		ensure_default_gst_hsn_code_00000000()
 		ensure_equipment_parts_item_groups()
 	except Exception:
 		# Never block migrations due to seed failures

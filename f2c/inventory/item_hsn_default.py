@@ -1,5 +1,5 @@
 # Copyright (c) 2025, Orgatek and contributors
-# Set default HSN/SAC code for fixed-asset Items when India Compliance requires it.
+# Set default HSN/SAC code for Items when India Compliance requires it.
 
 import frappe
 
@@ -16,12 +16,12 @@ def _get_valid_hsn_length():
 
 def set_default_gst_hsn_code_for_fixed_asset(doc, method=None):
 	"""
-	Before Item validate: if Item is a fixed asset and gst_hsn_code is empty,
-	set it from the Item Group's default, or from a suitable fallback, so India Compliance passes.
+	Before Item validate: if Item is a sales item or fixed asset and gst_hsn_code is empty,
+	set it from the Item Group's default, or from a suitable fallback (default 00000000), so India Compliance passes.
 	"""
-	if not doc.get("is_fixed_asset"):
-		return
 	if doc.get("gst_hsn_code"):
+		return
+	if not (doc.get("is_sales_item") or doc.get("is_fixed_asset")):
 		return
 	if not frappe.db.table_exists("GST HSN Code"):
 		return
@@ -39,8 +39,8 @@ def set_default_gst_hsn_code_for_fixed_asset(doc, method=None):
 			doc.gst_hsn_code = group_code
 			return
 
-	# 2) Fallback: prefer codes that match valid length (6/8 digits when India uses 6 or 8 only)
-	preferred = ("999900", "61149090", "843290", "843390", "998314", "8432", "8433", "9983", "9999")
+	# 2) Fallback: prefer default 00000000, then other codes that match valid length
+	preferred = ("00000000", "999900", "61149090", "843290", "843390", "998314", "8432", "8433", "9983", "9999")
 	for code in preferred:
 		if _valid_code(code):
 			doc.gst_hsn_code = code
