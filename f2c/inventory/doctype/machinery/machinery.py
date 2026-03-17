@@ -52,7 +52,7 @@ class Machinery(Document):
 			if not (getattr(self, "purchase_receipt", None) or getattr(self, "purchase_invoice", None)):
 				frappe.throw(_("Purchase Receipt or Purchase Invoice is required when 'Is Existing Asset' is not checked."))
 
-		# Derive naming series from Item (ERPNext requires this for auto-name on Asset)
+		# Derive naming series and category from Item; use defaults when Item has none set
 		item_meta = frappe.db.get_value(
 			"Item",
 			self.item_code,
@@ -62,18 +62,16 @@ class Machinery(Document):
 		if not item_meta:
 			frappe.throw(_("Item {0} not found.").format(self.item_code))
 
-		if not item_meta.get("asset_naming_series"):
-			frappe.throw(
-				_(
-					"Item {0} is missing Asset Naming Series. Set Item.asset_naming_series to enable auto Asset creation."
-				).format(self.item_code)
-			)
+		from f2c.inventory.asset_defaults import get_default_asset_naming_series, get_default_asset_category
 
-		# Asset submission typically requires an Asset Category (drives accounting/depreciation defaults)
-		if not item_meta.get("asset_category"):
+		naming_series = (item_meta.get("asset_naming_series") or "").strip() or get_default_asset_naming_series()
+		asset_category = (item_meta.get("asset_category") or "").strip() or get_default_asset_category()
+
+		if not asset_category:
 			frappe.throw(
 				_(
-					"Item {0} is missing Asset Category. Set Item.asset_category to enable auto Asset creation."
+					"Item {0} is missing Asset Category and no default Asset Category exists. "
+					"Set Item.asset_category or create an Asset Category to enable auto Asset creation."
 				).format(self.item_code)
 			)
 
@@ -82,8 +80,8 @@ class Machinery(Document):
 		asset_doc = frappe.get_doc(
 			{
 				"doctype": "Asset",
-				"naming_series": item_meta.get("asset_naming_series"),
-				"asset_category": item_meta.get("asset_category"),
+				"naming_series": naming_series,
+				"asset_category": asset_category,
 				"asset_name": asset_name,
 				"item_code": self.item_code,
 				"company": self.company,

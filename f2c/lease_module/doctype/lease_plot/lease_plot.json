@@ -1,0 +1,197 @@
+{
+ "actions": [],
+ "allow_import": 1,
+ "allow_rename": 1,
+ "autoname": "format:LPL-{#####}",
+ "creation": "2026-03-16 00:00:00.000000",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "engine": "InnoDB",
+ "field_order": [
+  "plot_name",
+  "import_batch",
+  "plot_index",
+  "column_break_main",
+  "source_file_name",
+  "section_break_location",
+  "village_name",
+  "village_code",
+  "tehsil_name",
+  "area_type",
+  "remarks",
+  "plot_legend",
+  "plot_color",
+  "linked_geo_fencing_area",
+  "kml_file",
+  "section_break_coordinates",
+  "geo_coordinates",
+  "section_break_summary",
+  "center_latitude",
+  "center_longitude",
+  "area_sq_meters"
+ ],
+ "fields": [
+  {
+   "fieldname": "plot_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Plot Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "import_batch",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Import Batch",
+   "read_only": 1
+  },
+  {
+   "fieldname": "plot_index",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Plot Index",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_main",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "source_file_name",
+   "fieldtype": "Data",
+   "label": "Source File Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_location",
+   "fieldtype": "Section Break",
+   "label": "Location Details"
+  },
+  {
+   "fieldname": "village_name",
+   "fieldtype": "Data",
+   "label": "Village Name"
+  },
+  {
+   "fieldname": "village_code",
+   "fieldtype": "Data",
+   "label": "Village Code"
+  },
+  {
+   "fieldname": "tehsil_name",
+   "fieldtype": "Data",
+   "label": "Tehsil Name"
+  },
+  {
+   "fieldname": "area_type",
+   "fieldtype": "Data",
+   "label": "Area Type"
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Text",
+   "label": "Remarks"
+  },
+  {
+   "fieldname": "plot_legend",
+   "fieldtype": "Link",
+   "label": "Plot Legend",
+   "options": "Lease Plot Legend"
+  },
+  {
+   "fieldname": "plot_color",
+   "fieldtype": "Color",
+   "label": "Plot Color"
+  },
+  {
+   "fieldname": "linked_geo_fencing_area",
+   "fieldtype": "Link",
+   "label": "Mapped Field",
+   "options": "Geo Fencing Area",
+   "read_only": 1
+  },
+  {
+   "fieldname": "kml_file",
+   "fieldtype": "Attach",
+   "label": "KML File",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_coordinates",
+   "fieldtype": "Section Break",
+   "label": "Plot Coordinates"
+  },
+  {
+   "fieldname": "geo_coordinates",
+   "fieldtype": "Table",
+   "label": "Geo Coordinates",
+   "options": "Lease Plot Coordinate",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_break_summary",
+   "fieldtype": "Section Break",
+   "label": "Summary"
+  },
+  {
+   "fieldname": "center_latitude",
+   "fieldtype": "Float",
+   "label": "Center Latitude",
+   "precision": "8",
+   "read_only": 1
+  },
+  {
+   "fieldname": "center_longitude",
+   "fieldtype": "Float",
+   "label": "Center Longitude",
+   "precision": "8",
+   "read_only": 1
+  },
+  {
+   "fieldname": "area_sq_meters",
+   "fieldtype": "Float",
+   "label": "Area (sq meters)",
+   "precision": "2",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-03-16 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Lease Module",
+ "name": "Lease Plot",
+ "naming_rule": "By \"Auto Name\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "All",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
