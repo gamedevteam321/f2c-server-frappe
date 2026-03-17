@@ -140,7 +140,21 @@ def delete_geo_fencing_area_cascade(area_name: str, disable_if_cannot_delete: in
 			+ more
 		)
 
-	# Delete the Geo Fencing Area (after warehouses are removed).
+	# If this geo area originated from Plot Management field creation,
+	# release those plots before deleting the geo area, otherwise
+	# Frappe's link validation will block the delete.
+	try:
+		from f2c.lease_module.api.lease_plot import clear_field_mapping_for_geo_area
+
+		clear_field_mapping_for_geo_area(area_name)
+	except Exception:
+		frappe.log_error(frappe.get_traceback(), f"Failed to clear plot field mapping for {area_name}")
+		frappe.throw(
+			f"Could not remove plot links for Geo Fencing Area {area_name}. "
+			"Please try again or contact support if the issue persists."
+		)
+
+	# Delete the Geo Fencing Area (after warehouses are removed and plot links are cleared).
 	# Use normal delete to keep integrity checks for other links.
 	frappe.delete_doc("Geo Fencing Area", area_name, ignore_permissions=False)
 
