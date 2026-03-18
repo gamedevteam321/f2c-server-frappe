@@ -13,6 +13,7 @@
   "plot_index",
   "column_break_main",
   "source_file_name",
+  "farm_project",
   "section_break_location",
   "village_name",
   "village_code",
@@ -68,6 +69,12 @@
    "fieldname": "section_break_location",
    "fieldtype": "Section Break",
    "label": "Location Details"
+  },
+  {
+   "fieldname": "farm_project",
+   "fieldtype": "Link",
+   "label": "Farm Project",
+   "options": "Farm Project"
   },
   {
    "fieldname": "village_name",
