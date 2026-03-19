@@ -1,0 +1,45 @@
+{
+  "doctype": "DocType",
+  "name": "Campaign Activity Area",
+  "module": "Farm Scheduling",
+  "document_type": "Document",
+  "istable": 1,
+  "editable_grid": 1,
+  "allow_rename": 1,
+  "track_changes": 1,
+  "field_order": [
+    "area",
+    "area_name",
+    "area_type"
+  ],
+  "fields": [
+    {
+      "fieldname": "area",
+      "fieldtype": "Link",
+      "label": "Area",
+      "options": "Geo Fencing Area",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fetch_from": "area.area_name",
+      "fieldname": "area_name",
+      "fieldtype": "Data",
+      "label": "Area Name",
+      "read_only": 1,
+      "in_list_view": 1
+    },
+    {
+      "fetch_from": "area.geo_fencing_type",
+      "fieldname": "area_type",
+      "fieldtype": "Data",
+      "label": "Area Type",
+      "read_only": 1,
+      "in_list_view": 1
+    }
+  ],
+  "permissions": [],
+  "sort_field": "modified",
+  "sort_order": "DESC"
+}
+

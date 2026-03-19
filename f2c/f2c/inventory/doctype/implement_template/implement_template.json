@@ -1,0 +1,264 @@
+{
+  "doctype": "DocType",
+  "name": "Implement Template",
+  "module": "Inventory",
+  "document_type": "Document",
+  "autoname": "format:MTPL-IMP-{#####}",
+  "allow_import": 1,
+  "allow_rename": 1,
+  "track_changes": 1,
+  "engine": "InnoDB",
+  "title_field": "template_name",
+  "field_order": [
+    "template_info_section",
+    "template_name",
+    "column_break_t1",
+    "implement_type",
+    "brand",
+    "model",
+    "default_status",
+    "item_settings_section",
+    "default_item_code",
+    "column_break_item",
+    "item_group",
+    "stock_uom",
+    "asset_category",
+    "asset_naming_series",
+    "default_standard_rate",
+    "specs_section",
+    "category",
+    "power_requirement",
+    "working_width",
+    "working_depth",
+    "weight",
+    "tines_blades",
+    "pto_speed",
+    "column_break_specs",
+    "hitch_type",
+    "length",
+    "width",
+    "height",
+    "transmission_type",
+    "safety_devices",
+    "applications",
+    "default_description",
+    "default_features",
+    "specs_json"
+  ],
+  "fields": [
+    {
+      "fieldname": "template_info_section",
+      "fieldtype": "Section Break",
+      "label": "Template Info"
+    },
+    {
+      "fieldname": "template_name",
+      "fieldtype": "Data",
+      "label": "Template Name",
+      "reqd": 1,
+      "in_list_view": 1,
+      "in_standard_filter": 1
+    },
+    {
+      "fieldname": "column_break_t1",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "implement_type",
+      "fieldtype": "Select",
+      "label": "Implement Type",
+      "reqd": 1,
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "options": "\nRotavator\nCultivator\nMB Plough\nDisc Harrow\nSeed Drill - Planter\nTrailer - Trolley\nDozer Blade\nPlow\nHarrow\nSeeder\nPlanter\nOther"
+    },
+    {
+      "fieldname": "brand",
+      "fieldtype": "Data",
+      "label": "Brand",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "model",
+      "fieldtype": "Data",
+      "label": "Model",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "default_status",
+      "fieldtype": "Select",
+      "hidden": 1,
+      "label": "Default Status",
+      "options": "\nAvailable\nIn Use\nMaintenance\nRetired",
+      "default": "Available"
+    },
+    {
+      "fieldname": "item_settings_section",
+      "fieldtype": "Section Break",
+      "label": "Item Settings"
+    },
+    {
+      "fieldname": "default_item_code",
+      "fieldtype": "Link",
+      "label": "Default Item Code",
+      "options": "Item"
+    },
+    {
+      "fieldname": "column_break_item",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "item_group",
+      "fieldtype": "Link",
+      "label": "Item Group",
+      "options": "Item Group"
+    },
+    {
+      "fieldname": "stock_uom",
+      "fieldtype": "Link",
+      "label": "Stock UOM",
+      "options": "UOM",
+      "default": "Nos"
+    },
+    {
+      "fieldname": "asset_category",
+      "fieldtype": "Link",
+      "label": "Asset Category",
+      "options": "Asset Category"
+    },
+    {
+      "fieldname": "asset_naming_series",
+      "fieldtype": "Data",
+      "label": "Asset Naming Series"
+    },
+    {
+      "fieldname": "default_standard_rate",
+      "fieldtype": "Currency",
+      "label": "Default Standard Rate"
+    },
+    {
+      "fieldname": "specs_section",
+      "fieldtype": "Section Break",
+      "label": "Specifications"
+    },
+    {
+      "fieldname": "category",
+      "fieldtype": "Data",
+      "label": "Category"
+    },
+    {
+      "fieldname": "power_requirement",
+      "fieldtype": "Data",
+      "label": "Power Requirement"
+    },
+    {
+      "fieldname": "working_width",
+      "fieldtype": "Float",
+      "label": "Working Width"
+    },
+    {
+      "fieldname": "working_depth",
+      "fieldtype": "Float",
+      "label": "Working Depth"
+    },
+    {
+      "fieldname": "weight",
+      "fieldtype": "Float",
+      "label": "Weight"
+    },
+    {
+      "fieldname": "tines_blades",
+      "fieldtype": "Data",
+      "label": "Tines/Blades"
+    },
+    {
+      "fieldname": "pto_speed",
+      "fieldtype": "Data",
+      "label": "PTO Speed"
+    },
+    {
+      "fieldname": "column_break_specs",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "hitch_type",
+      "fieldtype": "Data",
+      "label": "Hitch Type"
+    },
+    {
+      "fieldname": "length",
+      "fieldtype": "Float",
+      "label": "Length"
+    },
+    {
+      "fieldname": "width",
+      "fieldtype": "Float",
+      "label": "Width"
+    },
+    {
+      "fieldname": "height",
+      "fieldtype": "Float",
+      "label": "Height"
+    },
+    {
+      "fieldname": "transmission_type",
+      "fieldtype": "Data",
+      "label": "Transmission Type"
+    },
+    {
+      "fieldname": "safety_devices",
+      "fieldtype": "Text",
+      "label": "Safety Devices"
+    },
+    {
+      "fieldname": "applications",
+      "fieldtype": "Text",
+      "label": "Applications"
+    },
+    {
+      "fieldname": "default_description",
+      "fieldtype": "Text",
+      "label": "Default Description"
+    },
+    {
+      "fieldname": "default_features",
+      "fieldtype": "Text",
+      "label": "Default Features"
+    },
+    {
+      "description": "Stores dynamic spec fields (Base + Category + Sub-category overlays) as JSON.",
+      "fieldname": "specs_json",
+      "fieldtype": "JSON",
+      "hidden": 1,
+      "label": "Specs JSON"
+    }
+  ],
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "share": 1,
+      "write": 1,
+      "role": "System Manager"
+    },
+    {
+      "create": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "share": 1,
+      "write": 1,
+      "role": "All"
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC"
+}
+

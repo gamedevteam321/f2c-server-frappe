@@ -1,0 +1,36 @@
+{
+  "doctype": "DocType",
+  "name": "Equipment Image",
+  "module": "Inventory",
+  "document_type": "Document",
+  "istable": 1,
+  "editable_grid": 1,
+  "allow_rename": 1,
+  "track_changes": 1,
+  "index_web_pages_for_search": 1,
+  "engine": "InnoDB",
+  "field_order": [
+    "image",
+    "caption"
+  ],
+  "fields": [
+    {
+      "fieldname": "image",
+      "fieldtype": "Attach Image",
+      "label": "Image",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "caption",
+      "fieldtype": "Data",
+      "label": "Caption",
+      "in_list_view": 1
+    }
+  ],
+  "permissions": [],
+  "sort_field": "modified",
+  "sort_order": "DESC"
+}
+
+

@@ -1,0 +1,224 @@
+{
+  "actions": [],
+  "allow_import": 1,
+  "allow_rename": 1,
+  "autoname": "format:FRP-{####}",
+  "creation": "2025-01-20 10:00:00.000000",
+  "doctype": "DocType",
+  "document_type": "Document",
+  "engine": "InnoDB",
+  "field_order": [
+    "execution_ref",
+    "schedule_ref",
+    "on_demand_activity_ref",
+    "block",
+    "block_name",
+    "column_break_1",
+    "stage",
+    "stage_name",
+    "column_break_2",
+    "activity",
+    "activity_name",
+    "section_break_report_type",
+    "report_type",
+    "status",
+    "section_break_inventory_failure",
+    "equipment",
+    "section_break_farm_worker",
+    "list_of_labours",
+    "section_break_details",
+    "report_reason",
+    "section_break_image",
+    "image_upload"
+  ],
+  "fields": [
+    {
+      "fieldname": "execution_ref",
+      "fieldtype": "Link",
+      "label": "Execution",
+      "options": "Farm Task Execution",
+      "read_only": 1
+    },
+    {
+      "fieldname": "schedule_ref",
+      "fieldtype": "Link",
+      "label": "Schedule",
+      "options": "Crop Plan Schedule",
+      "read_only": 1
+    },
+    {
+      "fieldname": "on_demand_activity_ref",
+      "fieldtype": "Link",
+      "label": "On Demand Activity",
+      "options": "On Demand Activity",
+      "read_only": 1
+    },
+    {
+      "fieldname": "block",
+      "fieldtype": "Link",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "label": "Block",
+      "options": "Geo Fencing Area",
+      "reqd": 1
+    },
+    {
+      "fieldname": "block_name",
+      "fieldtype": "Data",
+      "fetch_from": "block.area_name",
+      "in_list_view": 1,
+      "label": "Block Name",
+      "read_only": 1
+    },
+    {
+      "fieldname": "column_break_1",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "stage",
+      "fieldtype": "Link",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "label": "Stage",
+      "options": "Crop Stage"
+    },
+    {
+      "fieldname": "stage_name",
+      "fieldtype": "Data",
+      "fetch_from": "stage.stage",
+      "in_list_view": 1,
+      "label": "Stage Name",
+      "read_only": 1
+    },
+    {
+      "fieldname": "column_break_2",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "activity",
+      "fieldtype": "Link",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "label": "Activity",
+      "options": "Farm Activity",
+      "reqd": 1
+    },
+    {
+      "fieldname": "activity_name",
+      "fieldtype": "Data",
+      "fetch_from": "activity.activity_name",
+      "in_list_view": 1,
+      "label": "Activity Name",
+      "read_only": 1
+    },
+    {
+      "fieldname": "section_break_report_type",
+      "fieldtype": "Section Break",
+      "label": "Report Information"
+    },
+    {
+      "fieldname": "report_type",
+      "fieldtype": "Select",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "label": "Report Type",
+      "options": "Delay\nInventory Failure\nFarm Worker",
+      "reqd": 1
+    },
+    {
+      "fieldname": "status",
+      "default": "Reported",
+      "fieldtype": "Select",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "label": "Status",
+      "options": "Reported\nIn Progress\nResolved\nDelayed\nUnresolved"
+    },
+    {
+      "depends_on": "eval:doc.report_type=='Inventory Failure'",
+      "fieldname": "section_break_inventory_failure",
+      "fieldtype": "Section Break",
+      "label": "Inventory Failure Details"
+    },
+    {
+      "depends_on": "eval:doc.report_type=='Inventory Failure'",
+      "fieldname": "equipment",
+      "fieldtype": "Table",
+      "label": "Equipment",
+      "options": "Farm Report Equipment",
+      "reqd": 0
+    },
+    {
+      "depends_on": "eval:doc.report_type=='Farm Worker'",
+      "fieldname": "section_break_farm_worker",
+      "fieldtype": "Section Break",
+      "label": "Farm Worker Details"
+    },
+    {
+      "depends_on": "eval:doc.report_type=='Farm Worker'",
+      "fieldname": "list_of_labours",
+      "fieldtype": "Table",
+      "label": "List of Farm Workers",
+      "options": "Farm Report Labour",
+      "reqd": 0
+    },
+    {
+      "fieldname": "section_break_details",
+      "fieldtype": "Section Break",
+      "label": "Report Details"
+    },
+    {
+      "fieldname": "report_reason",
+      "fieldtype": "Small Text",
+      "label": "Report Reason",
+      "reqd": 1
+    },
+    {
+      "fieldname": "section_break_image",
+      "fieldtype": "Section Break",
+      "label": "Image"
+    },
+    {
+      "fieldname": "image_upload",
+      "fieldtype": "Attach Image",
+      "label": "Image Upload"
+    }
+  ],
+  "index_web_pages_for_search": 1,
+  "links": [],
+  "modified": "2025-01-20 10:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "Farm Report",
+  "name": "Farm Report",
+  "owner": "Administrator",
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "System Manager",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "All",
+      "share": 1,
+      "write": 1
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": [],
+  "track_changes": 1
+}
+

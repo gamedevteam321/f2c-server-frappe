@@ -423,7 +423,8 @@ def import_kml(file_url: str, import_mode: str = "bulk", plot_colors=None):
 	if not file_doc:
 		frappe.throw("The uploaded file could not be found in Frappe.")
 
-	source_file_name = file_doc[0].get("file_name") or Path(file_url).name
+	raw_name = file_doc[0].get("file_name") or Path(file_url).name
+	source_file_name = Path(raw_name).stem or raw_name
 	file_path = _get_kml_file_path(file_url, file_doc[0].get("name"))
 	with open(file_path, "r", encoding="utf-8") as handle:
 		kml_string = handle.read()
@@ -449,6 +450,126 @@ def import_kml(file_url: str, import_mode: str = "bulk", plot_colors=None):
 	}
 
 
+def _coerce_single_plot_coordinates(geo_coordinates):
+	"""Convert geo_coordinates from API (list of dicts with lat/lng or latitude/longitude) to list of (lat, lng) tuples."""
+	if not geo_coordinates:
+		return []
+	if isinstance(geo_coordinates, str):
+		try:
+			geo_coordinates = json.loads(geo_coordinates)
+		except Exception:
+			return []
+	if not isinstance(geo_coordinates, (list, tuple)):
+		return []
+	out = []
+	for i, point in enumerate(geo_coordinates):
+		if isinstance(point, (list, tuple)) and len(point) >= 2:
+			lat, lng = float(point[0]), float(point[1])
+			out.append((lat, lng))
+		elif isinstance(point, dict):
+			lat = point.get("lat") or point.get("latitude")
+			lng = point.get("lng") or point.get("longitude")
+			if lat is not None and lng is not None:
+				out.append((float(lat), float(lng)))
+	if len(out) < 3:
+		return []
+	if out[0] == out[-1]:
+		return out
+	out.append(out[0])
+	return out
+
+
+@frappe.whitelist()
+def create_single_plot(
+	plot_name: str,
+	group_option: str,
+	import_batch: str | None = None,
+	new_group_name: str | None = None,
+	farm_project: str | None = None,
+	plot_legend: str | None = None,
+	file_url: str | None = None,
+	geo_coordinates=None,
+):
+	"""Create a single lease plot, either from an uploaded KML file or from coordinates drawn on the map."""
+	plot_name = (plot_name or "").strip()
+	if not plot_name:
+		frappe.throw("plot_name is required.")
+	plot_legend_clean = (plot_legend or "").strip() or None
+	if plot_legend_clean and not frappe.db.exists("Lease Plot Legend", plot_legend_clean):
+		frappe.throw(f"Lease Plot Legend not found: {plot_legend_clean}.")
+
+	group_option = (group_option or "").strip().lower()
+	if group_option not in {"existing", "new"}:
+		frappe.throw("group_option must be 'existing' or 'new'.")
+
+	if group_option == "existing":
+		import_batch = (import_batch or "").strip()
+		if not import_batch:
+			frappe.throw("import_batch is required when group_option is 'existing'.")
+		existing = frappe.db.sql(
+			"SELECT 1 FROM `tabLease Plot` WHERE import_batch = %s LIMIT 1",
+			(import_batch,),
+		)
+		if not existing:
+			frappe.throw(f"Import batch not found: {import_batch}.")
+		source_file_name = frappe.db.get_value("Lease Plot", {"import_batch": import_batch}, "source_file_name") or import_batch
+	elif group_option == "new":
+		new_group_name = (new_group_name or "").strip()
+		if not new_group_name:
+			frappe.throw("new_group_name is required when group_option is 'new'.")
+		source_file_name = Path(new_group_name).stem or new_group_name
+		import_batch = _build_import_batch(source_file_name)
+
+	farm_project_clean = (farm_project or "").strip() or None
+	if farm_project_clean and not frappe.db.exists("Farm Project", farm_project_clean):
+		frappe.throw(f"Farm Project not found: {farm_project_clean}.")
+
+	file_url = (file_url or "").strip() or None
+	coordinates = None
+
+	if file_url:
+		first_plot, _ = _get_first_plot_from_kml(file_url)
+		coordinates = first_plot["coordinates"]
+		file_url_for_insert = file_url
+	else:
+		coordinates = _coerce_single_plot_coordinates(geo_coordinates)
+		if not coordinates:
+			frappe.throw("Provide either file_url or geo_coordinates (at least 3 points) for the plot boundary.")
+		file_url_for_insert = ""
+
+	plots = [{"name": plot_name, "coordinates": coordinates}]
+	_insert_plots_bulk(import_batch, source_file_name, file_url_for_insert, plots, plot_colors=None)
+
+	if farm_project_clean:
+		update_import_batch_metadata(
+			import_batch=import_batch,
+			farm_project=farm_project_clean,
+		)
+
+	if plot_legend_clean:
+		created = frappe.get_all(
+			"Lease Plot",
+			filters={"import_batch": import_batch},
+			fields=["name"],
+			order_by="creation desc",
+			limit=1,
+		)
+		if created:
+			doc = frappe.get_doc("Lease Plot", created[0]["name"])
+			legend_doc = frappe.get_doc("Lease Plot Legend", plot_legend_clean)
+			doc.plot_legend = legend_doc.name
+			doc.plot_color = legend_doc.legend_color
+			doc.save(ignore_permissions=True)
+
+	frappe.db.commit()
+	return {
+		"import_batch": import_batch,
+		"source_file_name": source_file_name,
+		"plot_count": 1,
+		"plot_name": plot_name,
+	}
+
+
 @frappe.whitelist()
 def list_plot_import_batches():
 	rows = frappe.db.sql(
@@ -458,7 +579,8 @@ def list_plot_import_batches():
 			MAX(source_file_name) AS source_file_name,
 			MAX(kml_file) AS kml_file,
 			COUNT(name) AS plot_count,
-			MAX(modified) AS modified
+			MAX(modified) AS modified,
+			MAX(farm_project) AS farm_project
 		FROM `tabLease Plot`
 		WHERE COALESCE(import_batch, '') != ''
 		GROUP BY import_batch
@@ -483,7 +605,8 @@ def search_plot_import_batches(query: str):
 			MAX(p.source_file_name) AS source_file_name,
 			MAX(p.kml_file) AS kml_file,
 			COUNT(DISTINCT p.name) AS plot_count,
-			MAX(p.modified) AS modified
+			MAX(p.modified) AS modified,
+			MAX(p.farm_project) AS farm_project
 		FROM `tabLease Plot` p
 		WHERE
 			LOWER(COALESCE(p.import_batch, '')) LIKE %s
@@ -882,10 +1005,15 @@ def update_import_batch_metadata(
 	village_code: str | None = None,
 	tehsil_name: str | None = None,
 	area_type: str | None = None,
+	farm_project: str | None = None,
 ):
 	import_batch = (import_batch or "").strip()
 	if not import_batch:
 		frappe.throw("import_batch is required.")
+
+	farm_project_clean = (farm_project or "").strip() or None
+	if farm_project_clean and not frappe.db.exists("Farm Project", farm_project_clean):
+		frappe.throw(f"Farm Project not found: {farm_project_clean}")
 
 	now = frappe.utils.now()
 	user = frappe.session.user or "Administrator"
@@ -895,6 +1023,7 @@ def update_import_batch_metadata(
 		"village_code": (village_code or "").strip() or None,
 		"tehsil_name": (tehsil_name or "").strip() or None,
 		"area_type": (area_type or "").strip() or None,
+		"farm_project": farm_project_clean,
 		"now": now,
 		"user": user,
 	}
@@ -907,6 +1036,7 @@ def update_import_batch_metadata(
 			village_code = %(village_code)s,
 			tehsil_name = %(tehsil_name)s,
 			area_type = %(area_type)s,
+			farm_project = %(farm_project)s,
 			modified = %(now)s,
 			modified_by = %(user)s
 		WHERE import_batch = %(import_batch)s
@@ -920,6 +1050,7 @@ def update_import_batch_metadata(
 		"village_code": values["village_code"],
 		"tehsil_name": values["tehsil_name"],
 		"area_type": values["area_type"],
+		"farm_project": values["farm_project"],
 	}
 
 

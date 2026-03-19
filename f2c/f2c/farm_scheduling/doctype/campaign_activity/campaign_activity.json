@@ -1,0 +1,46 @@
+{
+  "doctype": "DocType",
+  "name": "Campaign Activity",
+  "module": "Farm Scheduling",
+  "document_type": "Document",
+  "istable": 1,
+  "editable_grid": 1,
+  "allow_rename": 1,
+  "track_changes": 1,
+  "field_order": [
+    "activity",
+    "activity_name",
+    "activity_group_type"
+  ],
+  "fields": [
+    {
+      "fieldname": "activity",
+      "fieldtype": "Link",
+      "label": "Activity",
+      "options": "Farm Activity",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fetch_from": "activity.activity_name",
+      "fieldname": "activity_name",
+      "fieldtype": "Data",
+      "label": "Activity Name",
+      "read_only": 1,
+      "in_list_view": 1
+    },
+    {
+      "fetch_from": "activity.activity_group_type",
+      "fieldname": "activity_group_type",
+      "fieldtype": "Link",
+      "label": "Activity Group Type",
+      "options": "Activity Group Type",
+      "read_only": 1,
+      "in_list_view": 1
+    }
+  ],
+  "permissions": [],
+  "sort_field": "modified",
+  "sort_order": "DESC"
+}
+

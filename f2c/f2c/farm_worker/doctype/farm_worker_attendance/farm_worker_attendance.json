@@ -1,0 +1,124 @@
+{
+  "actions": [],
+  "allow_import": 1,
+  "allow_rename": 1,
+  "autoname": "format:FWA-{#####}",
+  "creation": "2025-01-20 10:00:00.000000",
+  "doctype": "DocType",
+  "document_type": "Document",
+  "engine": "InnoDB",
+  "field_order": [
+    "farm_worker",
+    "column_break_1",
+    "attendance_date",
+    "check_in",
+    "section_break_1",
+    "status",
+    "section_break_2",
+    "report",
+    "section_break_3",
+    "worker_name"
+  ],
+  "fields": [
+    {
+      "fieldname": "farm_worker",
+      "fieldtype": "Link",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "label": "Farm Worker",
+      "options": "Farm Worker Details",
+      "reqd": 1
+    },
+    {
+      "fieldname": "column_break_1",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "attendance_date",
+      "fieldtype": "Date",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "label": "Attendance Date",
+      "reqd": 1
+    },
+    {
+      "fieldname": "check_in",
+      "fieldtype": "Datetime",
+      "label": "Check-in Time",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "section_break_1",
+      "fieldtype": "Section Break"
+    },
+    {
+      "fieldname": "status",
+      "fieldtype": "Select",
+      "in_list_view": 1,
+      "in_standard_filter": 1,
+      "label": "Status",
+      "options": "Present\nAbsent\nHalf Day\nReported",
+      "reqd": 1
+    },
+    {
+      "fieldname": "section_break_2",
+      "fieldtype": "Section Break",
+      "label": "Report"
+    },
+    {
+      "fieldname": "report",
+      "fieldtype": "Small Text",
+      "label": "Report",
+      "description": "Additional report or notes for this attendance"
+    },
+    {
+      "fieldname": "section_break_3",
+      "fieldtype": "Section Break",
+      "label": "Worker Details"
+    },
+    {
+      "fetch_from": "farm_worker.worker_name",
+      "fieldname": "worker_name",
+      "fieldtype": "Data",
+      "label": "Worker Name",
+      "read_only": 1
+    }
+  ],
+  "index_web_pages_for_search": 1,
+  "links": [],
+  "modified": "2025-01-20 10:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "Farm Worker",
+  "name": "Farm Worker Attendance",
+  "naming_rule": "Expression",
+  "owner": "Administrator",
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "System Manager",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "All",
+      "share": 1,
+      "write": 1
+    }
+  ],
+  "sort_field": "attendance_date",
+  "sort_order": "DESC",
+  "states": [],
+  "track_changes": 1
+}

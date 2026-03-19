@@ -1,0 +1,157 @@
+{
+  "doctype": "DocType",
+  "name": "Asset Transfer Ticket",
+  "module": "Inventory",
+  "document_type": "Document",
+  "autoname": "format:ATT-{YYYY}-{#####}",
+  "allow_import": 1,
+  "track_changes": 1,
+  "index_web_pages_for_search": 1,
+  "engine": "InnoDB",
+  "is_submittable": 0,
+  "field_order": [
+    "asset",
+    "asset_name",
+    "column_break_1",
+    "asset_movement",
+    "status",
+    "section_break_locations",
+    "source_location",
+    "column_break_2",
+    "target_location",
+    "section_break_timestamps",
+    "picked_up_on",
+    "column_break_3",
+    "received_on",
+    "section_break_report",
+    "report_reason"
+  ],
+  "fields": [
+    {
+      "fieldname": "asset",
+      "fieldtype": "Link",
+      "label": "Asset",
+      "options": "Asset",
+      "reqd": 1,
+      "in_list_view": 1,
+      "in_standard_filter": 1
+    },
+    {
+      "fieldname": "asset_name",
+      "fieldtype": "Data",
+      "label": "Asset Name",
+      "fetch_from": "asset.asset_name",
+      "read_only": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "column_break_1",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "asset_movement",
+      "fieldtype": "Link",
+      "label": "Asset Movement",
+      "options": "Asset Movement",
+      "read_only": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "status",
+      "fieldtype": "Select",
+      "label": "Status",
+      "options": "\nPending Pickup\nIn Transit\nReceived\nReported\nCancelled",
+      "default": "Pending Pickup",
+      "reqd": 1,
+      "in_list_view": 1,
+      "in_standard_filter": 1
+    },
+    {
+      "fieldname": "section_break_locations",
+      "fieldtype": "Section Break",
+      "label": "Locations"
+    },
+    {
+      "fieldname": "source_location",
+      "fieldtype": "Link",
+      "label": "Source Location",
+      "options": "Location",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "column_break_2",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "target_location",
+      "fieldtype": "Link",
+      "label": "Target Location",
+      "options": "Location",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "section_break_timestamps",
+      "fieldtype": "Section Break",
+      "label": "Timestamps",
+      "collapsible": 1
+    },
+    {
+      "fieldname": "picked_up_on",
+      "fieldtype": "Datetime",
+      "label": "Picked Up On",
+      "read_only": 1
+    },
+    {
+      "fieldname": "column_break_3",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "received_on",
+      "fieldtype": "Datetime",
+      "label": "Received On",
+      "read_only": 1
+    },
+    {
+      "fieldname": "section_break_report",
+      "fieldtype": "Section Break",
+      "label": "Report",
+      "collapsible": 1
+    },
+    {
+      "fieldname": "report_reason",
+      "fieldtype": "Small Text",
+      "label": "Report Reason"
+    }
+  ],
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "share": 1,
+      "write": 1,
+      "role": "System Manager"
+    },
+    {
+      "create": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "share": 1,
+      "write": 1,
+      "role": "All"
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC"
+}
+
+
