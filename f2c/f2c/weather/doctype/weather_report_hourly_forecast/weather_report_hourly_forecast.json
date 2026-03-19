@@ -1,0 +1,124 @@
+{
+  "doctype": "DocType",
+  "name": "Weather Report Hourly Forecast",
+  "module": "Weather",
+  "document_type": "Document",
+  "istable": 1,
+  "editable_grid": 1,
+  "track_changes": 0,
+  "field_order": [
+    "forecast_datetime",
+    "hour",
+    "temperature",
+    "feels_like",
+    "weather_condition",
+    "humidity",
+    "precipitation",
+    "precipitation_probability",
+    "wind_speed",
+    "wind_direction",
+    "wind_gust",
+    "cloud_cover",
+    "visibility",
+    "uv_index",
+    "pressure"
+  ],
+  "fields": [
+    {
+      "fieldname": "forecast_datetime",
+      "fieldtype": "Datetime",
+      "label": "Forecast Time",
+      "in_list_view": 1,
+      "columns": 2
+    },
+    {
+      "fieldname": "hour",
+      "fieldtype": "Int",
+      "label": "Hour (0-23)",
+      "description": "Hour of the day (0-23)"
+    },
+    {
+      "fieldname": "temperature",
+      "fieldtype": "Float",
+      "label": "Temperature (°C)",
+      "precision": "1",
+      "in_list_view": 1,
+      "columns": 1
+    },
+    {
+      "fieldname": "feels_like",
+      "fieldtype": "Float",
+      "label": "Feels Like (°C)",
+      "precision": "1"
+    },
+    {
+      "fieldname": "weather_condition",
+      "fieldtype": "Data",
+      "label": "Condition",
+      "in_list_view": 1,
+      "columns": 2
+    },
+    {
+      "fieldname": "humidity",
+      "fieldtype": "Percent",
+      "label": "Humidity (%)",
+      "in_list_view": 1,
+      "columns": 1
+    },
+    {
+      "fieldname": "precipitation",
+      "fieldtype": "Float",
+      "label": "Precipitation (mm)",
+      "precision": "2"
+    },
+    {
+      "fieldname": "precipitation_probability",
+      "fieldtype": "Percent",
+      "label": "Precip. Prob. (%)",
+      "in_list_view": 1,
+      "columns": 1
+    },
+    {
+      "fieldname": "wind_speed",
+      "fieldtype": "Float",
+      "label": "Wind Speed (km/h)",
+      "precision": "1",
+      "in_list_view": 1,
+      "columns": 1
+    },
+    {
+      "fieldname": "wind_direction",
+      "fieldtype": "Data",
+      "label": "Wind Direction"
+    },
+    {
+      "fieldname": "wind_gust",
+      "fieldtype": "Float",
+      "label": "Wind Gust (km/h)",
+      "precision": "1"
+    },
+    {
+      "fieldname": "cloud_cover",
+      "fieldtype": "Percent",
+      "label": "Cloud Cover (%)"
+    },
+    {
+      "fieldname": "visibility",
+      "fieldtype": "Float",
+      "label": "Visibility (km)",
+      "precision": "1"
+    },
+    {
+      "fieldname": "uv_index",
+      "fieldtype": "Int",
+      "label": "UV Index"
+    },
+    {
+      "fieldname": "pressure",
+      "fieldtype": "Float",
+      "label": "Pressure (hPa)",
+      "precision": "1"
+    }
+  ],
+  "permissions": []
+}

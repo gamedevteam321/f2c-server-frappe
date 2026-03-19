@@ -1,0 +1,161 @@
+{
+  "actions": [],
+  "allow_rename": 1,
+  "creation": "2025-12-08 00:00:00.000000",
+  "doctype": "DocType",
+  "editable_grid": 1,
+  "engine": "InnoDB",
+  "field_order": [
+    "block",
+    "block_name",
+    "block_area",
+    "field",
+    "field_name",
+    "land_preparation",
+    "land_preparation_name",
+    "land_preparation_activities_override",
+    "template_show_land_prep",
+    "template_show_pop",
+    "crop",
+    "variety",
+    "pop",
+    "pop_name",
+    "spacing",
+    "no_of_seedlings",
+    "irrigation_type"
+  ],
+  "fields": [
+    {
+      "fieldname": "block",
+      "fieldtype": "Link",
+      "in_list_view": 1,
+      "label": "Block",
+      "options": "Geo Fencing Area",
+      "reqd": 1
+    },
+    {
+      "fieldname": "block_name",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "label": "Block Name",
+      "read_only": 1,
+      "fetch_from": "block.area_name"
+    },
+    {
+      "fieldname": "block_area",
+      "fieldtype": "Float",
+      "in_list_view": 1,
+      "label": "Block Area (Acres)",
+      "read_only": 1,
+      "precision": "3"
+    },
+    {
+      "fieldname": "field",
+      "fieldtype": "Link",
+      "in_list_view": 1,
+      "label": "Field",
+      "options": "Geo Fencing Area",
+      "read_only": 1
+    },
+    {
+      "fieldname": "field_name",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "label": "Field Name",
+      "read_only": 1,
+      "fetch_from": "field.area_name"
+    },
+    {
+      "fieldname": "land_preparation",
+      "fieldtype": "Link",
+      "in_list_view": 1,
+      "label": "Land Preparation",
+      "options": "Land Preparation"
+    },
+    {
+      "fieldname": "land_preparation_name",
+      "fieldtype": "Data",
+      "label": "Land Preparation Name",
+      "read_only": 1,
+      "fetch_from": "land_preparation.land_preparation_name"
+    },
+    {
+      "fieldname": "land_preparation_activities_override",
+      "fieldtype": "Text",
+      "label": "Land Preparation Activities Override",
+      "description": "JSON array of activities for this block only; overrides template when set."
+    },
+    {
+      "fieldname": "template_show_land_prep",
+      "fieldtype": "Check",
+      "label": "Template Show Land Prep",
+      "default": 0,
+      "description": "When checked, show Land Preparation column for this block."
+    },
+    {
+      "fieldname": "template_show_pop",
+      "fieldtype": "Check",
+      "label": "Template Show POP",
+      "default": 0,
+      "description": "When checked, show POP column for this block."
+    },
+    {
+      "fieldname": "crop",
+      "fieldtype": "Link",
+      "in_list_view": 1,
+      "label": "Crop",
+      "options": "Crop"
+    },
+    {
+      "fieldname": "variety",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "label": "Variety"
+    },
+    {
+      "fieldname": "pop",
+      "fieldtype": "Link",
+      "in_list_view": 1,
+      "label": "POP",
+      "options": "POP"
+    },
+    {
+      "fieldname": "pop_name",
+      "fieldtype": "Data",
+      "label": "POP Name",
+      "read_only": 1,
+      "fetch_from": "pop.pop_name"
+    },
+    {
+      "fieldname": "spacing",
+      "fieldtype": "Link",
+      "in_list_view": 1,
+      "label": "Spacing",
+      "options": "Spacing"
+    },
+    {
+      "fieldname": "no_of_seedlings",
+      "fieldtype": "Int",
+      "in_list_view": 1,
+      "label": "No of Seedlings"
+    },
+    {
+      "fieldname": "irrigation_type",
+      "fieldtype": "Link",
+      "in_list_view": 1,
+      "label": "Irrigation Type",
+      "options": "Irrigation Type"
+    }
+  ],
+  "istable": 1,
+  "links": [],
+  "modified": "2025-12-08 00:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "Crop Planning",
+  "name": "Crop Plan Block",
+  "owner": "Administrator",
+  "permissions": [],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "track_changes": 1
+}

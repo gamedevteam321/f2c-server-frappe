@@ -1,0 +1,103 @@
+{
+    "actions": [],
+    "allow_rename": 1,
+    "creation": "2025-12-08 00:00:00.000000",
+    "doctype": "DocType",
+    "editable_grid": 1,
+    "engine": "InnoDB",
+    "field_order": [
+        "farm_task",
+        "task_name",
+        "item",
+        "item_name",
+        "quantity",
+        "unit"
+    ],
+    "fields": [
+        {
+            "fieldname": "activity_reference",
+            "fieldtype": "Data",
+            "label": "Activity Reference",
+            "description": "Reference to the activity row (name of Crop Plan Activity row)"
+        },
+        {
+            "fieldname": "activity_name",
+            "fieldtype": "Data",
+            "in_list_view": 1,
+            "label": "Activity Name",
+            "read_only": 1
+        },
+        {
+            "fieldname": "block_reference",
+            "fieldtype": "Data",
+            "label": "Block Reference",
+            "description": "Reference to parent block row (idx)"
+        },
+        {
+            "fieldname": "sequence",
+            "fieldtype": "Int",
+            "label": "Activity Sequence",
+            "description": "Sequence of the activity"
+        },
+        {
+            "fieldname": "activity_group_type",
+            "fieldtype": "Link",
+            "label": "Activity Group Type",
+            "options": "Activity Group Type",
+            "read_only": 1
+        },
+        {
+            "fieldname": "farm_task",
+            "fieldtype": "Link",
+            "label": "Farm Task",
+            "options": "Farm Tasks"
+        },
+        {
+            "fieldname": "task_name",
+            "fieldtype": "Data",
+            "label": "Approved Input Mix Name",
+            "read_only": 1,
+            "fetch_from": "farm_task.task_name"
+        },
+        {
+            "fieldname": "item",
+            "fieldtype": "Link",
+            "in_list_view": 1,
+            "label": "Approved Input",
+            "options": "Item"
+        },
+        {
+            "fieldname": "item_name",
+            "fieldtype": "Data",
+            "in_list_view": 1,
+            "label": "Approved Input Name",
+            "read_only": 1,
+            "fetch_from": "item.item_name"
+        },
+        {
+            "fieldname": "quantity",
+            "fieldtype": "Float",
+            "in_list_view": 1,
+            "label": "Quantity",
+            "precision": "3"
+        },
+        {
+            "fieldname": "unit",
+            "fieldtype": "Select",
+            "in_list_view": 1,
+            "label": "Unit",
+            "options": "kg\ng\nml\nL\nml/L\ng/L\nBags/Acre\nPer Manufacturer"
+        }
+    ],
+    "istable": 1,
+    "links": [],
+    "modified": "2025-12-08 00:00:00.000000",
+    "modified_by": "Administrator",
+    "module": "Crop Planning",
+    "name": "Crop Plan Activity Input",
+    "owner": "Administrator",
+    "permissions": [],
+    "sort_field": "modified",
+    "sort_order": "DESC",
+    "track_changes": 1
+}

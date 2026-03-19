@@ -1,0 +1,85 @@
+{
+    "actions": [],
+    "allow_import": 1,
+    "allow_rename": 1,
+    "autoname": "format:SP-{#####}",
+    "creation": "2025-01-20 10:00:00.000000",
+    "doctype": "DocType",
+    "document_type": "Document",
+    "engine": "InnoDB",
+    "field_order": [
+        "row",
+        "col",
+        "uom",
+        "spacing_name"
+    ],
+    "fields": [
+        {
+            "fieldname": "row",
+            "fieldtype": "Int",
+            "in_list_view": 1,
+            "label": "Row",
+            "reqd": 1
+        },
+        {
+            "fieldname": "col",
+            "fieldtype": "Int",
+            "in_list_view": 1,
+            "label": "Column",
+            "reqd": 1
+        },
+        {
+            "fieldname": "uom",
+            "fieldtype": "Link",
+            "in_list_view": 1,
+            "label": "UOM",
+            "options": "UOM",
+            "reqd": 1
+        },
+        {
+            "fieldname": "spacing_name",
+            "fieldtype": "Data",
+            "in_list_view": 1,
+            "label": "Spacing Name",
+            "read_only": 1
+        }
+    ],
+    "index_web_pages_for_search": 1,
+    "links": [],
+    "modified": "2025-01-20 10:00:00.000000",
+    "modified_by": "Administrator",
+    "module": "Crop Planning",
+    "name": "Spacing",
+    "naming_rule": "By \"Auto Name\" field",
+    "owner": "Administrator",
+    "permissions": [
+        {
+            "create": 1,
+            "delete": 1,
+            "email": 1,
+            "export": 1,
+            "print": 1,
+            "read": 1,
+            "report": 1,
+            "role": "System Manager",
+            "share": 1,
+            "write": 1
+        },
+        {
+            "create": 1,
+            "email": 1,
+            "export": 1,
+            "print": 1,
+            "read": 1,
+            "report": 1,
+            "role": "All",
+            "share": 1,
+            "write": 1
+        }
+    ],
+    "sort_field": "modified",
+    "sort_order": "DESC",
+    "states": [],
+    "track_changes": 1
+}
+

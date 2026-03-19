@@ -1,0 +1,70 @@
+{
+  "doctype": "DocType",
+  "name": "Farm Task Execution Labour",
+  "module": "Farm Execution",
+  "document_type": "Document",
+  "istable": 1,
+  "editable_grid": 1,
+  "allow_rename": 1,
+  "track_changes": 1,
+  "field_order": [
+    "labour_type",
+    "labour",
+    "labour_name",
+    "role",
+    "checkin_in",
+    "checkin_out"
+  ],
+  "fields": [
+    {
+      "fieldname": "labour_type",
+      "fieldtype": "Select",
+      "label": "Labour Type",
+      "options": "Farm Worker Details\nEmployee",
+      "default": "Farm Worker Details",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "labour",
+      "fieldtype": "Dynamic Link",
+      "label": "Labour",
+      "options": "labour_type",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "labour_name",
+      "fieldtype": "Data",
+      "label": "Labour Name",
+      "read_only": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "role",
+      "fieldtype": "Data",
+      "label": "Role/Skill",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "checkin_in",
+      "fieldtype": "Link",
+      "label": "Check-in (IN)",
+      "options": "Employee Checkin",
+      "read_only": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "checkin_out",
+      "fieldtype": "Link",
+      "label": "Check-in (OUT)",
+      "options": "Employee Checkin",
+      "read_only": 1,
+      "in_list_view": 1
+    }
+  ],
+  "permissions": [],
+  "sort_field": "modified",
+  "sort_order": "DESC"
+}
+
+

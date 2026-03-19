@@ -1,0 +1,56 @@
+{
+    "actions": [],
+    "allow_rename": 1,
+    "autoname": "format:PA-{####}",
+    "creation": "2025-01-20 10:00:00",
+    "doctype": "DocType",
+    "document_type": "Document",
+    "editable_grid": 1,
+    "engine": "InnoDB",
+    "field_order": [
+        "pop_activity_list",
+        "activity_name",
+        "sequence"
+    ],
+    "fields": [
+        {
+            "fieldname": "pop_activity_list",
+            "fieldtype": "Link",
+            "in_list_view": 1,
+            "label": "Farm Crop Activity Mapping",
+            "options": "Farm Crop Activity Mapping",
+            "reqd": 1
+        },
+        {
+            "depends_on": "pop_activity_list",
+            "fetch_from": "pop_activity_list.activity_name",
+            "fieldname": "activity_name",
+            "fieldtype": "Data",
+            "in_list_view": 1,
+            "label": "Activity Name",
+            "read_only": 1
+        },
+        {
+            "default": "0",
+            "fieldname": "sequence",
+            "fieldtype": "Int",
+            "in_list_view": 1,
+            "label": "Sequence"
+        }
+    ],
+    "index_web_pages_for_search": 1,
+    "istable": 1,
+    "links": [],
+    "modified": "2025-12-04 12:28:22.485617",
+    "modified_by": "Administrator",
+    "module": "Farm to Crop",
+    "name": "POP Activity",
+    "naming_rule": "By fieldname",
+    "owner": "Administrator",
+    "permissions": [],
+    "row_format": "Dynamic",
+    "sort_field": "sequence",
+    "sort_order": "ASC",
+    "states": [],
+    "track_changes": 1
+}
