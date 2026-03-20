@@ -358,3 +358,197 @@ def get_latest_report_for_ref(
 				break
 
 	return {"farm_report_name": rows[0]["name"] if rows else None}
+
+
+def _collect_asset_ids_from_schedule_like(doc: Document) -> set[str]:
+	out: set[str] = set()
+	for table in ("machinery", "implements", "hand_tools", "other_tools"):
+		for row in getattr(doc, table, None) or []:
+			a = (row.get("asset") or "").strip()
+			if a:
+				out.add(a)
+	return out
+
+
+def _collect_item_ids_from_inputs(doc: Document) -> set[str]:
+	out: set[str] = set()
+	for row in getattr(doc, "inputs", None) or []:
+		i = (row.get("item") or "").strip()
+		if i:
+			out.add(i)
+	return out
+
+
+def _collect_asset_ids_from_execution(doc: Document) -> set[str]:
+	out: set[str] = set()
+	for row in getattr(doc, "equipment", None) or []:
+		a = (row.get("asset") or "").strip()
+		if a:
+			out.add(a)
+	out.update(_collect_asset_ids_from_execution_days(doc.name))
+	return out
+
+
+def _collect_item_ids_from_execution(doc: Document) -> set[str]:
+	out: set[str] = set()
+	out.update(_collect_item_ids_from_inputs(doc))
+	out.update(_collect_item_ids_from_execution_days(doc.name))
+	return out
+
+
+def _collect_asset_ids_from_execution_days(execution_name: str) -> set[str]:
+	out: set[str] = set()
+	for day_name in frappe.get_all(
+		"Farm Task Execution Day",
+		filters={"execution": execution_name},
+		pluck="name",
+	):
+		day_doc = frappe.get_doc("Farm Task Execution Day", day_name)
+		for row in getattr(day_doc, "equipment", None) or []:
+			a = (row.get("asset") or "").strip()
+			if a:
+				out.add(a)
+	return out
+
+
+def _collect_item_ids_from_execution_days(execution_name: str) -> set[str]:
+	out: set[str] = set()
+	for day_name in frappe.get_all(
+		"Farm Task Execution Day",
+		filters={"execution": execution_name},
+		pluck="name",
+	):
+		day_doc = frappe.get_doc("Farm Task Execution Day", day_name)
+		for row in getattr(day_doc, "inputs", None) or []:
+			i = (row.get("item") or "").strip()
+			if i:
+				out.add(i)
+	return out
+
+
+def _farm_worker_ids_from_labour_rows(rows) -> set[str]:
+	out: set[str] = set()
+	for row in rows or []:
+		if (row.get("labour_type") or "").strip() != "Farm Worker Details":
+			continue
+		w = (row.get("labour") or "").strip()
+		if w:
+			out.add(w)
+	return out
+
+
+def _collect_farm_worker_ids_from_execution(doc: Document) -> set[str]:
+	out: set[str] = set()
+	out.update(_farm_worker_ids_from_labour_rows(getattr(doc, "labour_attendance", None)))
+	for day_name in frappe.get_all(
+		"Farm Task Execution Day",
+		filters={"execution": doc.name},
+		pluck="name",
+	):
+		day_doc = frappe.get_doc("Farm Task Execution Day", day_name)
+		out.update(_farm_worker_ids_from_labour_rows(getattr(day_doc, "labour", None)))
+	return out
+
+
+def _collect_asset_ids_from_farm_activity(doc: Document) -> set[str]:
+	out: set[str] = set()
+	for table in ("suggested_machinery", "suggested_implements", "suggested_hand_tools", "suggested_other_tools"):
+		for row in getattr(doc, table, None) or []:
+			a = (row.get("asset") or "").strip()
+			if a:
+				out.add(a)
+	return out
+
+
+def _rows_name_label(doctype: str, label_field: str, ids: set[str]) -> List[Dict[str, str]]:
+	if not ids:
+		return []
+	names = list(ids)
+	rows: List[Dict[str, str]] = []
+	chunk_size = 500
+	for i in range(0, len(names), chunk_size):
+		chunk = names[i : i + chunk_size]
+		data = frappe.get_all(doctype, filters={"name": ["in", chunk]}, fields=["name", label_field])
+		for r in data:
+			rows.append({"name": r["name"], "label": (r.get(label_field) or r["name"])})
+	rows.sort(key=lambda x: ((x["label"] or "").lower(), x["name"]))
+	return rows
+
+
+def _collect_picklist_options(
+	execution_ref: str | None = None,
+	schedule_ref: str | None = None,
+	on_demand_activity_ref: str | None = None,
+) -> Dict[str, Any]:
+	refs_provided = [bool(execution_ref), bool(schedule_ref), bool(on_demand_activity_ref)]
+	if sum(refs_provided) != 1:
+		frappe.throw("Provide exactly one of execution_ref, schedule_ref, or on_demand_activity_ref.")
+
+	asset_ids: set[str] = set()
+	item_ids: set[str] = set()
+	worker_ids: set[str] = set()
+
+	farm_activity_id: str | None = None
+
+	if execution_ref:
+		exec_doc = frappe.get_doc("Farm Task Execution", execution_ref)
+		farm_activity_id = getattr(exec_doc, "farm_activity", None) or None
+		asset_ids.update(_collect_asset_ids_from_execution(exec_doc))
+		item_ids.update(_collect_item_ids_from_execution(exec_doc))
+		worker_ids.update(_collect_farm_worker_ids_from_execution(exec_doc))
+		if getattr(exec_doc, "schedule_ref", None):
+			sch = frappe.get_doc("Crop Plan Schedule", exec_doc.schedule_ref)
+			asset_ids.update(_collect_asset_ids_from_schedule_like(sch))
+			item_ids.update(_collect_item_ids_from_inputs(sch))
+		if getattr(exec_doc, "on_demand_activity_ref", None):
+			oda = frappe.get_doc("On Demand Activity", exec_doc.on_demand_activity_ref)
+			asset_ids.update(_collect_asset_ids_from_schedule_like(oda))
+			item_ids.update(_collect_item_ids_from_inputs(oda))
+
+	elif schedule_ref:
+		sch = frappe.get_doc("Crop Plan Schedule", schedule_ref)
+		farm_activity_id = getattr(sch, "farm_activity", None) or None
+		asset_ids.update(_collect_asset_ids_from_schedule_like(sch))
+		item_ids.update(_collect_item_ids_from_inputs(sch))
+		if getattr(sch, "execution_ref", None):
+			exec_doc = frappe.get_doc("Farm Task Execution", sch.execution_ref)
+			asset_ids.update(_collect_asset_ids_from_execution(exec_doc))
+			item_ids.update(_collect_item_ids_from_execution(exec_doc))
+			worker_ids.update(_collect_farm_worker_ids_from_execution(exec_doc))
+
+	else:
+		oda = frappe.get_doc("On Demand Activity", on_demand_activity_ref)
+		farm_activity_id = getattr(oda, "activity", None) or None
+		asset_ids.update(_collect_asset_ids_from_schedule_like(oda))
+		item_ids.update(_collect_item_ids_from_inputs(oda))
+		if getattr(oda, "execution_ref", None):
+			exec_doc = frappe.get_doc("Farm Task Execution", oda.execution_ref)
+			asset_ids.update(_collect_asset_ids_from_execution(exec_doc))
+			item_ids.update(_collect_item_ids_from_execution(exec_doc))
+			worker_ids.update(_collect_farm_worker_ids_from_execution(exec_doc))
+
+	if farm_activity_id:
+		try:
+			fa = frappe.get_doc("Farm Activity", farm_activity_id)
+			asset_ids.update(_collect_asset_ids_from_farm_activity(fa))
+		except frappe.DoesNotExistError:
+			pass
+
+	return {
+		"assets": _rows_name_label("Asset", "asset_name", asset_ids),
+		"items": _rows_name_label("Item", "item_name", item_ids),
+		"farm_workers": _rows_name_label("Farm Worker Details", "worker_name", worker_ids),
+	}
+
+
+@frappe.whitelist()
+def get_farm_report_ticket_picklist_options(
+	execution_ref: str | None = None,
+	schedule_ref: str | None = None,
+	on_demand_activity_ref: str | None = None,
+) -> Dict[str, Any]:
+	return _collect_picklist_options(
+		execution_ref=execution_ref,
+		schedule_ref=schedule_ref,
+		on_demand_activity_ref=on_demand_activity_ref,
+	)
