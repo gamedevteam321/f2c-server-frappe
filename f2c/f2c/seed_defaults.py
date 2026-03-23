@@ -1,6 +1,7 @@
 import frappe
 
 from f2c.farm_to_crop.doctype.water_source.seed_data import seed_water_source
+from f2c.seed_defaults import ensure_equipment_spec_options
 
 
 def ensure_irrigation_types() -> None:
@@ -73,6 +74,7 @@ def after_migrate() -> None:
 		seed_water_source()
 		ensure_item_group_default_gst_hsn_code_field()
 		ensure_equipment_parts_item_groups()
+		ensure_equipment_spec_options()
 	except Exception:
 		# Never block migrations due to seed failures
 		frappe.log_error(frappe.get_traceback(), "f2c.after_migrate seed_defaults failed")

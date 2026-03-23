@@ -85,6 +85,88 @@ def ensure_equipment_parts_item_groups() -> None:
 			)
 
 
+def ensure_equipment_spec_options() -> None:
+	"""Seed Equipment Spec Option rows to match React static dropdowns (idempotent).
+
+	Source of truth for labels:
+	- `equipmentSpecFieldLibrary.ts` → BASE_FIELDS (market, power source, mounting, criticality, spec status)
+	- Category defs → `fuel_type_select` options (union + EngineSpecsSection / equipmentSpecOptions fallback)
+
+	Skips any (option_type, title) that already exists.
+
+	Runs automatically on `bench migrate` (after_migrate). To run once on a live site without migrate::
+
+		bench --site <site> execute f2c.seed_defaults.ensure_equipment_spec_options
+	"""
+	if not frappe.db.exists("DocType", "Equipment Spec Option"):
+		return
+
+	# (option_type, title, sort_order) — titles must match values stored in specs_json / Machinery.fuel_type
+	defaults: list[tuple[str, str, int]] = [
+		# Market — BASE_FIELDS market_select
+		("Market", "India", 10),
+		# Power Source — BASE_FIELDS power_source_select
+		("Power Source", "Diesel", 10),
+		("Power Source", "Electric", 20),
+		("Power Source", "Petrol", 30),
+		("Power Source", "Hybrid", 40),
+		("Power Source", "Manual", 50),
+		# Mounting Type — BASE_FIELDS mounting_type_select
+		("Mounting Type", "None", 10),
+		("Mounting Type", "Mounted", 20),
+		("Mounting Type", "Non-mounted", 30),
+		("Mounting Type", "Trailed", 40),
+		("Mounting Type", "Self-propelled", 50),
+		("Mounting Type", "Handheld", 60),
+		("Mounting Type", "Skid", 70),
+		# Spec Status — BASE_FIELDS status_select (lowercase = stored value)
+		("Spec Status", "shortlisted", 10),
+		("Spec Status", "approved", 20),
+		("Spec Status", "rejected", 30),
+		# Criticality — BASE_FIELDS criticality_select
+		("Criticality", "Core", 10),
+		("Criticality", "Support", 20),
+		("Criticality", "Optional", 30),
+		# Fuel Type — union of Engine fallback + Vehicle / Pump fuel_type_select in TS
+		("Fuel Type", "Diesel", 10),
+		("Fuel Type", "Petrol", 20),
+		("Fuel Type", "Electric", 30),
+		("Fuel Type", "Hybrid", 40),
+		("Fuel Type", "Other", 50),
+		("Fuel Type", "CNG", 60),
+		("Fuel Type", "EV", 70),
+		# Implement-specific selects in equipmentSpecFieldLibrary.ts
+		("PTO Speed Required", "540", 10),
+		("PTO Speed Required", "1000", 20),
+		("Hitch Category", "Cat 1", 10),
+		("Hitch Category", "Cat 2", 20),
+		("Hitch Category", "Cat 3", 30),
+		("Safety Mechanism", "Shear bolt", 10),
+		("Safety Mechanism", "Spring", 20),
+		("Safety Mechanism", "None", 30),
+	]
+
+	for option_type, title, sort_order in defaults:
+		if frappe.db.exists("Equipment Spec Option", {"option_type": option_type, "title": title}):
+			continue
+		try:
+			frappe.get_doc(
+				{
+					"doctype": "Equipment Spec Option",
+					"option_type": option_type,
+					"title": title,
+					"sort_order": sort_order,
+					"disabled": 0,
+				}
+			).insert(ignore_permissions=True)
+		except Exception:
+			frappe.log_error(
+				frappe.get_traceback(),
+				f"f2c ensure_equipment_spec_options ({option_type!r}, {title!r}) failed",
+			)
+	frappe.db.commit()
+
+
 def after_migrate() -> None:
 	"""Hook: run after `bench migrate`."""
 	try:
@@ -93,6 +175,7 @@ def after_migrate() -> None:
 		ensure_item_group_default_gst_hsn_code_field()
 		ensure_default_gst_hsn_code_00000000()
 		ensure_equipment_parts_item_groups()
+		ensure_equipment_spec_options()
 	except Exception:
 		# Never block migrations due to seed failures
 		frappe.log_error(frappe.get_traceback(), "f2c.after_migrate seed_defaults failed")

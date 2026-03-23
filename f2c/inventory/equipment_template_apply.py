@@ -157,7 +157,20 @@ def apply_template_overwrite(doc: Document) -> bool:
 	if not cfg:
 		return False
 
-	template_name = doc.get(cfg["template_field"])
+	template_field = cfg["template_field"]
+	# Re-apply template defaults only when creating a new record or when
+	# user explicitly changes the template link. Avoid overwriting manual edits
+	# on every subsequent save.
+	if not doc.is_new():
+		try:
+			if not doc.has_value_changed(template_field):
+				return False
+		except Exception:
+			# Conservative fallback: if change detection is unavailable,
+			# do not overwrite user-entered values on existing docs.
+			return False
+
+	template_name = doc.get(template_field)
 	if not template_name:
 		return False
 

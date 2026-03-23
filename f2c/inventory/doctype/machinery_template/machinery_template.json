@@ -212,9 +212,8 @@
     },
     {
       "fieldname": "fuel_type",
-      "fieldtype": "Select",
-      "label": "Fuel Type",
-      "options": "\nDiesel\nPetrol\nElectric\nHybrid\nOther"
+      "fieldtype": "Data",
+      "label": "Fuel Type"
     },
     {
       "fieldname": "column_break_engine_1",
