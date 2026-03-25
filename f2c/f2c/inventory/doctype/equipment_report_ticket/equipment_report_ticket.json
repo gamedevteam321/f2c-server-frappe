@@ -1,0 +1,143 @@
+{
+  "doctype": "DocType",
+  "name": "Equipment Report Ticket",
+  "module": "Inventory",
+  "document_type": "Document",
+  "autoname": "format:ERT-{#####}",
+  "allow_import": 1,
+  "allow_rename": 1,
+  "track_changes": 1,
+  "engine": "InnoDB",
+  "field_order": [
+    "asset",
+    "asset_name",
+    "column_break_1",
+    "report_type",
+    "status",
+    "section_break_details",
+    "reason",
+    "image",
+    "section_break_repair",
+    "parts",
+    "section_break_resolution",
+    "resolution_notes",
+    "resolution_date"
+  ],
+  "fields": [
+    {
+      "fieldname": "asset",
+      "fieldtype": "Link",
+      "label": "Asset",
+      "options": "Asset",
+      "reqd": 1,
+      "in_list_view": 1,
+      "in_standard_filter": 1
+    },
+    {
+      "fieldname": "asset_name",
+      "fieldtype": "Data",
+      "label": "Asset Name",
+      "fetch_from": "asset.asset_name",
+      "read_only": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "column_break_1",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "report_type",
+      "fieldtype": "Select",
+      "label": "Report Type",
+      "options": "Maintenance\nRepair",
+      "reqd": 1,
+      "in_list_view": 1,
+      "in_standard_filter": 1
+    },
+    {
+      "fieldname": "status",
+      "fieldtype": "Select",
+      "label": "Status",
+      "options": "Open\nResolved",
+      "default": "Open",
+      "reqd": 1,
+      "in_list_view": 1,
+      "in_standard_filter": 1
+    },
+    {
+      "fieldname": "section_break_details",
+      "fieldtype": "Section Break",
+      "label": "Details"
+    },
+    {
+      "fieldname": "reason",
+      "fieldtype": "Small Text",
+      "label": "Reason",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "image",
+      "fieldtype": "Attach Image",
+      "label": "Photo"
+    },
+    {
+      "fieldname": "section_break_repair",
+      "fieldtype": "Section Break",
+      "label": "Repair Parts",
+      "depends_on": "eval:doc.report_type === 'Repair'"
+    },
+    {
+      "fieldname": "parts",
+      "fieldtype": "Table",
+      "label": "Parts",
+      "options": "Equipment Report Ticket Part",
+      "depends_on": "eval:doc.report_type === 'Repair'"
+    },
+    {
+      "fieldname": "section_break_resolution",
+      "fieldtype": "Section Break",
+      "label": "Resolution",
+      "depends_on": "eval:doc.status === 'Resolved'"
+    },
+    {
+      "fieldname": "resolution_notes",
+      "fieldtype": "Small Text",
+      "label": "Resolution Notes",
+      "depends_on": "eval:doc.status === 'Resolved'"
+    },
+    {
+      "fieldname": "resolution_date",
+      "fieldtype": "Date",
+      "label": "Resolution Date",
+      "depends_on": "eval:doc.status === 'Resolved'"
+    }
+  ],
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "share": 1,
+      "write": 1,
+      "role": "System Manager"
+    },
+    {
+      "create": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "share": 1,
+      "write": 1,
+      "role": "All"
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC"
+}

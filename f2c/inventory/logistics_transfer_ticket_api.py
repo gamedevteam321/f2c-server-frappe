@@ -3,6 +3,9 @@ import frappe
 from frappe import _
 from frappe.utils import cint, flt, get_datetime, now_datetime
 
+# Include both Draft (0) and Submitted (1) Assets in inventory views; exclude Cancelled (2)
+ASSET_DOCSTATUS_NOT_CANCELLED = [0, 1]
+
 
 def _normalize_photo_urls(value):
 	"""Accept single URL string, list of URLs, or JSON string; return JSON string of list of URL strings."""
@@ -47,9 +50,34 @@ def _geo_area_path_names(geo_area_name: str) -> list[str]:
 
 
 def _build_location_name_for_geo_area(geo_area_name: str) -> str:
-	# naming convention: Farm-Cluster-Field-Block (based on area_name hierarchy)
-	parts = _geo_area_path_names(geo_area_name)
-	return "-".join([p.strip() for p in parts if p and str(p).strip()])
+	"""
+	Build location_name that matches Location records created by create_locations_from_geo_warehouses.
+	Must use the same logic as f2c.farm_to_crop.location_sync._build_location_name_from_area
+	(Farm/Cluster/Field/Block only) so warehouse->location lookup finds the correct Location.
+	"""
+	from f2c.farm_to_crop.location_sync import _build_location_name_from_area
+	return _build_location_name_from_area(geo_area_name)
+
+
+def _get_location_by_name(location_name: str):
+	"""
+	Return Location docname for the given location_name.
+	Tries exact match first, then case-insensitive match so that differing casing
+	between Geo Fencing Area (area_name) and stored Location does not break lookup.
+	"""
+	if not (location_name or "").strip():
+		return None
+	# Exact match first (fast path)
+	loc = frappe.db.get_value("Location", {"location_name": location_name}, "name")
+	if loc:
+		return loc
+	# Case-insensitive fallback (e.g. prod DB collation or data entry differs from local)
+	result = frappe.db.sql(
+		"SELECT name FROM `tabLocation` WHERE LOWER(TRIM(location_name)) = LOWER(TRIM(%s)) LIMIT 1",
+		(location_name,),
+		as_dict=False,
+	)
+	return result[0][0] if result else None
 
 
 @frappe.whitelist()
@@ -122,7 +150,7 @@ def get_location_for_warehouse(warehouse: str):
 		return {"warehouse": warehouse, "geo_area": None, "location": None, "location_name": None}
 
 	location_name = _build_location_name_for_geo_area(geo_area)
-	loc = frappe.db.get_value("Location", {"location_name": location_name}, "name")
+	loc = _get_location_by_name(location_name)
 	return {"warehouse": warehouse, "geo_area": geo_area, "location": loc, "location_name": location_name}
 
 
@@ -131,7 +159,7 @@ def get_location_for_geo_area(geo_area: str):
 	if not geo_area:
 		frappe.throw(_("geo_area is required"))
 	location_name = _build_location_name_for_geo_area(geo_area)
-	loc = frappe.db.get_value("Location", {"location_name": location_name}, "name")
+	loc = _get_location_by_name(location_name)
 	return {"geo_area": geo_area, "location": loc, "location_name": location_name}
 
 
@@ -573,6 +601,12 @@ def mark_received(ticket_name: str, receive_photo_url=None):
 		if am.docstatus == 0:
 			am.submit()
 
+	new_status = _get_equipment_status_for_destination_warehouse(ticket.to_warehouse)
+	if new_status and getattr(ticket, "asset_items", None):
+		for row in ticket.asset_items:
+			if row.get("asset"):
+				_set_equipment_status_for_asset(row.asset, new_status)
+
 	ticket.status = "Received"
 	if drop_phase != "Delivered":
 		ticket.drop_off_phase = "Delivered"
@@ -602,6 +636,12 @@ def revert_received(ticket_name: str):
 		am = frappe.get_doc("Asset Movement", ticket.asset_movement)
 		if am.docstatus == 1:
 			am.cancel()
+
+	new_status = _get_equipment_status_for_destination_warehouse(ticket.from_warehouse)
+	if new_status and getattr(ticket, "asset_items", None):
+		for row in ticket.asset_items:
+			if row.get("asset"):
+				_set_equipment_status_for_asset(row.asset, new_status)
 
 	ticket.status = "In Transit"
 	ticket.drop_off_phase = "In Transit"
@@ -751,6 +791,80 @@ def mark_cancelled(ticket_name: str, reason: str = ""):
 	return {"ticket": ticket.name, "status": ticket.status}
 
 
+def _get_equipment_status_for_asset(asset_name: str) -> str | None:
+	"""
+	Resolve equipment status (Available, In Use, Maintenance, Retired) from the
+	source equipment doc (Machinery, Implement, Hand Tool, Other Tool) linked to this Asset.
+	"""
+	if not asset_name:
+		return None
+	for doctype in ("Machinery", "Implement", "Hand Tool", "Other Tool"):
+		status = frappe.db.get_value(doctype, {"asset": asset_name}, "status")
+		if status:
+			return status
+	return None
+
+
+def _get_equipment_hero_image_for_asset(asset_name: str) -> str | None:
+	"""
+	Return hero_image from the equipment doc (Machinery, Implement, Hand Tool, Other Tool)
+	linked to this Asset, so warehouse inventory can show the same image as Equipment List.
+	"""
+	if not asset_name:
+		return None
+	for doctype in ("Machinery", "Implement", "Hand Tool", "Other Tool"):
+		hero = frappe.db.get_value(doctype, {"asset": asset_name}, "hero_image")
+		if hero:
+			return hero
+	return None
+
+
+def _get_equipment_doc_for_asset(asset_name: str) -> tuple[str, str] | None:
+	"""Return (doctype, name) of the equipment document linked to this Asset, or None."""
+	if not asset_name:
+		return None
+	for doctype in ("Machinery", "Implement", "Hand Tool", "Other Tool"):
+		name = frappe.db.get_value(doctype, {"asset": asset_name}, "name")
+		if name:
+			return (doctype, name)
+	return None
+
+
+def _get_equipment_status_for_destination_warehouse(warehouse: str) -> str | None:
+	"""
+	Return equipment status to set based on warehouse's geo type.
+	Field -> In Use; Cluster or Farm -> Available; else None (do not change).
+	"""
+	if not warehouse:
+		return None
+	try:
+		location_result = get_location_for_warehouse(warehouse)
+	except Exception:
+		return None
+	geo_area = location_result.get("geo_area") if location_result else None
+	if not geo_area:
+		return None
+	area_type = frappe.db.get_value("Geo Fencing Area", geo_area, "geo_fencing_type")
+	if area_type == "Field":
+		return "In Use"
+	if area_type in ("Cluster", "Farm"):
+		return "Available"
+	return None
+
+
+def _set_equipment_status_for_asset(asset_name: str, status: str) -> None:
+	"""
+	Set status on the equipment doc (Machinery, Implement, Hand Tool, Other Tool) linked to this Asset.
+	"""
+	if not asset_name or not status:
+		return
+	for doctype in ("Machinery", "Implement", "Hand Tool", "Other Tool"):
+		name = frappe.db.get_value(doctype, {"asset": asset_name}, "name")
+		if name:
+			frappe.db.set_value(doctype, name, "status", status)
+			break
+
+
 @frappe.whitelist()
 def get_assets_for_warehouse(warehouse: str):
 	"""
@@ -758,6 +872,7 @@ def get_assets_for_warehouse(warehouse: str):
 	
 	Returns assets even if location mapping isn't perfect, using pattern matching
 	on location names that might be related to the warehouse or geo area.
+	Each asset includes equipment_status (Available, In Use, Maintenance, Retired) when available.
 	"""
 	if not warehouse:
 		frappe.throw(_("warehouse is required"))
@@ -776,9 +891,10 @@ def get_assets_for_warehouse(warehouse: str):
 	if location:
 		assets = frappe.get_all(
 			"Asset",
-			fields=["name", "asset_name", "item_code", "asset_category", "location", "status", "asset_quantity"],
-			filters=[["location", "=", location]],
-			limit=1000
+			fields=["name", "asset_name", "item_code", "asset_category", "location", "status", "asset_quantity", "image"],
+			filters=[["location", "=", location], ["docstatus", "in", ASSET_DOCSTATUS_NOT_CANCELLED]],
+			limit=1000,
+			ignore_permissions=True,
 		)
 	
 	# Method 2: Fallback - try to find assets by location name pattern matching
@@ -811,9 +927,10 @@ def get_assets_for_warehouse(warehouse: str):
 			if matching_locations:
 				assets = frappe.get_all(
 					"Asset",
-					fields=["name", "asset_name", "item_code", "asset_category", "location", "status", "asset_quantity"],
-					filters=[["location", "in", matching_locations]],
-					limit=1000
+					fields=["name", "asset_name", "item_code", "asset_category", "location", "status", "asset_quantity", "image"],
+					filters=[["location", "in", matching_locations], ["docstatus", "in", ASSET_DOCSTATUS_NOT_CANCELLED]],
+					limit=1000,
+					ignore_permissions=True,
 				)
 	
 	# Method 3: Last resort - try matching by warehouse name in location names
@@ -840,10 +957,32 @@ def get_assets_for_warehouse(warehouse: str):
 			if matching_locations:
 				assets = frappe.get_all(
 					"Asset",
-					fields=["name", "asset_name", "item_code", "asset_category", "location", "status", "asset_quantity"],
-					filters=[["location", "in", matching_locations]],
-					limit=1000
+					fields=["name", "asset_name", "item_code", "asset_category", "location", "status", "asset_quantity", "image"],
+					filters=[["location", "in", matching_locations], ["docstatus", "in", ASSET_DOCSTATUS_NOT_CANCELLED]],
+					limit=1000,
+					ignore_permissions=True,
 				)
+	
+	# When equipment location is a Field-type warehouse, show status as In Use
+	location_is_field = False
+	if geo_area:
+		area_type = frappe.db.get_value("Geo Fencing Area", geo_area, "geo_fencing_type")
+		location_is_field = (area_type == "Field")
+	# Enrich each asset with equipment status, image, and equipment doc ref (for View modal)
+	for a in assets:
+		if location_is_field:
+			a["equipment_status"] = "In Use"
+		else:
+			a["equipment_status"] = _get_equipment_status_for_asset(a.get("name"))
+		# Use equipment hero_image when Asset has no image, so warehouse matches Equipment List
+		if not (a.get("image") or "").strip():
+			hero = _get_equipment_hero_image_for_asset(a.get("name"))
+			if hero:
+				a["image"] = hero
+		# Equipment doc (doctype, name) so warehouse can open Equipment View modal like Equipment List
+		equipment = _get_equipment_doc_for_asset(a.get("name"))
+		if equipment:
+			a["equipment_doctype"], a["equipment_name"] = equipment
 	
 	return {
 		"warehouse": warehouse,
@@ -853,6 +992,58 @@ def get_assets_for_warehouse(warehouse: str):
 		"count": len(assets),
 		"has_location_mapping": bool(location)
 	}
+
+
+@frappe.whitelist()
+def get_all_assets():
+	"""
+	Return all assets (draft and submitted, not cancelled) for use when
+	"All" is selected in Warehouse Inventory Equipments tab.
+	"""
+	assets = frappe.get_all(
+		"Asset",
+		fields=["name", "asset_name", "item_code", "asset_category", "location", "status", "asset_quantity", "image"],
+		filters=[["docstatus", "in", ASSET_DOCSTATUS_NOT_CANCELLED]],
+		limit=5000,
+		order_by="modified desc",
+		ignore_permissions=True,
+	)
+	# When equipment location is a Field-type warehouse, show status as In Use
+	# Build location -> geo_fencing_type once for all assets (skip areas that fail so one bad area doesn't break response)
+	areas = frappe.get_all(
+		"Geo Fencing Area",
+		fields=["name", "geo_fencing_type"],
+		limit=2000,
+		ignore_permissions=True,
+	)
+	loc_to_type = {}
+	for area in areas:
+		try:
+			res = get_location_for_geo_area(area["name"])
+			loc = res.get("location") if res else None
+			if loc and area.get("geo_fencing_type"):
+				loc_to_type[loc] = area["geo_fencing_type"]
+		except Exception:
+			continue
+	# Use location as warehouse display when no warehouse mapping (for "all" view)
+	# Enrich with equipment status and image (hero_image from equipment doc when Asset.image missing)
+	out = []
+	for a in assets:
+		row = dict(a)
+		row["warehouse"] = row.get("location") or ""
+		if loc_to_type.get(row.get("location")) == "Field":
+			row["equipment_status"] = "In Use"
+		else:
+			row["equipment_status"] = _get_equipment_status_for_asset(row.get("name"))
+		if not (row.get("image") or "").strip():
+			hero = _get_equipment_hero_image_for_asset(row.get("name"))
+			if hero:
+				row["image"] = hero
+		equipment = _get_equipment_doc_for_asset(row.get("name"))
+		if equipment:
+			row["equipment_doctype"], row["equipment_name"] = equipment
+		out.append(row)
+	return {"assets": out, "count": len(out)}
 
 
 @frappe.whitelist()

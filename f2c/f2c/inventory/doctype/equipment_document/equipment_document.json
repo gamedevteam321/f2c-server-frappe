@@ -1,0 +1,25 @@
+{
+  "doctype": "DocType",
+  "name": "Equipment Document",
+  "module": "Inventory",
+  "document_type": "Document",
+  "istable": 1,
+  "editable_grid": 1,
+  "allow_rename": 1,
+  "track_changes": 0,
+  "engine": "InnoDB",
+  "field_order": [
+    "file"
+  ],
+  "fields": [
+    {
+      "fieldname": "file",
+      "fieldtype": "Attach",
+      "label": "File",
+      "in_list_view": 1
+    }
+  ],
+  "permissions": [],
+  "sort_field": "modified",
+  "sort_order": "DESC"
+}

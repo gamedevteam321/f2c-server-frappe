@@ -21,6 +21,8 @@
     "purchase_date",
     "is_existing_asset",
     "available_for_use_date",
+    "asset_owner",
+    "asset_owner_company",
     "purchase_receipt",
     "purchase_invoice",
     "asset_name",
@@ -28,12 +30,16 @@
     "hero_image",
     "column_break_img",
     "gallery",
+    "equipment_doc_section",
+    "equipment_documents",
     "basic_info_section",
     "machinery_template",
     "machinery_type",
     "machinery_name",
     "brand",
     "model",
+    "chassis_number",
+    "engine_registration_number",
     "serial_number",
     "column_break_basic_1",
     "year",
@@ -166,6 +172,22 @@
       "label": "Available-for-use Date"
     },
     {
+      "default": "Company",
+      "depends_on": "eval:!doc.asset",
+      "fieldname": "asset_owner",
+      "fieldtype": "Select",
+      "label": "Asset Owner",
+      "options": "\nCompany\nSupplier\nCustomer"
+    },
+    {
+      "allow_on_submit": 1,
+      "depends_on": "eval:!doc.asset && doc.asset_owner == \"Company\"",
+      "fieldname": "asset_owner_company",
+      "fieldtype": "Link",
+      "label": "Asset Owner Company",
+      "options": "Company"
+    },
+    {
       "depends_on": "eval:!doc.asset && !doc.is_existing_asset",
       "fieldname": "purchase_receipt",
       "fieldtype": "Link",
@@ -207,6 +229,17 @@
       "options": "Equipment Image"
     },
     {
+      "fieldname": "equipment_doc_section",
+      "fieldtype": "Section Break",
+      "label": "Equipment Documents"
+    },
+    {
+      "fieldname": "equipment_documents",
+      "fieldtype": "Table",
+      "label": "Documents (PDF, DOCX)",
+      "options": "Equipment Document"
+    },
+    {
       "fieldname": "basic_info_section",
       "fieldtype": "Section Break",
       "label": "Basic Info"
@@ -245,6 +278,16 @@
       "label": "Model"
     },
     {
+      "fieldname": "chassis_number",
+      "fieldtype": "Data",
+      "label": "Chassis Number"
+    },
+    {
+      "fieldname": "engine_registration_number",
+      "fieldtype": "Data",
+      "label": "Engine Registration Number"
+    },
+    {
       "fieldname": "serial_number",
       "fieldtype": "Data",
       "label": "Serial Number"
@@ -264,11 +307,12 @@
       "label": "Price"
     },
     {
+      "allow_on_submit": 1,
       "fieldname": "status",
       "fieldtype": "Select",
       "label": "Status",
       "in_list_view": 1,
-      "options": "\nAvailable\nIn Use\nMaintenance\nRetired",
+      "options": "\nAvailable\nIn Use\nMaintenance\nRepair\nRetired",
       "default": "Available"
     },
     {
@@ -310,9 +354,8 @@
     },
     {
       "fieldname": "fuel_type",
-      "fieldtype": "Select",
-      "label": "Fuel Type",
-      "options": "\nDiesel\nPetrol\nElectric\nHybrid\nOther"
+      "fieldtype": "Data",
+      "label": "Fuel Type"
     },
     {
       "fieldname": "column_break_engine_1",
@@ -538,26 +581,31 @@
       "label": "Additional"
     },
     {
+      "allow_on_submit": 1,
       "fieldname": "warranty",
       "fieldtype": "Data",
       "label": "Warranty"
     },
     {
+      "allow_on_submit": 1,
       "fieldname": "battery",
       "fieldtype": "Data",
       "label": "Battery"
     },
     {
+      "allow_on_submit": 1,
       "fieldname": "description",
       "fieldtype": "Text",
       "label": "Description"
     },
     {
+      "allow_on_submit": 1,
       "fieldname": "features",
       "fieldtype": "Text",
       "label": "Features"
     },
     {
+      "allow_on_submit": 1,
       "description": "Stores dynamic spec fields (Base + Category + Sub-category overlays) as JSON.",
       "fieldname": "specs_json",
       "fieldtype": "JSON",

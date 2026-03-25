@@ -1,0 +1,52 @@
+{
+    "actions": [],
+    "creation": "2025-11-20 14:47:00.000000",
+    "doctype": "DocType",
+    "editable_grid": 1,
+    "engine": "InnoDB",
+    "field_order": [
+        "geo_fencing_area",
+        "area_name",
+        "geo_fencing_type"
+    ],
+    "fields": [
+        {
+            "fieldname": "geo_fencing_area",
+            "fieldtype": "Link",
+            "in_list_view": 1,
+            "label": "Geo Fencing Area",
+            "options": "Geo Fencing Area",
+            "reqd": 1
+        },
+        {
+            "fetch_from": "geo_fencing_area.area_name",
+            "fieldname": "area_name",
+            "fieldtype": "Data",
+            "in_list_view": 1,
+            "label": "Area Name",
+            "read_only": 1
+        },
+        {
+            "fetch_from": "geo_fencing_area.geo_fencing_type",
+            "fieldname": "geo_fencing_type",
+            "fieldtype": "Link",
+            "in_list_view": 1,
+            "label": "Type",
+            "options": "Geo Fencing Type",
+            "read_only": 1
+        }
+    ],
+    "index_web_pages_for_search": 1,
+    "istable": 1,
+    "links": [],
+    "modified": "2025-11-20 14:47:00.000000",
+    "modified_by": "Administrator",
+    "module": "Farm To Crop",
+    "name": "Farm Project Geo Area",
+    "owner": "Administrator",
+    "permissions": [],
+    "sort_field": "modified",
+    "sort_order": "DESC",
+    "states": [],
+    "track_changes": 1
+}

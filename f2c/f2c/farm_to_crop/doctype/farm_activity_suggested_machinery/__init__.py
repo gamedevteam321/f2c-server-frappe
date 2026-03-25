@@ -1,0 +1,3 @@
+from .farm_activity_suggested_machinery import FarmActivitySuggestedMachinery
+
+

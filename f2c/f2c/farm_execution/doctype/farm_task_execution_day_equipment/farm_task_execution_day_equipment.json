@@ -1,0 +1,111 @@
+{
+  "doctype": "DocType",
+  "name": "Farm Task Execution Day Equipment",
+  "module": "Farm Execution",
+  "document_type": "Document",
+  "istable": 1,
+  "editable_grid": 1,
+  "allow_rename": 1,
+  "track_changes": 1,
+  "field_order": [
+    "asset",
+    "asset_name",
+    "planned_hours",
+    "actual_hours",
+    "return_type",
+    "is_refill",
+    "refill_qty",
+    "machinery_place",
+    "fuel_reading_start",
+    "fuel_photo",
+    "fuel_reading_end",
+    "fuel_photo_end",
+    "fuel_consumption"
+  ],
+  "fields": [
+    {
+      "fieldname": "asset",
+      "fieldtype": "Link",
+      "label": "Asset",
+      "options": "Asset",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "asset_name",
+      "fieldtype": "Data",
+      "label": "Asset Name",
+      "fetch_from": "asset.asset_name",
+      "read_only": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "planned_hours",
+      "fieldtype": "Float",
+      "label": "Planned Hours",
+      "precision": "2",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "actual_hours",
+      "fieldtype": "Float",
+      "label": "Actual Hours",
+      "precision": "2",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "return_type",
+      "fieldtype": "Select",
+      "label": "Return Type",
+      "options": "Returnable\nNon Returnable\nDaily Returnable\nEnd Activity Returnable",
+      "default": "Non Returnable",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "is_refill",
+      "fieldtype": "Check",
+      "label": "Is Refill",
+      "default": 0
+    },
+    {
+      "fieldname": "refill_qty",
+      "fieldtype": "Float",
+      "label": "Refill Qty",
+      "precision": 2
+    },
+    {
+      "fieldname": "machinery_place",
+      "fieldtype": "Data",
+      "label": "Machinery Place"
+    },
+    {
+      "fieldname": "fuel_reading_start",
+      "fieldtype": "Data",
+      "label": "Fuel Reading (Start)"
+    },
+    {
+      "fieldname": "fuel_photo",
+      "fieldtype": "Attach",
+      "label": "Fuel Photo Proof"
+    },
+    {
+      "fieldname": "fuel_reading_end",
+      "fieldtype": "Data",
+      "label": "Fuel Reading (End)"
+    },
+    {
+      "fieldname": "fuel_photo_end",
+      "fieldtype": "Attach",
+      "label": "Fuel Photo Proof (End)"
+    },
+    {
+      "fieldname": "fuel_consumption",
+      "fieldtype": "Float",
+      "label": "Fuel Consumption",
+      "precision": "2"
+    }
+  ],
+  "permissions": [],
+  "sort_field": "modified",
+  "sort_order": "DESC"
+}

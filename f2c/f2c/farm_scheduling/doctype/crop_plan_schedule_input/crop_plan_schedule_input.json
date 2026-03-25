@@ -1,0 +1,71 @@
+{
+  "doctype": "DocType",
+  "name": "Crop Plan Schedule Input",
+  "module": "Farm Scheduling",
+  "document_type": "Document",
+  "istable": 1,
+  "editable_grid": 1,
+  "allow_rename": 1,
+  "track_changes": 1,
+  "field_order": [
+    "item",
+    "item_name",
+    "rate_quantity",
+    "unit",
+    "total_quantity_to_use",
+    "quantity_to_use_display"
+  ],
+  "fields": [
+    {
+      "fieldname": "item",
+      "fieldtype": "Link",
+      "label": "Item",
+      "options": "Item",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "item_name",
+      "fieldtype": "Data",
+      "label": "Item Name",
+      "read_only": 1,
+      "fetch_from": "item.item_name",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "rate_quantity",
+      "fieldtype": "Float",
+      "label": "Quantity (Rate)",
+      "precision": "3",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "unit",
+      "fieldtype": "Select",
+      "label": "Unit",
+      "options": "kg\ng\nml\nL\nml/L\ng/L\nBags/Acre\nPer Manufacturer",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "total_quantity_to_use",
+      "fieldtype": "Float",
+      "label": "Quantity to Use (Based on Water)",
+      "precision": "3",
+      "read_only": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "quantity_to_use_display",
+      "fieldtype": "Data",
+      "label": "Qty + Unit / Water (L)",
+      "read_only": 1,
+      "in_list_view": 1,
+      "description": "Shows: <qty> <unit> / <total water> L"
+    }
+  ],
+  "permissions": [],
+  "sort_field": "modified",
+  "sort_order": "DESC"
+}
+
+

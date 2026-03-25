@@ -1,0 +1,91 @@
+{
+  "doctype": "DocType",
+  "name": "Farm Task Execution Day Input",
+  "module": "Farm Execution",
+  "document_type": "Document",
+  "istable": 1,
+  "editable_grid": 1,
+  "allow_rename": 1,
+  "track_changes": 1,
+  "field_order": [
+    "item",
+    "item_name",
+    "uom",
+    "rate_qty",
+    "planned_qty",
+    "issued_qty",
+    "returned_qty",
+    "consumed_qty",
+    "return_type"
+  ],
+  "fields": [
+    {
+      "fieldname": "item",
+      "fieldtype": "Link",
+      "label": "Item",
+      "options": "Item",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "item_name",
+      "fieldtype": "Data",
+      "label": "Item Name",
+      "read_only": 1,
+      "fetch_from": "item.item_name",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "uom",
+      "fieldtype": "Data",
+      "label": "UOM",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "rate_qty",
+      "fieldtype": "Float",
+      "label": "Rate Qty",
+      "precision": "3",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "planned_qty",
+      "fieldtype": "Float",
+      "label": "Planned Qty",
+      "precision": "3",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "issued_qty",
+      "fieldtype": "Float",
+      "label": "Issued Qty",
+      "precision": "3",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "returned_qty",
+      "fieldtype": "Float",
+      "label": "Returned Qty",
+      "precision": "3",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "consumed_qty",
+      "fieldtype": "Float",
+      "label": "Consumed Qty",
+      "precision": "3",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "return_type",
+      "fieldtype": "Select",
+      "label": "Return Type",
+      "options": "Non Returnable\nReturnable\nDaily Returnable\nEnd Activity Returnable",
+      "default": "Non Returnable",
+      "in_list_view": 1
+    }
+  ],
+  "permissions": [],
+  "sort_field": "modified",
+  "sort_order": "DESC"
+}

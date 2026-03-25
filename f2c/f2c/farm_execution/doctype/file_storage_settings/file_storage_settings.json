@@ -1,0 +1,89 @@
+{
+  "actions": [],
+  "allow_rename": 1,
+  "creation": "2025-02-17 12:00:00.000000",
+  "doctype": "DocType",
+  "document_type": "Document",
+  "editable_grid": 1,
+  "engine": "InnoDB",
+  "field_order": [
+    "storage_backend",
+    "section_s3",
+    "s3_bucket",
+    "region_name",
+    "aws_access_key_id",
+    "aws_secret_access_key",
+    "endpoint_url",
+    "s3_path_prefix"
+  ],
+  "fields": [
+    {
+      "fieldname": "storage_backend",
+      "fieldtype": "Select",
+      "label": "Storage Backend",
+      "options": "Local\nS3",
+      "reqd": 1
+    },
+    {
+      "collapsible": 1,
+      "fieldname": "section_s3",
+      "fieldtype": "Section Break",
+      "label": "S3 / Object Storage",
+      "depends_on": "eval:doc.storage_backend === 'S3'"
+    },
+    {
+      "fieldname": "s3_bucket",
+      "fieldtype": "Data",
+      "label": "Bucket Name",
+      "mandatory_depends_on": "eval:doc.storage_backend === 'S3'"
+    },
+    {
+      "fieldname": "region_name",
+      "fieldtype": "Data",
+      "label": "Region (e.g. us-east-1)"
+    },
+    {
+      "fieldname": "aws_access_key_id",
+      "fieldtype": "Data",
+      "label": "Access Key ID"
+    },
+    {
+      "fieldname": "aws_secret_access_key",
+      "fieldtype": "Password",
+      "label": "Secret Access Key"
+    },
+    {
+      "description": "Leave blank for AWS. Set for MinIO or other S3-compatible storage (e.g. https://s3.amazonaws.com).",
+      "fieldname": "endpoint_url",
+      "fieldtype": "Data",
+      "label": "Endpoint URL (optional)"
+    },
+    {
+      "description": "Optional prefix inside the bucket (e.g. uploads).",
+      "fieldname": "s3_path_prefix",
+      "fieldtype": "Data",
+      "label": "Path Prefix (optional)"
+    }
+  ],
+  "index_web_pages_for_search": 1,
+  "issingle": 1,
+  "links": [],
+  "modified": "2025-02-17 12:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "Farm Execution",
+  "name": "File Storage Settings",
+  "owner": "Administrator",
+  "permissions": [
+    {
+      "create": 1,
+      "read": 1,
+      "role": "System Manager",
+      "share": 1,
+      "write": 1
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": [],
+  "track_changes": 1
+}

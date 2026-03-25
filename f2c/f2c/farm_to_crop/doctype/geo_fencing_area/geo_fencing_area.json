@@ -1,0 +1,299 @@
+{
+"actions": [],
+"allow_import": 1,
+"allow_rename": 1,
+"autoname": "format:GFA{###}",
+"creation": "2025-11-20 13:07:00.000000",
+"doctype": "DocType",
+"document_type": "Document",
+"engine": "InnoDB",
+"field_order": [
+"area_name",
+"geo_fencing_type",
+"shape_type",
+"has_warehouse",
+"level_sequence",
+"column_break_1",
+"parent_area",
+"is_root",
+"section_break_2",
+"geo_fencing_coordinates",
+"area",
+"section_break_circle",
+"center_latitude",
+"center_longitude",
+"radius",
+"section_break_3",
+"description",
+"tab_break_warehouse",
+"section_break_warehouse",
+"warehouses",
+"tab_break_field_details",
+"section_break_water",
+"water_source",
+"available_months",
+"irrigation",
+"has_water_test_report",
+"water_test_reports",
+"water_source_latitude",
+"water_source_longitude",
+"water_sources",
+"section_break_soil",
+"soil_tests"
+],
+"fields": [
+{
+"fieldname": "area_name",
+"fieldtype": "Data",
+"in_list_view": 1,
+"label": "Area Name",
+"reqd": 1
+},
+{
+"fieldname": "geo_fencing_type",
+"fieldtype": "Link",
+"in_list_view": 1,
+"in_standard_filter": 1,
+"label": "Geo Fencing Type",
+"options": "Geo Fencing Type",
+"reqd": 1
+},
+{
+"fieldname": "parent_area",
+"fieldtype": "Link",
+"label": "Parent Area",
+"options": "Geo Fencing Area"
+},
+{
+"fetch_from": "geo_fencing_type.shape_type",
+"fieldname": "shape_type",
+"fieldtype": "Select",
+"in_list_view": 1,
+"in_standard_filter": 1,
+"label": "Shape Type",
+"options": "\nCircle\nPolygon",
+"read_only": 1
+},
+{
+"fieldname": "geo_fencing_coordinates",
+"fieldtype": "Table",
+"label": "Geo Fencing Coordinates",
+"options": "Geo Fencing Coordinate",
+"depends_on": "eval:doc.shape_type === 'Polygon'"
+},
+{
+"fieldname": "area",
+"fieldtype": "Float",
+"label": "Area (sq meters)",
+"precision": "2",
+"read_only": 1,
+"depends_on": "eval:doc.shape_type === 'Polygon'"
+},
+{
+"fieldname": "level_sequence",
+"fieldtype": "Int",
+"in_list_view": 1,
+"in_standard_filter": 1,
+"label": "Level Sequence",
+"read_only": 1
+},
+{
+"fieldname": "column_break_1",
+"fieldtype": "Column Break"
+},
+{
+"fieldname": "section_break_2",
+"fieldtype": "Section Break",
+"label": "Polygon Coordinates",
+"depends_on": "eval:doc.shape_type === 'Polygon'"
+},
+{
+"fieldname": "section_break_circle",
+"fieldtype": "Section Break",
+"label": "Circle Parameters",
+"depends_on": "eval:doc.shape_type === 'Circle'"
+},
+{
+"fieldname": "center_latitude",
+"fieldtype": "Float",
+"label": "Center Latitude",
+"precision": "8",
+"depends_on": "eval:doc.shape_type === 'Circle'"
+},
+{
+"fieldname": "center_longitude",
+"fieldtype": "Float",
+"label": "Center Longitude",
+"precision": "8",
+"depends_on": "eval:doc.shape_type === 'Circle'"
+},
+{
+"fieldname": "radius",
+"fieldtype": "Float",
+"label": "Radius (meters)",
+"precision": "2",
+"depends_on": "eval:doc.shape_type === 'Circle'"
+},
+{
+"fieldname": "section_break_3",
+"fieldtype": "Section Break",
+"label": "Additional Information"
+},
+{
+"fieldname": "description",
+"fieldtype": "Text Editor",
+"label": "Description"
+},
+{
+"default": "0",
+"fieldname": "is_root",
+"fieldtype": "Check",
+"label": "Is Root Area"
+},
+{
+"default": "0",
+"fieldname": "has_warehouse",
+"fieldtype": "Check",
+"label": "Has Warehouse"
+},
+{
+"fieldname": "tab_break_warehouse",
+"fieldtype": "Tab Break",
+"label": "Warehouses",
+"depends_on": "has_warehouse"
+},
+{
+"fieldname": "section_break_warehouse",
+"fieldtype": "Section Break",
+"label": "Warehouse Details",
+"depends_on": "has_warehouse"
+},
+{
+"fieldname": "warehouses",
+"fieldtype": "Table",
+"label": "Warehouses",
+"options": "Geo Fencing Area Warehouse",
+"depends_on": "has_warehouse"
+},
+{
+"fieldname": "tab_break_field_details",
+"fieldtype": "Tab Break",
+"label": "Water and Soil",
+"depends_on": "eval:doc.geo_fencing_type === 'Field'"
+},
+{
+"fieldname": "section_break_water",
+"fieldtype": "Section Break",
+"label": "Water Availability",
+"depends_on": "eval:doc.geo_fencing_type === 'Field'"
+},
+{
+"fieldname": "water_source",
+"fieldtype": "Link",
+"label": "Water Source",
+"options": "Water Source",
+"depends_on": "eval:doc.geo_fencing_type === 'Field'"
+},
+{
+"fieldname": "available_months",
+"fieldtype": "Data",
+"label": "Available Months",
+"depends_on": "eval:doc.geo_fencing_type === 'Field'"
+},
+{
+"fieldname": "irrigation",
+"fieldtype": "Link",
+"label": "Irrigation",
+"options": "Irrigation Type",
+"depends_on": "eval:doc.geo_fencing_type === 'Field'"
+},
+{
+"default": "0",
+"fieldname": "has_water_test_report",
+"fieldtype": "Check",
+"label": "Has Water Test Report",
+"depends_on": "eval:doc.geo_fencing_type === 'Field'"
+},
+{
+"fieldname": "water_test_reports",
+"fieldtype": "Table",
+"label": "Water Test Reports",
+"options": "Geo Fencing Area Water Test Report",
+"depends_on": "eval:doc.geo_fencing_type === 'Field' && doc.has_water_test_report"
+},
+{
+"fieldname": "water_source_latitude",
+"fieldtype": "Float",
+"label": "Water Source Latitude",
+"precision": "8",
+"depends_on": "eval:doc.geo_fencing_type === 'Field'"
+},
+{
+"fieldname": "water_source_longitude",
+"fieldtype": "Float",
+"label": "Water Source Longitude",
+"precision": "8",
+"depends_on": "eval:doc.geo_fencing_type === 'Field'"
+},
+{
+"fieldname": "water_sources",
+"fieldtype": "Table",
+"label": "Water Sources",
+"options": "Geo Fencing Area Water Source",
+"depends_on": "eval:doc.geo_fencing_type === 'Field'"
+},
+{
+"fieldname": "section_break_soil",
+"fieldtype": "Section Break",
+"label": "Soil Test",
+"depends_on": "eval:doc.geo_fencing_type === 'Field'"
+},
+{
+"fieldname": "soil_tests",
+"fieldtype": "Table",
+"label": "Soil Tests",
+"options": "Geo Fencing Area Soil Test",
+"depends_on": "eval:doc.geo_fencing_type === 'Field'"
+}
+],
+"index_web_pages_for_search": 1,
+"links": [],
+"modified": "2025-11-20 13:07:00.000000",
+"modified_by": "Administrator",
+"module": "Farm To Crop",
+"name": "Geo Fencing Area",
+"naming_rule": "By fieldname",
+"owner": "Administrator",
+"permissions": [
+{
+"create": 1,
+"delete": 1,
+"email": 1,
+"export": 1,
+"print": 1,
+"read": 1,
+"report": 1,
+"role": "System Manager",
+"share": 1,
+"write": 1
+},
+{
+"create": 1,
+"delete": 1,
+"email": 1,
+"export": 1,
+"print": 1,
+"read": 1,
+"report": 1,
+"role": "All",
+"share": 1,
+"write": 1
+}
+],
+"sort_field": "modified",
+"sort_order": "DESC",
+"states": [],
+"title_field": "area_name",
+"show_title_field_in_link": 1,
+"track_changes": 1
+}

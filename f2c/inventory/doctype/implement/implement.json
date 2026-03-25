@@ -21,6 +21,8 @@
     "purchase_date",
     "is_existing_asset",
     "available_for_use_date",
+    "asset_owner",
+    "asset_owner_company",
     "purchase_receipt",
     "purchase_invoice",
     "asset_name",
@@ -28,6 +30,8 @@
     "hero_image",
     "column_break_img",
     "gallery",
+    "equipment_doc_section",
+    "equipment_documents",
     "basic_info_section",
     "implement_template",
     "implement_type",
@@ -127,6 +131,22 @@
       "label": "Available-for-use Date"
     },
     {
+      "default": "Company",
+      "depends_on": "eval:!doc.asset",
+      "fieldname": "asset_owner",
+      "fieldtype": "Select",
+      "label": "Asset Owner",
+      "options": "\nCompany\nSupplier\nCustomer"
+    },
+    {
+      "allow_on_submit": 1,
+      "depends_on": "eval:!doc.asset && doc.asset_owner == \"Company\"",
+      "fieldname": "asset_owner_company",
+      "fieldtype": "Link",
+      "label": "Asset Owner Company",
+      "options": "Company"
+    },
+    {
       "depends_on": "eval:!doc.asset && !doc.is_existing_asset",
       "fieldname": "purchase_receipt",
       "fieldtype": "Link",
@@ -166,6 +186,17 @@
       "fieldtype": "Table",
       "label": "Gallery",
       "options": "Equipment Image"
+    },
+    {
+      "fieldname": "equipment_doc_section",
+      "fieldtype": "Section Break",
+      "label": "Equipment Documents"
+    },
+    {
+      "fieldname": "equipment_documents",
+      "fieldtype": "Table",
+      "label": "Documents (PDF, DOCX)",
+      "options": "Equipment Document"
     },
     {
       "fieldname": "basic_info_section",
@@ -225,11 +256,12 @@
       "label": "Power Requirement"
     },
     {
+      "allow_on_submit": 1,
       "fieldname": "status",
       "fieldtype": "Select",
       "label": "Status",
       "in_list_view": 1,
-      "options": "\nAvailable\nIn Use\nMaintenance\nRetired",
+      "options": "\nAvailable\nIn Use\nMaintenance\nRepair\nRetired",
       "default": "Available"
     },
     {
@@ -307,21 +339,25 @@
       "label": "Safety Devices"
     },
     {
+      "allow_on_submit": 1,
       "fieldname": "features",
       "fieldtype": "Text",
       "label": "Features"
     },
     {
+      "allow_on_submit": 1,
       "fieldname": "applications",
       "fieldtype": "Text",
       "label": "Applications"
     },
     {
+      "allow_on_submit": 1,
       "fieldname": "description",
       "fieldtype": "Text",
       "label": "Description"
     },
     {
+      "allow_on_submit": 1,
       "description": "Stores dynamic spec fields (Base + Category + Sub-category overlays) as JSON.",
       "fieldname": "specs_json",
       "fieldtype": "JSON",

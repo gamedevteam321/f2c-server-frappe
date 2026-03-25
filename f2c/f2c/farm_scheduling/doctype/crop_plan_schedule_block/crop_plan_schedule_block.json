@@ -1,0 +1,53 @@
+{
+  "doctype": "DocType",
+  "name": "Crop Plan Schedule Block",
+  "module": "Farm Scheduling",
+  "document_type": "Document",
+  "istable": 1,
+  "editable_grid": 1,
+  "allow_rename": 1,
+  "track_changes": 1,
+  "field_order": [
+    "block",
+    "block_name",
+    "block_area_acres",
+    "no_of_seedlings"
+  ],
+  "fields": [
+    {
+      "fieldname": "block",
+      "fieldtype": "Link",
+      "label": "Block",
+      "options": "Geo Fencing Area",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "block_name",
+      "fieldtype": "Data",
+      "label": "Block Name",
+      "read_only": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "block_area_acres",
+      "fieldtype": "Float",
+      "label": "Block Area (Acres)",
+      "read_only": 1,
+      "precision": "3",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "no_of_seedlings",
+      "fieldtype": "Int",
+      "label": "No of Seedlings",
+      "read_only": 1,
+      "in_list_view": 1
+    }
+  ],
+  "permissions": [],
+  "sort_field": "modified",
+  "sort_order": "DESC"
+}
+
+
