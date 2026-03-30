@@ -3,6 +3,8 @@ import frappe
 from frappe import _
 from frappe.utils import cint, flt, now_datetime
 
+from f2c.farm_report.doctype.farm_report_ticket.farm_report_ticket import create_report_and_mark_reported
+
 # Include both Draft (0) and Submitted (1) Assets in inventory views; exclude Cancelled (2)
 ASSET_DOCSTATUS_NOT_CANCELLED = [0, 1]
 
@@ -544,16 +546,25 @@ def revert_received(ticket_name: str):
 
 
 @frappe.whitelist()
-def mark_reported(ticket_name: str, reason: str = ""):
+def mark_reported(ticket_name: str, reason: str = "", report_image: str = "", block: str = "", activity: str = ""):
+	"""Backward-compatible entry: creates a Farm Report Ticket (execution-style); does not set LTT status."""
 	if not ticket_name:
 		frappe.throw(_("ticket_name is required"))
+	reason = (reason or "").strip()
+	if not reason:
+		frappe.throw(_("Report reason is required."))
 	ticket = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
 	if ticket.status in ("Received", "Cancelled"):
 		frappe.throw(_("Cannot report a Received/Cancelled ticket"))
-	ticket.status = "Reported"
-	ticket.report_reason = reason or ticket.report_reason
-	ticket.save(ignore_permissions=True)
-	return {"ticket": ticket.name, "status": ticket.status}
+	out = create_report_and_mark_reported(
+		report_type="Delay",
+		report_reason=reason,
+		logistics_transfer_ticket_ref=ticket_name,
+		image_upload=(report_image or "").strip() or None,
+		block=(block or "").strip() or None,
+		activity=(activity or "").strip() or None,
+	)
+	return {"ticket": ticket.name, "farm_report_name": out.get("farm_report_name"), "status": ticket.status}
 
 
 @frappe.whitelist()

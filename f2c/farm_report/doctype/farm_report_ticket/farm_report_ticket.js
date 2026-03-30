@@ -8,6 +8,8 @@ function set_report_module_from_refs(frm) {
 		frm.set_value('report_module', 'Scheduling');
 	} else if (frm.doc.on_demand_activity_ref) {
 		frm.set_value('report_module', 'On Demand');
+	} else if (frm.doc.logistics_transfer_ticket) {
+		frm.set_value('report_module', 'Logistics');
 	}
 }
 
@@ -42,6 +44,18 @@ frappe.ui.form.on('Farm Report Ticket', {
 	execution_ref(frm) { set_report_module_from_refs(frm); },
 	schedule_ref(frm) { set_report_module_from_refs(frm); },
 	on_demand_activity_ref(frm) { set_report_module_from_refs(frm); },
+	logistics_transfer_ticket(frm) { set_report_module_from_refs(frm); },
+
+	report_module(frm) {
+		if (frm.doc.report_module === 'Logistics') {
+			frm.set_value('block', '');
+			frm.set_value('activity', '');
+			frm.set_value('stage', '');
+			if (!frm.doc.report_type) {
+				frm.set_value('report_type', 'Delay');
+			}
+		}
+	},
 
 	report_type(frm) {
 		// Clear conditional fields when report type changes

@@ -12,14 +12,29 @@ from frappe.model.document import Document
 
 class FarmReportTicket(Document):
 	def validate(self):
-		self._validate_report_type()
 		self._validate_report_module()
+		self._validate_report_type()
+		self._validate_block_activity_for_execution_modules()
 		self._validate_required_fields()
 		self._autofill_fields()
 
+	def _validate_block_activity_for_execution_modules(self):
+		"""Block and Activity are required when Report Module is Execution, Scheduling, or On Demand."""
+		rm = (getattr(self, "report_module", None) or "").strip()
+		if rm not in ("Execution", "Scheduling", "On Demand"):
+			return
+		if not (getattr(self, "block", None) or "").strip():
+			frappe.throw(
+				"Block is required when Report Module is Execution, Scheduling, or On Demand."
+			)
+		if not (getattr(self, "activity", None) or "").strip():
+			frappe.throw(
+				"Activity is required when Report Module is Execution, Scheduling, or On Demand."
+			)
+
 	def _validate_report_module(self):
 		"""Validate that report_module is set and is a valid option when provided."""
-		valid_modules = ["Execution", "Scheduling", "On Demand", "Labour"]
+		valid_modules = ["Execution", "Scheduling", "On Demand", "Labour", "Logistics"]
 		report_module = getattr(self, "report_module", None) or ""
 		if not report_module or not str(report_module).strip():
 			frappe.throw("Report Module is required.")
@@ -27,10 +42,13 @@ class FarmReportTicket(Document):
 			frappe.throw(f"Report Module must be one of: {', '.join(valid_modules)}")
 
 	def _validate_report_type(self):
-		"""Validate that report_type is set and is a valid option."""
+		"""Validate that report_type is set and is a valid option (optional for Logistics — defaults to Delay)."""
+		rm = (getattr(self, "report_module", None) or "").strip()
+		if rm == "Logistics" and not (self.report_type or "").strip():
+			self.report_type = "Delay"
 		if not self.report_type:
 			frappe.throw("Report Type is required.")
-		
+
 		valid_types = ["Delay", "Inventory Failure", "Farm Worker", "Stock Issue"]
 		if self.report_type not in valid_types:
 			frappe.throw(f"Report Type must be one of: {', '.join(valid_types)}")
@@ -183,6 +201,54 @@ def _derive_context_from_on_demand(activity_name: str) -> Tuple[Dict[str, Any], 
 	return context, refs
 
 
+def _resolve_stage_from_execution(execution_name: str) -> Optional[str]:
+	"""Crop stage from linked schedule on Farm Task Execution, if any."""
+	try:
+		exec_doc = frappe.get_doc("Farm Task Execution", execution_name)
+	except Exception:
+		return None
+	if getattr(exec_doc, "schedule_ref", None):
+		return _resolve_stage_from_schedule(exec_doc.schedule_ref)
+	return None
+
+
+def _fallback_block_activity_for_logistics() -> Tuple[str, str]:
+	"""When LTT has no execution and UI sends no block/activity, use first available master records."""
+	blocks = frappe.get_all("Geo Fencing Area", limit=1, pluck="name")
+	activities = frappe.get_all("Farm Activity", limit=1, pluck="name")
+	if not blocks or not activities:
+		frappe.throw(
+			"Add at least one Geo Fencing Area and one Farm Activity in master data, "
+			"or link a Farm Task Execution on the logistics ticket."
+		)
+	return str(blocks[0]), str(activities[0])
+
+
+def _derive_context_from_logistics_ticket(
+	ltt_name: str,
+	block: str | None = None,
+	activity: str | None = None,
+) -> Tuple[Dict[str, Any], str]:
+	"""
+	Return ({block, activity}, ltt_name) for Farm Report Ticket creation.
+	If LTT has farm_task_execution, block/activity come from that execution.
+	Otherwise use API payload block/activity, or system fallback (first Geo + Farm Activity).
+	"""
+	ltt = frappe.get_doc("Logistics Transfer Ticket", ltt_name)
+	if getattr(ltt, "farm_task_execution", None):
+		ctx, _refs = _derive_context_from_execution(ltt.farm_task_execution)
+		b = ctx.get("block")
+		a = ctx.get("activity")
+		if not b or not a:
+			b, a = _fallback_block_activity_for_logistics()
+		return {"block": b, "activity": a}, ltt.name
+	block = (block or "").strip()
+	activity = (activity or "").strip()
+	if not block or not activity:
+		block, activity = _fallback_block_activity_for_logistics()
+	return {"block": block, "activity": activity}, ltt.name
+
+
 def _default_report_status(report_type: str) -> str:
 	rt = (report_type or "").strip()
 	if rt == "Delay":
@@ -201,7 +267,10 @@ def create_report_and_mark_reported(
 	execution_ref: str | None = None,
 	schedule_ref: str | None = None,
 	on_demand_activity_ref: str | None = None,
+	logistics_transfer_ticket_ref: str | None = None,
 	stage: str | None = None,
+	block: str | None = None,
+	activity: str | None = None,
 	equipment: Any = None,
 	list_of_labours: Any = None,
 	stock_details: Any = None,
@@ -210,35 +279,59 @@ def create_report_and_mark_reported(
 ) -> Dict[str, Any]:
 	"""
 	Create a Farm Report Ticket only. Does not change the status of any linked
-	execution, schedule, or on-demand activity. The Reported tab on Execution,
-	Schedule, and On Demand pages shows records that have an open (non-Resolved)
-	report ticket for that ref.
+	execution, schedule, on-demand activity, or logistics transfer ticket.
+	The Reported tab shows records that have an open (non-Resolved) report ticket for that ref.
 	"""
-	refs_provided = [bool(execution_ref), bool(schedule_ref), bool(on_demand_activity_ref)]
+	refs_provided = [
+		bool(execution_ref),
+		bool(schedule_ref),
+		bool(on_demand_activity_ref),
+		bool(logistics_transfer_ticket_ref),
+	]
 	if sum(refs_provided) != 1:
-		frappe.throw("Provide exactly one of execution_ref, schedule_ref, or on_demand_activity_ref.")
+		frappe.throw(
+			"Provide exactly one of execution_ref, schedule_ref, on_demand_activity_ref, or logistics_transfer_ticket_ref."
+		)
 
 	if not (report_reason or "").strip():
 		frappe.throw("Report Reason is required.")
 
+	block = block or frappe.form_dict.get("block")
+	activity = activity or frappe.form_dict.get("activity")
+
 	context: Dict[str, Any] = {}
 	refs: Dict[str, Optional[str]] = {"execution_ref": None, "schedule_ref": None, "on_demand_activity_ref": None}
+	resolved_stage: str | None = None
+	ltt_name: str | None = None
 
-	if execution_ref:
+	if logistics_transfer_ticket_ref:
+		# Logistics create flow: reason + image only; default report type Delay.
+		report_type = (report_type or "").strip() or "Delay"
+		context, ltt_name = _derive_context_from_logistics_ticket(
+			logistics_transfer_ticket_ref,
+			block=block,
+			activity=activity,
+		)
+		ltt = frappe.get_doc("Logistics Transfer Ticket", ltt_name)
+		if getattr(ltt, "farm_task_execution", None):
+			resolved_stage = _resolve_stage_from_execution(ltt.farm_task_execution)
+		else:
+			resolved_stage = stage
+	elif execution_ref:
 		context, refs = _derive_context_from_execution(execution_ref)
+		if refs.get("schedule_ref"):
+			resolved_stage = _resolve_stage_from_schedule(refs["schedule_ref"])
+		else:
+			resolved_stage = stage
 	elif schedule_ref:
 		context, refs = _derive_context_from_schedule(schedule_ref)
-	else:
-		context, refs = _derive_context_from_on_demand(on_demand_activity_ref)
-
-	# Resolve stage:
-	# - If schedule_ref exists, derive from Crop Plan Activity
-	# - Otherwise (on-demand without schedule), require stage input
-	resolved_stage = None
-	if refs.get("schedule_ref"):
 		resolved_stage = _resolve_stage_from_schedule(refs["schedule_ref"])
 	else:
-		resolved_stage = stage
+		context, refs = _derive_context_from_on_demand(on_demand_activity_ref)
+		if refs.get("schedule_ref"):
+			resolved_stage = _resolve_stage_from_schedule(refs["schedule_ref"])
+		else:
+			resolved_stage = stage
 
 	if not context.get("block"):
 		frappe.throw("Block is required to create a Farm Report Ticket. Please ensure the task has a Block selected.")
@@ -247,7 +340,12 @@ def create_report_and_mark_reported(
 
 	report_doc = frappe.get_doc({"doctype": "Farm Report Ticket"})
 	report_doc.report_type = report_type
-	report_doc.status = _default_report_status(report_type)
+	# Logistics uses default report_type "Delay" for DocType/API compatibility; mapping that to
+	# status "Delayed" reads like "shipment delayed". Open logistics reports should use "Reported".
+	if ltt_name:
+		report_doc.status = "Reported"
+	else:
+		report_doc.status = _default_report_status(report_type)
 	report_doc.report_reason = report_reason
 
 	report_doc.block = context["block"]
@@ -258,9 +356,12 @@ def create_report_and_mark_reported(
 	report_doc.execution_ref = refs.get("execution_ref")
 	report_doc.schedule_ref = refs.get("schedule_ref")
 	report_doc.on_demand_activity_ref = refs.get("on_demand_activity_ref")
+	report_doc.logistics_transfer_ticket = ltt_name
 
 	# Set report_module from which ref was provided
-	if refs.get("execution_ref"):
+	if ltt_name:
+		report_doc.report_module = "Logistics"
+	elif refs.get("execution_ref"):
 		report_doc.report_module = "Execution"
 	elif refs.get("schedule_ref"):
 		report_doc.report_module = "Scheduling"
@@ -305,10 +406,31 @@ def get_latest_report_for_ref(
 	execution_ref: str | None = None,
 	schedule_ref: str | None = None,
 	on_demand_activity_ref: str | None = None,
+	logistics_transfer_ticket_ref: str | None = None,
 ) -> Dict[str, Any]:
-	refs_provided = [bool(execution_ref), bool(schedule_ref), bool(on_demand_activity_ref)]
+	refs_provided = [
+		bool(execution_ref),
+		bool(schedule_ref),
+		bool(on_demand_activity_ref),
+		bool(logistics_transfer_ticket_ref),
+	]
 	if sum(refs_provided) != 1:
-		frappe.throw("Provide exactly one of execution_ref, schedule_ref, or on_demand_activity_ref.")
+		frappe.throw(
+			"Provide exactly one of execution_ref, schedule_ref, on_demand_activity_ref, or logistics_transfer_ticket_ref."
+		)
+
+	if logistics_transfer_ticket_ref:
+		rows = (
+			frappe.get_all(
+				"Farm Report Ticket",
+				filters={"logistics_transfer_ticket": logistics_transfer_ticket_ref},
+				fields=["name", "modified"],
+				order_by="modified desc",
+				limit=1,
+			)
+			or []
+		)
+		return {"farm_report_name": rows[0]["name"] if rows else None}
 
 	# Build primary filters and fallback filters.
 	# This is important because a report may be created against a Schedule before an Execution exists.
@@ -546,7 +668,13 @@ def get_farm_report_ticket_picklist_options(
 	execution_ref: str | None = None,
 	schedule_ref: str | None = None,
 	on_demand_activity_ref: str | None = None,
+	logistics_transfer_ticket_ref: str | None = None,
 ) -> Dict[str, Any]:
+	if logistics_transfer_ticket_ref:
+		ltt = frappe.get_doc("Logistics Transfer Ticket", logistics_transfer_ticket_ref)
+		if getattr(ltt, "farm_task_execution", None):
+			return _collect_picklist_options(execution_ref=ltt.farm_task_execution)
+		return {"assets": [], "items": [], "farm_workers": []}
 	return _collect_picklist_options(
 		execution_ref=execution_ref,
 		schedule_ref=schedule_ref,

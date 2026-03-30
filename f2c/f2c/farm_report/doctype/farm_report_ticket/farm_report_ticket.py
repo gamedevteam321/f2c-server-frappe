@@ -12,14 +12,29 @@ from frappe.model.document import Document
 
 class FarmReportTicket(Document):
 	def validate(self):
-		self._validate_report_type()
 		self._validate_report_module()
+		self._validate_report_type()
+		self._validate_block_activity_for_execution_modules()
 		self._validate_required_fields()
 		self._autofill_fields()
 
+	def _validate_block_activity_for_execution_modules(self):
+		"""Block and Activity are required when Report Module is Execution, Scheduling, or On Demand."""
+		rm = (getattr(self, "report_module", None) or "").strip()
+		if rm not in ("Execution", "Scheduling", "On Demand"):
+			return
+		if not (getattr(self, "block", None) or "").strip():
+			frappe.throw(
+				"Block is required when Report Module is Execution, Scheduling, or On Demand."
+			)
+		if not (getattr(self, "activity", None) or "").strip():
+			frappe.throw(
+				"Activity is required when Report Module is Execution, Scheduling, or On Demand."
+			)
+
 	def _validate_report_module(self):
 		"""Validate that report_module is set and is a valid option when provided."""
-		valid_modules = ["Execution", "Scheduling", "On Demand", "Labour"]
+		valid_modules = ["Execution", "Scheduling", "On Demand", "Labour", "Logistics"]
 		report_module = getattr(self, "report_module", None) or ""
 		if not report_module or not str(report_module).strip():
 			frappe.throw("Report Module is required.")
@@ -27,10 +42,13 @@ class FarmReportTicket(Document):
 			frappe.throw(f"Report Module must be one of: {', '.join(valid_modules)}")
 
 	def _validate_report_type(self):
-		"""Validate that report_type is set and is a valid option."""
+		"""Validate that report_type is set and is a valid option (optional for Logistics — defaults to Delay)."""
+		rm = (getattr(self, "report_module", None) or "").strip()
+		if rm == "Logistics" and not (self.report_type or "").strip():
+			self.report_type = "Delay"
 		if not self.report_type:
 			frappe.throw("Report Type is required.")
-		
+
 		valid_types = ["Delay", "Inventory Failure", "Farm Worker", "Stock Issue"]
 		if self.report_type not in valid_types:
 			frappe.throw(f"Report Type must be one of: {', '.join(valid_types)}")

@@ -11,6 +11,11 @@
         "execution_ref",
         "schedule_ref",
         "on_demand_activity_ref",
+        "logistics_transfer_ticket",
+        "section_break_report_type",
+        "report_module",
+        "report_type",
+        "status",
         "block",
         "block_name",
         "column_break_1",
@@ -19,10 +24,6 @@
         "column_break_2",
         "activity",
         "activity_name",
-        "section_break_report_type",
-        "report_module",
-        "report_type",
-        "status",
         "section_break_inventory_failure",
         "equipment",
         "section_break_farm_worker",
@@ -61,15 +62,24 @@
             "read_only": 1
         },
         {
+            "fieldname": "logistics_transfer_ticket",
+            "fieldtype": "Link",
+            "label": "Logistics Transfer Ticket",
+            "options": "Logistics Transfer Ticket",
+            "read_only": 1
+        },
+        {
+            "depends_on": "eval:doc.report_module!='Logistics'",
             "fieldname": "block",
             "fieldtype": "Link",
             "in_list_view": 1,
             "in_standard_filter": 1,
             "label": "Block",
-            "options": "Geo Fencing Area",
-            "reqd": 1
+            "mandatory_depends_on": "eval:['Execution','Scheduling','On Demand'].includes(doc.report_module)",
+            "options": "Geo Fencing Area"
         },
         {
+            "depends_on": "eval:doc.report_module!='Logistics'",
             "fieldname": "block_name",
             "fieldtype": "Data",
             "fetch_from": "block.area_name",
@@ -82,15 +92,16 @@
             "fieldtype": "Column Break"
         },
         {
+            "depends_on": "eval:doc.report_module!='Logistics'",
             "fieldname": "stage",
             "fieldtype": "Link",
             "in_list_view": 1,
             "in_standard_filter": 1,
             "label": "Stage",
             "options": "Crop Stage"
-            
         },
         {
+            "depends_on": "eval:doc.report_module!='Logistics'",
             "fieldname": "stage_name",
             "fieldtype": "Data",
             "fetch_from": "stage.stage",
@@ -103,15 +114,17 @@
             "fieldtype": "Column Break"
         },
         {
+            "depends_on": "eval:doc.report_module!='Logistics'",
             "fieldname": "activity",
             "fieldtype": "Link",
             "in_list_view": 1,
             "in_standard_filter": 1,
             "label": "Activity",
-            "options": "Farm Activity",
-            "reqd": 1
+            "mandatory_depends_on": "eval:['Execution','Scheduling','On Demand'].includes(doc.report_module)",
+            "options": "Farm Activity"
         },
         {
+            "depends_on": "eval:doc.report_module!='Logistics'",
             "fieldname": "activity_name",
             "fieldtype": "Data",
             "fetch_from": "activity.activity_name",
@@ -130,17 +143,18 @@
             "in_list_view": 1,
             "in_standard_filter": 1,
             "label": "Report Module",
-            "options": "Execution\nScheduling\nOn Demand\nLabour",
+            "options": "Execution\nScheduling\nOn Demand\nLabour\nLogistics",
             "reqd": 1
         },
         {
+            "depends_on": "eval:doc.report_module!='Logistics'",
             "fieldname": "report_type",
             "fieldtype": "Select",
             "in_list_view": 1,
             "in_standard_filter": 1,
             "label": "Report Type",
-            "options": "Delay\nInventory Failure\nFarm Worker\nStock Issue",
-            "reqd": 1
+            "mandatory_depends_on": "eval:doc.report_module && doc.report_module!='Logistics'",
+            "options": "Delay\nInventory Failure\nFarm Worker\nStock Issue"
         },
         {
             "fieldname": "status",

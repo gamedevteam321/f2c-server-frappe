@@ -3,6 +3,34 @@ from frappe import _
 from frappe.utils import now_datetime, get_datetime
 
 
+def _ltt_qualifies_as_reported(ticket):
+    """Legacy: status Reported. New: open Farm Report Ticket linked to this LTT."""
+    if ticket.status == "Reported":
+        return True
+    rows = frappe.get_all(
+        "Farm Report Ticket",
+        filters={"logistics_transfer_ticket": ticket.name, "status": ["!=", "Resolved"]},
+        limit=1,
+    )
+    return bool(rows)
+
+
+def _resolve_open_farm_reports_for_ltt(ticket_name, resolve_note=None):
+    """Set all non-Resolved Farm Report Tickets for this LTT to Resolved."""
+    note = (resolve_note or "").strip()
+    for row in frappe.get_all(
+        "Farm Report Ticket",
+        filters={"logistics_transfer_ticket": ticket_name, "status": ["!=", "Resolved"]},
+        fields=["name"],
+        order_by="modified desc",
+    ):
+        doc = frappe.get_doc("Farm Report Ticket", row.name)
+        doc.status = "Resolved"
+        if note:
+            doc.resolve_remark = ((doc.resolve_remark or "") + "\n" + note).strip()
+        doc.save(ignore_permissions=True)
+
+
 @frappe.whitelist()
 def get_logistics_tickets(transfer_type=None, status=None, from_warehouse=None,
                           date_from=None, date_to=None, limit=500):
@@ -55,11 +83,12 @@ def resolve_reported_ticket(ticket_name, resolution_type, notes=None, planned_pi
     """
     ticket = frappe.get_doc('Logistics Transfer Ticket', ticket_name)
 
-    if ticket.status != 'Reported':
-        frappe.throw(_('Ticket {0} is not in Reported status (current: {1})').format(
+    if not _ltt_qualifies_as_reported(ticket):
+        frappe.throw(_('Ticket {0} has no open report to resolve (status: {1}).').format(
             ticket_name, ticket.status))
 
     if resolution_type == 'solved':
+        _resolve_open_farm_reports_for_ltt(ticket_name, notes)
         ticket.status = 'Received'
         ticket.received_on = now_datetime()
         if notes:
@@ -69,6 +98,7 @@ def resolve_reported_ticket(ticket_name, resolution_type, notes=None, planned_pi
         return {'status': 'Received', 'message': 'Ticket marked as Received (Solved).'}
 
     elif resolution_type == 'reschedule':
+        _resolve_open_farm_reports_for_ltt(ticket_name, notes)
         ticket.status = 'Pending Pickup'
         ticket.dispatched_on = None
         if planned_pickup_on:
@@ -93,11 +123,12 @@ def abort_reported_ticket(ticket_name, abort_type, notes=None):
     """
     ticket = frappe.get_doc('Logistics Transfer Ticket', ticket_name)
 
-    if ticket.status != 'Reported':
-        frappe.throw(_('Ticket {0} is not in Reported status (current: {1})').format(
+    if not _ltt_qualifies_as_reported(ticket):
+        frappe.throw(_('Ticket {0} has no open report to resolve (status: {1}).').format(
             ticket_name, ticket.status))
 
     if abort_type == 'replace':
+        _resolve_open_farm_reports_for_ltt(ticket_name, notes)
         ticket.status = 'Cancelled'
         if notes:
             ticket.report_reason = (ticket.report_reason or '') + '\n[Aborted - Replace]: ' + notes
@@ -106,7 +137,9 @@ def abort_reported_ticket(ticket_name, abort_type, notes=None):
         return {'status': 'Cancelled', 'message': 'Ticket cancelled (replace task).'}
 
     elif abort_type == 'resume':
-        ticket.status = 'In Transit'
+        _resolve_open_farm_reports_for_ltt(ticket_name, notes)
+        if ticket.status == 'Reported':
+            ticket.status = 'In Transit'
         if notes:
             ticket.report_reason = (ticket.report_reason or '') + '\n[Aborted - Resume]: ' + notes
         ticket.save(ignore_permissions=True)
