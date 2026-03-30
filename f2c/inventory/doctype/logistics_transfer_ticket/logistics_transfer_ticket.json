@@ -29,6 +29,7 @@
     "pickup_phase",
     "drop_off_phase",
     "farm_task_execution",
+    "purchase_order",
     "stock_entry",
     "asset_movement",
     "section_break_stock",
@@ -177,6 +178,14 @@
       "label": "Farm Task Execution",
       "options": "Farm Task Execution",
       "in_list_view": 1
+    },
+    {
+      "fieldname": "purchase_order",
+      "fieldtype": "Link",
+      "label": "Purchase Order",
+      "options": "Purchase Order",
+      "in_list_view": 1,
+      "in_standard_filter": 1
     },
     {
       "fieldname": "stock_entry",

@@ -2048,9 +2048,13 @@ def get_available_assets_for_cluster(
 					# If no conflicts, asset is available
 					if not conflicts_cps and not conflicts_oda:
 						available_assets.append(asset)
-				except Exception:
-					# If conflict check fails, include the asset (better to show it than hide it)
-					available_assets.append(asset)
+				except Exception as e:
+					# Fail closed for time-slot filtering to avoid showing potentially booked assets.
+					# Keep message short to avoid Error Log title length issues.
+					frappe.log_error(
+						f"Asset availability check failed for {asset_name}: {str(e)[:80]}",
+						"Asset Filter"
+					)
 			assets = available_assets
 		
 		return assets

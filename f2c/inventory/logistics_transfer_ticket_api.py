@@ -256,6 +256,7 @@ def create_logistics_transfer_ticket(
 	to_longitude: float | None = None,
 	planned_pickup_on: str | None = None,
 	planned_drop_off_on: str | None = None,
+	purchase_order: str | None = None,
 ):
 	"""
 	Create ONE Logistics Transfer Ticket.
@@ -264,6 +265,9 @@ def create_logistics_transfer_ticket(
 	"""
 	stock_items = stock_items or []
 	assets = assets or []
+
+	if purchase_order and not frappe.db.exists("Purchase Order", purchase_order):
+		frappe.throw(_("Purchase Order {0} does not exist").format(purchase_order))
 
 	# Normalize location types
 	from_location_type = (from_location_type or "Warehouse").strip()
@@ -523,6 +527,8 @@ def create_logistics_transfer_ticket(
 		],
 		"asset_items": [{"asset": r.get("asset"), "qty": r.get("qty") or 1} for r in asset_item_rows_for_ticket if r.get("asset")],
 	}
+	if purchase_order:
+		ticket_data["purchase_order"] = purchase_order
 	if from_location_type == "Other":
 		ticket_data["from_address"] = (from_address or "").strip() or None
 		ticket_data["from_latitude"] = flt(from_latitude)
