@@ -408,7 +408,17 @@ def _get_first_plot_from_kml(file_url: str):
 
 
 @frappe.whitelist()
-def import_kml(file_url: str, import_mode: str = "bulk", plot_colors=None):
+def import_kml(
+	file_url: str,
+	import_mode: str = "bulk",
+	plot_colors=None,
+	group_label: str | None = None,
+	farm_project: str | None = None,
+	village_name: str | None = None,
+	village_code: str | None = None,
+	tehsil_name: str | None = None,
+	area_type: str | None = None,
+):
 	file_url = (file_url or "").strip()
 	import_mode = (import_mode or "bulk").strip().lower()
 	if import_mode not in {"single", "bulk"}:
@@ -425,6 +435,13 @@ def import_kml(file_url: str, import_mode: str = "bulk", plot_colors=None):
 
 	raw_name = file_doc[0].get("file_name") or Path(file_url).name
 	source_file_name = Path(raw_name).stem or raw_name
+	gl = (group_label or "").strip()
+	if gl:
+		p = Path(gl)
+		if p.suffix.lower() in {".kml", ".kmz"}:
+			source_file_name = p.stem or gl
+		else:
+			source_file_name = gl
 	file_path = _get_kml_file_path(file_url, file_doc[0].get("name"))
 	with open(file_path, "r", encoding="utf-8") as handle:
 		kml_string = handle.read()
@@ -440,6 +457,20 @@ def import_kml(file_url: str, import_mode: str = "bulk", plot_colors=None):
 
 	import_batch = _build_import_batch(source_file_name)
 	_insert_plots_bulk(import_batch, source_file_name, file_url, plots, plot_colors=plot_colors)
+
+	has_batch_meta = any(
+		(x or "").strip()
+		for x in (farm_project, village_name, village_code, tehsil_name, area_type)
+	)
+	if has_batch_meta:
+		update_import_batch_metadata(
+			import_batch=import_batch,
+			village_name=village_name,
+			village_code=village_code,
+			tehsil_name=tehsil_name,
+			area_type=area_type,
+			farm_project=farm_project,
+		)
 
 	frappe.db.commit()
 	return {
