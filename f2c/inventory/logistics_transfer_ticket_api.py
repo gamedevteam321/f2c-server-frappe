@@ -259,6 +259,9 @@ def create_logistics_transfer_ticket(
 	planned_pickup_on: str | None = None,
 	planned_drop_off_on: str | None = None,
 	purchase_order: str | None = None,
+	purchase_invoice: str | None = None,
+	sales_order: str | None = None,
+	sales_invoice: str | None = None,
 ):
 	"""
 	Create ONE Logistics Transfer Ticket.
@@ -270,6 +273,20 @@ def create_logistics_transfer_ticket(
 
 	if purchase_order and not frappe.db.exists("Purchase Order", purchase_order):
 		frappe.throw(_("Purchase Order {0} does not exist").format(purchase_order))
+	if purchase_invoice and not frappe.db.exists("Purchase Invoice", purchase_invoice):
+		frappe.throw(_("Purchase Invoice {0} does not exist").format(purchase_invoice))
+	if sales_order and not frappe.db.exists("Sales Order", sales_order):
+		frappe.throw(_("Sales Order {0} does not exist").format(sales_order))
+	if sales_invoice and not frappe.db.exists("Sales Invoice", sales_invoice):
+		frappe.throw(_("Sales Invoice {0} does not exist").format(sales_invoice))
+	if purchase_order and purchase_invoice:
+		frappe.throw(_("Set either Purchase Order or Purchase Invoice, not both."))
+	if sales_order and sales_invoice:
+		frappe.throw(_("Set either Sales Order or Sales Invoice, not both."))
+	if (sales_order or sales_invoice) and (purchase_order or purchase_invoice):
+		frappe.throw(
+			_("Cannot combine Sales Order or Sales Invoice with Purchase Order or Purchase Invoice.")
+		)
 
 	# Normalize location types
 	from_location_type = (from_location_type or "Warehouse").strip()
@@ -531,6 +548,12 @@ def create_logistics_transfer_ticket(
 	}
 	if purchase_order:
 		ticket_data["purchase_order"] = purchase_order
+	if purchase_invoice:
+		ticket_data["purchase_invoice"] = purchase_invoice
+	if sales_order:
+		ticket_data["sales_order"] = sales_order
+	if sales_invoice:
+		ticket_data["sales_invoice"] = sales_invoice
 	if from_location_type == "Other":
 		ticket_data["from_address"] = (from_address or "").strip() or None
 		ticket_data["from_latitude"] = flt(from_latitude)
