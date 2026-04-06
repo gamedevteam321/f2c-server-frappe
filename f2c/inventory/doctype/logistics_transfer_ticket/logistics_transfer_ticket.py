@@ -1,4 +1,5 @@
 import frappe
+from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt
 from erpnext.stock.utils import get_stock_balance
@@ -7,9 +8,17 @@ from erpnext.stock.utils import get_stock_balance
 class LogisticsTransferTicket(Document):
 	def validate(self):
 		"""Calculate available balances for stock items and assets"""
+		self._validate_transport_vehicle()
 		self._calculate_available_balances()
 		self._calculate_asset_availability()
 		self._check_low_stock_and_suggest_request()
+
+	def _validate_transport_vehicle(self):
+		if not getattr(self, "transport_vehicle", None):
+			return
+		mtype = frappe.db.get_value("Machinery", self.transport_vehicle, "machinery_type")
+		if mtype not in ("Vehicle", "Tractor"):
+			frappe.throw(_("Transport vehicle must be Machinery with type Vehicle or Tractor"))
 	
 	def _calculate_available_balances(self):
 		"""Calculate and set available balance for each stock item in the source warehouse"""
