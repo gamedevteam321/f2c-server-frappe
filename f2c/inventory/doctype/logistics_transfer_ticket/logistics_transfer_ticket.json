@@ -50,7 +50,9 @@
     "receive_photo",
     "section_break_report",
     "report_reason",
-    "report_image"
+    "report_image",
+    "resolution_note",
+    "previous_status_before_report"
   ],
   "fields": [
     {
@@ -315,6 +317,18 @@
       "fieldname": "report_image",
       "fieldtype": "Attach Image",
       "label": "Report Image"
+    },
+    {
+      "fieldname": "resolution_note",
+      "fieldtype": "Small Text",
+      "label": "Resolution Note"
+    },
+    {
+      "fieldname": "previous_status_before_report",
+      "fieldtype": "Data",
+      "label": "Previous Status Before Report",
+      "hidden": 1,
+      "read_only": 1
     }
   ],
   "permissions": [

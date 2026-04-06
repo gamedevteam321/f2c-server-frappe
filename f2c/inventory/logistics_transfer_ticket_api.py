@@ -792,24 +792,38 @@ def mark_delivered(ticket_name: str, deliver_photo_url=None):
 
 @frappe.whitelist()
 def mark_reported(ticket_name: str, reason: str = "", report_image: str = "", block: str = "", activity: str = ""):
-	"""Backward-compatible entry: creates a Farm Report Ticket (execution-style); does not set LTT status."""
 	if not ticket_name:
 		frappe.throw(_("ticket_name is required"))
-	reason = (reason or "").strip()
-	if not reason:
-		frappe.throw(_("Report reason is required."))
 	ticket = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
 	if ticket.status in ("Received", "Cancelled"):
 		frappe.throw(_("Cannot report a Received/Cancelled ticket"))
-	out = create_report_and_mark_reported(
-		report_type="Delay",
-		report_reason=reason,
-		logistics_transfer_ticket_ref=ticket_name,
-		image_upload=(report_image or "").strip() or None,
-		block=(block or "").strip() or None,
-		activity=(activity or "").strip() or None,
-	)
-	return {"ticket": ticket.name, "farm_report_name": out.get("farm_report_name"), "status": ticket.status}
+	if ticket.status == "Reported":
+		frappe.throw(_("Ticket is already reported"))
+	ticket.previous_status_before_report = ticket.status
+	ticket.status = "Reported"
+	ticket.report_reason = (reason or "").strip() or ticket.report_reason
+	ticket.save(ignore_permissions=True)
+	return {"ticket": ticket.name, "status": ticket.status}
+
+
+@frappe.whitelist()
+def resolve_reported(ticket_name: str, resolution_note: str = ""):
+	if not ticket_name:
+		frappe.throw(_("ticket_name is required"))
+	ticket = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
+	if ticket.status != "Reported":
+		frappe.throw(_("Only Reported tickets can be resolved"))
+	resolution_note = (resolution_note or "").strip()
+	if not resolution_note:
+		frappe.throw(_("Resolution note is required"))
+	previous_status = (ticket.previous_status_before_report or "").strip()
+	if not previous_status:
+		frappe.throw(_("Previous status is missing for this reported ticket"))
+	ticket.status = previous_status
+	ticket.resolution_note = resolution_note
+	ticket.previous_status_before_report = None
+	ticket.save(ignore_permissions=True)
+	return {"ticket": ticket.name, "status": ticket.status}
 
 
 @frappe.whitelist()
