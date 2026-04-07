@@ -10,6 +10,7 @@
   "field_order": [
     "asset",
     "asset_name",
+    "paired_implement",
     "planned_hours",
     "return_type"
   ],
@@ -28,6 +29,12 @@
       "fetch_from": "asset.asset_name",
       "read_only": 1,
       "in_list_view": 1
+    },
+    {
+      "fieldname": "paired_implement",
+      "fieldtype": "Link",
+      "label": "Paired Implement",
+      "options": "Implement"
     },
     {
       "fieldname": "planned_hours",

@@ -1518,6 +1518,42 @@ def get_block_details(crop_plan: str, block: str) -> Dict[str, Any]:
 		}
 	return {}
 
+
+@frappe.whitelist()
+def get_machinery_schedule_details(asset: str) -> Dict[str, Any]:
+	"""Return tractor scheduling metadata for a selected machinery asset."""
+	result = {
+		"asset": asset,
+		"machinery": None,
+		"machinery_type": None,
+		"is_tractor": False,
+		"current_implement": None,
+		"current_implement_name": None,
+	}
+	if not asset:
+		return result
+
+	machinery = frappe.db.get_value(
+		"Machinery",
+		{"asset": asset},
+		["name", "machinery_type", "current_implement"],
+		as_dict=True,
+	)
+	if not machinery:
+		return result
+
+	result["machinery"] = machinery.get("name")
+	result["machinery_type"] = machinery.get("machinery_type")
+	result["is_tractor"] = (machinery.get("machinery_type") or "").strip().lower() == "tractor"
+	result["current_implement"] = machinery.get("current_implement") or None
+	if result["current_implement"]:
+		result["current_implement_name"] = (
+			frappe.db.get_value("Implement", result["current_implement"], "implement_name")
+			or result["current_implement"]
+		)
+
+	return result
+
 @frappe.whitelist()
 def create_transfer_tickets_for_schedule(schedule_name: str):
 	"""Manually trigger transfer ticket creation for a schedule (equipment + input tickets)."""

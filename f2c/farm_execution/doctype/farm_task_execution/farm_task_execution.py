@@ -414,6 +414,7 @@ def create_from_schedule(schedule_name: str, labour_list: str = None) -> str:
 				{
 					"asset": eq.asset,
 					"asset_name": eq.asset_name,
+					"paired_implement": getattr(eq, "paired_implement", None),
 					"planned_hours": eq.planned_hours,
 					"return_type": getattr(eq, "return_type", None) or "Non Returnable",
 				},
@@ -564,6 +565,7 @@ def create_from_on_demand_activity(on_demand_activity_name: str, labour_list: st
 			{
 				"asset": eq.asset,
 				"asset_name": eq.asset_name,
+				"paired_implement": getattr(eq, "paired_implement", None),
 				"planned_hours": eq.planned_hours,
 				"return_type": getattr(eq, "return_type", None) or "Non Returnable",
 			},
