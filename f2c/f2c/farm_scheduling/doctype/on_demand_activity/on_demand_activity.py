@@ -276,6 +276,9 @@ class OnDemandActivity(Document):
 		# Spray requires water planning; irrigation estimate remains optional
 		# Skip validation for Draft campaigns - water fields will be set during scheduling
 		# Also skip for child campaign entries - they inherit from parent and parent may not have water settings if Draft
+		# Skip when aborting — execution is not happening; water fields may never have been filled
+		if self.status == "Aborted":
+			return
 		if not self.is_spray:
 			return
 		
