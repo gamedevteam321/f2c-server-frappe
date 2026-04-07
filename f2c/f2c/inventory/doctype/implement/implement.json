@@ -58,7 +58,11 @@
     "features",
     "applications",
     "description",
-    "specs_json"
+    "specs_json",
+    "attachment_section",
+    "attached_to_machinery",
+    "attachment_status",
+    "attachment_updated_on"
   ],
   "fields": [
     {
@@ -350,6 +354,33 @@
       "fieldtype": "JSON",
       "hidden": 1,
       "label": "Specs JSON"
+    },
+    {
+      "fieldname": "attachment_section",
+      "fieldtype": "Section Break",
+      "label": "Tractor Attachment"
+    },
+    {
+      "fieldname": "attached_to_machinery",
+      "fieldtype": "Link",
+      "label": "Attached To Tractor",
+      "options": "Machinery",
+      "in_list_view": 0
+    },
+    {
+      "fieldname": "attachment_status",
+      "fieldtype": "Select",
+      "label": "Attachment Status",
+      "options": "Detached\nAttached",
+      "default": "Detached",
+      "read_only": 1,
+      "in_list_view": 0
+    },
+    {
+      "fieldname": "attachment_updated_on",
+      "fieldtype": "Datetime",
+      "label": "Attachment Updated On",
+      "read_only": 1
     }
   ],
   "permissions": [

@@ -16,6 +16,118 @@ class Machinery(Document):
 		from f2c.inventory.equipment_template_apply import apply_template_overwrite
 
 		apply_template_overwrite(self)
+		self._validate_implement_attachment()
+
+	def _validate_implement_attachment(self):
+		current_implement = getattr(self, "current_implement", None)
+		if not current_implement:
+			return
+
+		if (self.machinery_type or "") != "Tractor":
+			frappe.throw(_("Only Tractor type machinery can have an implement attached."))
+
+		owner = frappe.db.get_value("Implement", current_implement, "attached_to_machinery")
+		if owner and owner != self.name:
+			frappe.throw(
+				_("Implement {0} is already attached to {1}. Detach it first.").format(
+					current_implement, owner
+				)
+			)
+
+	def on_update(self):
+		frappe.log_error(
+			title="[DBG] Machinery.on_update",
+			message=f"{self.name} | docstatus={getattr(self,'docstatus',None)} | in_sync={frappe.flags.get('in_implement_sync')} | current_implement={getattr(self,'current_implement',None)!r}"
+		)
+		if frappe.flags.get("in_implement_sync"):
+			return
+		self._sync_implement_attachment()
+
+	def on_update_after_submit(self):
+		frappe.log_error(
+			title="[DBG] Machinery.on_update_after_submit",
+			message=f"{self.name} | in_sync={frappe.flags.get('in_implement_sync')} | current_implement={getattr(self,'current_implement',None)!r}"
+		)
+		if frappe.flags.get("in_implement_sync"):
+			return
+		self._sync_implement_attachment()
+
+	def _sync_implement_attachment(self):
+		prev = self.get_doc_before_save()
+		old_implement = (prev.current_implement if prev else None) or None
+		new_implement = getattr(self, "current_implement", None) or None
+
+		frappe.log_error(title="[DBG] Machinery._sync", message=f"{self.name} | old={old_implement!r} | new={new_implement!r}")
+
+		# Even when the value hasn't changed, the implement's back-link may be inconsistent
+		# (e.g. a previous save stored current_implement but the on_update sync failed).
+		# Check actual DB state and force sync if anything is out of sync.
+		if old_implement == new_implement:
+			if new_implement:
+				actual_owner = frappe.db.get_value("Implement", new_implement, "attached_to_machinery") or None
+				actual_status = frappe.db.get_value("Machinery", self.name, "attachment_status") or None
+				already_consistent = (actual_owner == self.name and actual_status == "Attached")
+				frappe.log_error(title="[DBG] Machinery._sync same-val", message=f"actual_owner={actual_owner!r} actual_status={actual_status!r} consistent={already_consistent}")
+				if already_consistent:
+					return
+				# Fall through to fix the inconsistency
+			else:
+				return
+
+		now = frappe.utils.now()
+		frappe.flags["in_implement_sync"] = True
+		try:
+			if old_implement and old_implement != new_implement:
+				frappe.log_error(title="[DBG] Machinery._sync clear-old", message=f"clearing {old_implement}")
+				frappe.db.set_value(
+					"Implement",
+					old_implement,
+					{
+						"attached_to_machinery": None,
+						"attachment_status": "Detached",
+						"attachment_updated_on": now,
+					},
+					update_modified=False,
+				)
+
+			if new_implement:
+				frappe.log_error(title="[DBG] Machinery._sync attach", message=f"attaching {new_implement} to {self.name}")
+				frappe.db.set_value(
+					"Implement",
+					new_implement,
+					{
+						"attached_to_machinery": self.name,
+						"attachment_status": "Attached",
+						"attachment_updated_on": now,
+					},
+					update_modified=False,
+				)
+				frappe.db.set_value(
+					"Machinery",
+					self.name,
+					{
+						"attachment_status": "Attached",
+						"attachment_updated_on": now,
+					},
+					update_modified=False,
+				)
+				frappe.logger().info(f"[Machinery._sync] DONE — attached {new_implement} to {self.name}")
+			else:
+				frappe.logger().info(f"[Machinery._sync] clearing attachment on {self.name}")
+				frappe.db.set_value(
+					"Machinery",
+					self.name,
+					{
+						"attachment_status": "None",
+						"attachment_updated_on": now,
+					},
+					update_modified=False,
+				)
+		except Exception as e:
+			frappe.logger().error(f"[Machinery._sync] ERROR: {e}")
+			raise
+		finally:
+			frappe.flags["in_implement_sync"] = False
 
 	def before_insert(self):
 		"""

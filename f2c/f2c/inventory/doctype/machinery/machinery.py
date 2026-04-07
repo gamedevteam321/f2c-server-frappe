@@ -16,6 +16,84 @@ class Machinery(Document):
 		from f2c.inventory.equipment_template_apply import apply_template_overwrite
 
 		apply_template_overwrite(self)
+		self._validate_implement_attachment()
+
+	def _validate_implement_attachment(self):
+		current_implement = getattr(self, "current_implement", None)
+		if not current_implement:
+			return
+
+		if (self.machinery_type or "") != "Tractor":
+			frappe.throw(_("Only Tractor type machinery can have an implement attached."))
+
+		owner = frappe.db.get_value("Implement", current_implement, "attached_to_machinery")
+		if owner and owner != self.name:
+			frappe.throw(
+				_("Implement {0} is already attached to {1}. Detach it first.").format(
+					current_implement, owner
+				)
+			)
+
+	def on_update(self):
+		if frappe.flags.get("in_implement_sync"):
+			return
+		self._sync_implement_attachment()
+
+	def _sync_implement_attachment(self):
+		prev = self.get_doc_before_save()
+		old_implement = (prev.current_implement if prev else None) or None
+		new_implement = getattr(self, "current_implement", None) or None
+
+		if old_implement == new_implement:
+			return
+
+		now = frappe.utils.now()
+		frappe.flags["in_implement_sync"] = True
+		try:
+			if old_implement and old_implement != new_implement:
+				frappe.db.set_value(
+					"Implement",
+					old_implement,
+					{
+						"attached_to_machinery": None,
+						"attachment_status": "Detached",
+						"attachment_updated_on": now,
+					},
+					update_modified=False,
+				)
+
+			if new_implement:
+				frappe.db.set_value(
+					"Implement",
+					new_implement,
+					{
+						"attached_to_machinery": self.name,
+						"attachment_status": "Attached",
+						"attachment_updated_on": now,
+					},
+					update_modified=False,
+				)
+				frappe.db.set_value(
+					"Machinery",
+					self.name,
+					{
+						"attachment_status": "Attached",
+						"attachment_updated_on": now,
+					},
+					update_modified=False,
+				)
+			else:
+				frappe.db.set_value(
+					"Machinery",
+					self.name,
+					{
+						"attachment_status": "None",
+						"attachment_updated_on": now,
+					},
+					update_modified=False,
+				)
+		finally:
+			frappe.flags["in_implement_sync"] = False
 
 	def before_insert(self):
 		"""

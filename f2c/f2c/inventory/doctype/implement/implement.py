@@ -14,6 +14,85 @@ class Implement(Document):
 		from f2c.inventory.equipment_template_apply import apply_template_overwrite
 
 		apply_template_overwrite(self)
+		self._validate_tractor_attachment()
+
+	def _validate_tractor_attachment(self):
+		tractor = getattr(self, "attached_to_machinery", None)
+		if not tractor:
+			return
+
+		machinery_type = frappe.db.get_value("Machinery", tractor, "machinery_type")
+		if machinery_type != "Tractor":
+			frappe.throw(_("Implements can only be attached to Tractor type machinery."))
+
+		current_on_tractor = frappe.db.get_value("Machinery", tractor, "current_implement")
+		if current_on_tractor and current_on_tractor != self.name:
+			frappe.throw(
+				_("Tractor {0} already has implement {1} attached. Detach it first.").format(
+					tractor, current_on_tractor
+				)
+			)
+
+	def on_update(self):
+		if frappe.flags.get("in_implement_sync"):
+			return
+		self._sync_tractor_attachment()
+
+	def _sync_tractor_attachment(self):
+		prev = self.get_doc_before_save()
+		old_tractor = (prev.attached_to_machinery if prev else None) or None
+		new_tractor = getattr(self, "attached_to_machinery", None) or None
+
+		if old_tractor == new_tractor:
+			return
+
+		now = frappe.utils.now()
+		frappe.flags["in_implement_sync"] = True
+		try:
+			if old_tractor and old_tractor != new_tractor:
+				frappe.db.set_value(
+					"Machinery",
+					old_tractor,
+					{
+						"current_implement": None,
+						"attachment_status": "None",
+						"attachment_updated_on": now,
+					},
+					update_modified=False,
+				)
+
+			if new_tractor:
+				frappe.db.set_value(
+					"Machinery",
+					new_tractor,
+					{
+						"current_implement": self.name,
+						"attachment_status": "Attached",
+						"attachment_updated_on": now,
+					},
+					update_modified=False,
+				)
+				frappe.db.set_value(
+					"Implement",
+					self.name,
+					{
+						"attachment_status": "Attached",
+						"attachment_updated_on": now,
+					},
+					update_modified=False,
+				)
+			else:
+				frappe.db.set_value(
+					"Implement",
+					self.name,
+					{
+						"attachment_status": "Detached",
+						"attachment_updated_on": now,
+					},
+					update_modified=False,
+				)
+		finally:
+			frappe.flags["in_implement_sync"] = False
 
 	def before_insert(self):
 		if self.asset:

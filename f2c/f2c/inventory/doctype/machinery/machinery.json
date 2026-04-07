@@ -100,7 +100,11 @@
     "battery",
     "description",
     "features",
-    "specs_json"
+    "specs_json",
+    "attachment_section",
+    "current_implement",
+    "attachment_status",
+    "attachment_updated_on"
   ],
   "fields": [
     {
@@ -611,6 +615,37 @@
       "fieldtype": "JSON",
       "hidden": 1,
       "label": "Specs JSON"
+    },
+    {
+      "fieldname": "attachment_section",
+      "fieldtype": "Section Break",
+      "label": "Implement Attachment",
+      "depends_on": "eval:doc.machinery_type == 'Tractor'"
+    },
+    {
+      "fieldname": "current_implement",
+      "fieldtype": "Link",
+      "label": "Current Implement",
+      "options": "Implement",
+      "depends_on": "eval:doc.machinery_type == 'Tractor'",
+      "in_list_view": 0
+    },
+    {
+      "fieldname": "attachment_status",
+      "fieldtype": "Select",
+      "label": "Attachment Status",
+      "options": "\nNone\nAttached",
+      "default": "None",
+      "read_only": 1,
+      "depends_on": "eval:doc.machinery_type == 'Tractor'",
+      "in_list_view": 0
+    },
+    {
+      "fieldname": "attachment_updated_on",
+      "fieldtype": "Datetime",
+      "label": "Attachment Updated On",
+      "read_only": 1,
+      "depends_on": "eval:doc.machinery_type == 'Tractor'"
     }
   ],
   "permissions": [
