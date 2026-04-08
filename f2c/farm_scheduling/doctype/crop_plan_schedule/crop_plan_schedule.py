@@ -7,6 +7,7 @@ import json
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import frappe
+from f2c.inventory.logistics_planner_api import create_or_refresh_draft_logistics_batch
 from frappe.model.document import Document
 from frappe.utils import flt
 
@@ -1345,31 +1346,17 @@ class CropPlanSchedule(Document):
 			frappe.msgprint("Failed to create return transfer ticket. Please check Error Log for details.", indicator="red", title="Return Transfer Ticket Creation Failed")
 
 	def after_insert(self):
-		"""Create transfer tickets when schedule is first created with status Scheduled."""
+		"""Create or refresh draft logistics planning when schedule is first scheduled."""
 		if self.status == "Scheduled":
 			try:
-				# Check if there are equipment assets
-				current_assets = set(self._collect_equipment_assets())
-				frappe.log_error(f"after_insert for {self.name}: {len(current_assets)} assets", "Transfer Ticket Debug")
-				if current_assets:
-					self._create_equipment_transfer_tickets()
-				# Always create input tickets when schedule has inputs (duplicate check inside skips if already in equipment ticket)
-				if self._collect_input_items():
-					try:
-						self._create_input_transfer_tickets()
-					except Exception as inp_e:
-						frappe.log_error(f"Input ticket error for {self.name}: {str(inp_e)[:60]}", "Input Transfer Ticket")
+				create_or_refresh_draft_logistics_batch(self)
 			except Exception as e:
-				# Log error but don't block schedule creation
-				# Truncate error message to prevent CharacterLengthExceededError (max 140 chars for title)
-				# Keep message very short to avoid nested error log references causing overflow
 				error_str = str(e)[:60] if len(str(e)) > 60 else str(e)
-				error_msg = f"Transfer ticket creation error for {self.name}: {error_str}"
-				frappe.log_error(error_msg, "Transfer Ticket")
-				# Don't raise - allow schedule to be created even if ticket creation fails
+				error_msg = f"Draft batch creation error for {self.name}: {error_str}"
+				frappe.log_error(error_msg, "Logistics Batch")
 
 	def on_update(self):
-		"""Create transfer tickets when schedule status changes to Scheduled or equipment is added.
+		"""Create or refresh draft logistics planning on schedule updates.
 		Create return transfer tickets when status changes to Completed."""
 		# Use doc-before-save for old status; on_update runs after DB commit so get_value would return new value
 		old_doc = self.get_doc_before_save() if not self.is_new() else None
@@ -1397,64 +1384,21 @@ class CropPlanSchedule(Document):
 		# Check if status changed to Scheduled (use old_status from doc-before-save, not DB)
 		if not self.is_new():
 			if (old_status or "") != "Scheduled":
-				# Status just changed to Scheduled, create tickets
+				# Status just changed to Scheduled, create or refresh draft batch
 				try:
-					# Check if there are equipment assets
-					current_assets = set(self._collect_equipment_assets())
-					# MARKER: CODE_VERSION_2026_01_23_v2
-					frappe.log_error(f"🔧 NEW CODE RUNNING for {self.name}: Found {len(current_assets)} assets", "Transfer Ticket Debug")
-					
-					if current_assets:
-						# If equipment exists, create equipment ticket (which may include inputs)
-						frappe.log_error(f"✅ Creating equipment ticket for {self.name} (includes inputs)", "Transfer Ticket Debug")
-						self._create_equipment_transfer_tickets()
-					# Always create input tickets when schedule has inputs; duplicate check inside will skip if already in equipment ticket
-					if self._collect_input_items():
-						frappe.log_error(f"📦 Creating input ticket for {self.name} (approved inputs)", "Transfer Ticket Debug")
-						try:
-							self._create_input_transfer_tickets()
-						except Exception as inp_e:
-							err_str = str(inp_e)[:60] if len(str(inp_e)) > 60 else str(inp_e)
-							frappe.log_error(f"Input ticket error for {self.name}: {err_str}", "Input Transfer Ticket")
+					create_or_refresh_draft_logistics_batch(self)
 				except Exception as e:
-					# Log error but don't block schedule update
-					# Truncate error message to prevent CharacterLengthExceededError (max 140 chars for title)
-					# Keep message very short to avoid nested error log references causing overflow
 					error_str = str(e)[:60] if len(str(e)) > 60 else str(e)
-					error_msg = f"Transfer ticket error for {self.name}: {error_str}"
-					frappe.log_error(error_msg, "Transfer Ticket")
-					# Don't raise - allow schedule to be updated even if ticket creation fails
-			# If status was already Scheduled, check if equipment tickets need to be created
-			# Check if tickets already exist for this schedule's equipment
+					error_msg = f"Draft batch error for {self.name}: {error_str}"
+					frappe.log_error(error_msg, "Logistics Batch")
+			# If status was already Scheduled, keep the draft batch in sync
 			else:
-				# Get current equipment assets
-				current_assets = set(self._collect_equipment_assets())
-				
-				# If there are equipment assets, always try to create tickets
-				# The _create_equipment_transfer_tickets method will handle duplicate prevention internally
-				if current_assets:
-					try:
-						self._create_equipment_transfer_tickets()
-					except Exception as e:
-						# Log error but don't block schedule update
-						# Truncate error message to prevent CharacterLengthExceededError (max 140 chars for title)
-						# Keep message very short to avoid nested error log references causing overflow
-						error_str = str(e)[:60] if len(str(e)) > 60 else str(e)
-						error_msg = f"Equipment transfer ticket error for {self.name}: {error_str}"
-						frappe.log_error(error_msg, "Equipment Transfer Ticket")
-						# Don't raise - allow schedule to be updated even if ticket creation fails
-				# Always create input tickets when schedule has inputs (duplicate check inside skips if already in equipment ticket)
-				if self._collect_input_items():
-					try:
-						self._create_input_transfer_tickets()
-					except Exception as e:
-						# Log error but don't block schedule update
-						# Truncate error message to prevent CharacterLengthExceededError (max 140 chars for title)
-						# Keep message very short to avoid nested error log references causing overflow
-						error_str = str(e)[:60] if len(str(e)) > 60 else str(e)
-						error_msg = f"Input transfer ticket error for {self.name}: {error_str}"
-						frappe.log_error(error_msg, "Input Transfer Ticket")
-						# Don't raise - allow schedule to be updated even if ticket creation fails
+				try:
+					create_or_refresh_draft_logistics_batch(self)
+				except Exception as e:
+					error_str = str(e)[:60] if len(str(e)) > 60 else str(e)
+					error_msg = f"Draft batch sync error for {self.name}: {error_str}"
+					frappe.log_error(error_msg, "Logistics Batch")
 
 
 def compute_total_qty(*, water_liters: float, total_acres: float, rate: float, unit: str) -> float:
@@ -1556,16 +1500,13 @@ def get_machinery_schedule_details(asset: str) -> Dict[str, Any]:
 
 @frappe.whitelist()
 def create_transfer_tickets_for_schedule(schedule_name: str):
-	"""Manually trigger transfer ticket creation for a schedule (equipment + input tickets)."""
+	"""Manually trigger draft logistics batch generation for a schedule."""
 	try:
 		schedule = frappe.get_doc("Crop Plan Schedule", schedule_name)
 		if schedule.status != "Scheduled":
 			return {"success": False, "error": "Schedule status must be Scheduled"}
-		if set(schedule._collect_equipment_assets()):
-			schedule._create_equipment_transfer_tickets()
-		if schedule._collect_input_items():
-			schedule._create_input_transfer_tickets()
-		return {"success": True, "message": "Transfer ticket creation triggered"}
+		batch_name = create_or_refresh_draft_logistics_batch(schedule)
+		return {"success": True, "batch": batch_name}
 	except Exception as e:
 		frappe.log_error(f"Error in create_transfer_tickets_for_schedule for {schedule_name}: {str(e)}", "Transfer Ticket")
 		return {"success": False, "error": str(e)}
@@ -1593,6 +1534,34 @@ def get_transfer_tickets_for_schedule(schedule_name: str) -> Dict[str, Any]:
 		
 		# Get all equipment assets from the schedule
 		schedule_assets = set(schedule._collect_equipment_assets())
+
+		linked_batches = frappe.get_all(
+			"Logistics Batch",
+			filters={"source_doctype": "Crop Plan Schedule", "source_name": schedule.name},
+			fields=["name"],
+			limit=5,
+		)
+		if linked_batches:
+			batch_name = linked_batches[0].name
+			linked_tickets = frappe.get_all(
+				"Logistics Transfer Ticket",
+				filters={"logistics_batch": batch_name, "status": ["!=", "Cancelled"]},
+				fields=["name", "status", "creation", "stock_entry"],
+				order_by="creation desc",
+				limit=100,
+			)
+			linked_stock_entries = [t.stock_entry for t in linked_tickets if getattr(t, "stock_entry", None)]
+			se_list = []
+			if linked_stock_entries:
+				se_list = frappe.get_all(
+					"Stock Entry",
+					filters={"name": ["in", linked_stock_entries], "docstatus": ["<", 2]},
+					fields=["name", "docstatus", "posting_date", "posting_time"],
+				)
+			return {
+				"logistics_tickets": [{"name": t.name, "status": t.status, "creation": t.creation} for t in linked_tickets],
+				"stock_entries": [{"name": se.name, "docstatus": se.docstatus, "posting_date": se.posting_date} for se in se_list],
+			}
 		
 		# If schedule has no equipment assets, try to return input-only tickets for pickable/receivable
 		if not schedule_assets:

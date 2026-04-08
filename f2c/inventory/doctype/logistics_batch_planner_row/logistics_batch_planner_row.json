@@ -1,0 +1,114 @@
+{
+  "doctype": "DocType",
+  "name": "Logistics Batch Planner Row",
+  "module": "Inventory",
+  "document_type": "Document",
+  "istable": 1,
+  "editable_grid": 1,
+  "track_changes": 1,
+  "engine": "InnoDB",
+  "field_order": [
+    "transfer_category",
+    "source_warehouse",
+    "target_warehouse",
+    "asset",
+    "stock_item",
+    "qty",
+    "primary_asset",
+    "paired_implement",
+    "current_implement",
+    "assigned_transport_asset",
+    "assigned_driver",
+    "action_type",
+    "group_key"
+  ],
+  "fields": [
+    {
+      "fieldname": "transfer_category",
+      "fieldtype": "Select",
+      "label": "Transfer Category",
+      "options": "\nmachinery\nstocks\nhand_tools\nother_tools\nimplement_recall\nreplacement\nmanual_add",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "source_warehouse",
+      "fieldtype": "Link",
+      "label": "Source Warehouse",
+      "options": "Warehouse",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "target_warehouse",
+      "fieldtype": "Link",
+      "label": "Target Warehouse",
+      "options": "Warehouse",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "asset",
+      "fieldtype": "Link",
+      "label": "Asset",
+      "options": "Asset",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "stock_item",
+      "fieldtype": "Link",
+      "label": "Stock Item",
+      "options": "Item",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "qty",
+      "fieldtype": "Float",
+      "label": "Qty",
+      "default": "1",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "primary_asset",
+      "fieldtype": "Link",
+      "label": "Primary Asset",
+      "options": "Asset"
+    },
+    {
+      "fieldname": "paired_implement",
+      "fieldtype": "Link",
+      "label": "Required Implement",
+      "options": "Implement"
+    },
+    {
+      "fieldname": "current_implement",
+      "fieldtype": "Link",
+      "label": "Current Implement",
+      "options": "Implement"
+    },
+    {
+      "fieldname": "assigned_transport_asset",
+      "fieldtype": "Link",
+      "label": "Assigned Transport Asset",
+      "options": "Asset"
+    },
+    {
+      "fieldname": "assigned_driver",
+      "fieldtype": "Data",
+      "label": "Assigned Driver"
+    },
+    {
+      "fieldname": "action_type",
+      "fieldtype": "Select",
+      "label": "Action Type",
+      "options": "\nmove\nrecall_to_cluster\nreplace\nmanual_add",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "group_key",
+      "fieldtype": "Data",
+      "label": "Group Key"
+    }
+  ],
+  "permissions": [],
+  "sort_field": "modified",
+  "sort_order": "DESC"
+}

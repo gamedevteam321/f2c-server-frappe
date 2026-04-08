@@ -28,6 +28,11 @@
     "status",
     "pickup_phase",
     "drop_off_phase",
+    "logistics_batch",
+    "source_doctype",
+    "source_name",
+    "transfer_category",
+    "planner_row_ref",
     "farm_task_execution",
     "purchase_order",
     "purchase_invoice",
@@ -175,6 +180,38 @@
       "fieldtype": "Select",
       "label": "Drop off Phase",
       "options": "\nNot Started\nIn Transit\nAt Drop Off Point\nDelivered",
+      "read_only": 1
+    },
+    {
+      "fieldname": "logistics_batch",
+      "fieldtype": "Link",
+      "label": "Logistics Batch",
+      "options": "Logistics Batch",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "source_doctype",
+      "fieldtype": "Link",
+      "label": "Source DocType",
+      "options": "DocType"
+    },
+    {
+      "fieldname": "source_name",
+      "fieldtype": "Dynamic Link",
+      "label": "Source Name",
+      "options": "source_doctype"
+    },
+    {
+      "fieldname": "transfer_category",
+      "fieldtype": "Select",
+      "label": "Transfer Category",
+      "options": "\nmachinery\nstocks\nhand_tools\nother_tools\nimplement_recall\nreplacement",
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "planner_row_ref",
+      "fieldtype": "Data",
+      "label": "Planner Row Ref",
       "read_only": 1
     },
     {

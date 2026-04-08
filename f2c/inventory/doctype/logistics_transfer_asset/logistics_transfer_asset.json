@@ -12,6 +12,9 @@
     "asset_name",
     "asset_category",
     "qty",
+    "paired_implement",
+    "current_implement",
+    "action_type",
     "available_balance"
   ],
   "fields": [
@@ -45,6 +48,24 @@
       "label": "Qty",
       "default": "1",
       "in_list_view": 1
+    },
+    {
+      "fieldname": "paired_implement",
+      "fieldtype": "Link",
+      "label": "Required Implement",
+      "options": "Implement"
+    },
+    {
+      "fieldname": "current_implement",
+      "fieldtype": "Link",
+      "label": "Current Implement",
+      "options": "Implement"
+    },
+    {
+      "fieldname": "action_type",
+      "fieldtype": "Select",
+      "label": "Action Type",
+      "options": "\nmove\nrecall_to_cluster\nreplace\nmanual_add"
     },
     {
       "fieldname": "available_balance",

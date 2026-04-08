@@ -6,6 +6,7 @@ from __future__ import annotations
 from typing import Any, Dict, List
 
 import frappe
+from f2c.inventory.logistics_planner_api import create_or_refresh_draft_logistics_batch
 from frappe.model.document import Document
 from frappe.utils import flt
 
@@ -1371,92 +1372,51 @@ class OnDemandActivity(Document):
 			frappe.msgprint("Failed to create return transfer ticket. Please check Error Log for details.", indicator="red", title="Return Transfer Ticket Creation Failed")
 
 	def after_insert(self):
-		"""Create transfer tickets when activity is first created with status Scheduled."""
+		"""Create or refresh draft logistics planning when activity is first scheduled."""
 		if self.status == "Scheduled":
 			try:
-				current_assets = set(self._collect_equipment_assets())
-				if current_assets:
-					self._create_equipment_transfer_tickets()
-				# Always create input tickets when activity has inputs (duplicate check inside skips if already in equipment ticket)
-				if self._collect_input_items():
-					try:
-						self._create_input_transfer_tickets()
-					except Exception as inp_e:
-						frappe.log_error(f"Input ticket error for {self.name}: {str(inp_e)[:60]}", "Input Transfer Ticket")
+				create_or_refresh_draft_logistics_batch(self)
 			except Exception as e:
-				# Log error but don't block activity creation
-				# Truncate error message to prevent CharacterLengthExceededError (max 140 chars for title)
-				# Keep message very short to avoid nested error log references causing overflow
 				error_str = str(e)[:60] if len(str(e)) > 60 else str(e)
-				error_msg = f"Transfer ticket creation error for {self.name}: {error_str}"
-				frappe.log_error(error_msg, "Transfer Ticket")
-				# Don't raise - allow activity to be created even if ticket creation fails
+				error_msg = f"Draft batch creation error for {self.name}: {error_str}"
+				frappe.log_error(error_msg, "Logistics Batch")
 
 	def on_update(self):
-		"""Create transfer tickets when activity status changes to Scheduled or equipment is added.
+		"""Create or refresh draft logistics planning on activity updates.
 		Create return transfer tickets when status changes to Completed."""
+		old_doc = self.get_doc_before_save() if not self.is_new() else None
+		old_status = old_doc.get("status") if old_doc else None
 		if not self.is_new():
-			old_status = frappe.db.get_value(self.doctype, self.name, "status")
 			
 			# Check if status changed to Completed - create return transfer tickets
-			if old_status != "Completed" and self.status == "Completed":
+			if (old_status or "") != "Completed" and self.status == "Completed":
 				try:
 					self._create_return_transfer_tickets()
 				except Exception as e:
-					# Log error but don't block activity update
-					# Truncate error message to prevent CharacterLengthExceededError (max 140 chars for title)
-					# Keep message very short to avoid nested error log references causing overflow
 					error_str = str(e)[:60] if len(str(e)) > 60 else str(e)
 					error_msg = f"Return transfer ticket error for {self.name}: {error_str}"
 					frappe.log_error(error_msg, "Return Transfer Ticket")
-					# Don't raise - allow activity to be updated even if ticket creation fails
 				return  # Don't process forward transfers if status is Completed
 		
-		# Only create forward transfer tickets if status is Scheduled
+		# Only create or refresh forward planning if status is Scheduled
 		if self.status != "Scheduled":
 			return
 		
-		# Check if status changed to Scheduled
 		if not self.is_new():
-			old_status = frappe.db.get_value(self.doctype, self.name, "status")
-			if old_status != "Scheduled":
-				# Status just changed to Scheduled, create tickets
+			if (old_status or "") != "Scheduled":
+				# Status just changed to Scheduled, create or refresh draft batch
 				try:
-					# Check if there are equipment assets
-					current_assets = set(self._collect_equipment_assets())
-					
-					if current_assets:
-						self._create_equipment_transfer_tickets()
-					# Always create input tickets when activity has inputs (duplicate check inside skips if already in equipment ticket)
-					if self._collect_input_items():
-						try:
-							self._create_input_transfer_tickets()
-						except Exception as inp_e:
-							frappe.log_error(f"Input ticket error for {self.name}: {str(inp_e)[:60]}", "Input Transfer Ticket")
+					create_or_refresh_draft_logistics_batch(self)
 				except Exception as e:
-					# Log error but don't block activity update
 					error_str = str(e)[:60] if len(str(e)) > 60 else str(e)
-					frappe.log_error(f"Transfer ticket error for {self.name}: {error_str}", "Transfer Ticket")
-			# If status was already Scheduled, check if equipment tickets need to be created
+					frappe.log_error(f"Draft batch error for {self.name}: {error_str}", "Logistics Batch")
+			# If status was already Scheduled, keep the draft batch in sync
 			else:
-				# Get current equipment assets
-				current_assets = set(self._collect_equipment_assets())
-				
-				# If there are equipment assets, always try to create tickets
-				# The _create_equipment_transfer_tickets method will handle duplicate prevention internally
-				if current_assets:
-					try:
-						self._create_equipment_transfer_tickets()
-					except Exception as e:
-						error_str = str(e)[:60] if len(str(e)) > 60 else str(e)
-						frappe.log_error(f"Equipment transfer ticket error for {self.name}: {error_str}", "Equipment Transfer Ticket")
-				# Always create input tickets when activity has inputs (duplicate check inside skips if already in equipment ticket)
-				if self._collect_input_items():
-					try:
-						self._create_input_transfer_tickets()
-					except Exception as e:
-						error_str = str(e)[:60] if len(str(e)) > 60 else str(e)
-						frappe.log_error(f"Input transfer ticket error for {self.name}: {error_str}", "Input Transfer Ticket")
+				try:
+					create_or_refresh_draft_logistics_batch(self)
+				except Exception as e:
+					error_str = str(e)[:60] if len(str(e)) > 60 else str(e)
+					frappe.log_error(f"Draft batch sync error for {self.name}: {error_str}", "Logistics Batch")
 
 
 def compute_total_qty(*, water_liters: float, total_acres: float, rate: float, unit: str) -> float:
@@ -1570,11 +1530,11 @@ def get_farm_task_items(farm_task: str) -> List[Dict[str, Any]]:
 
 @frappe.whitelist()
 def create_transfer_tickets_for_activity(activity_name: str):
-	"""Manually trigger transfer ticket creation for an activity (for debugging)."""
+	"""Manually trigger draft logistics batch generation for an activity."""
 	try:
 		activity = frappe.get_doc("On Demand Activity", activity_name)
-		activity._create_equipment_transfer_tickets()
-		return {"success": True, "message": "Transfer ticket creation triggered"}
+		batch_name = create_or_refresh_draft_logistics_batch(activity)
+		return {"success": True, "batch": batch_name}
 	except Exception as e:
 		frappe.log_error(f"Error in create_transfer_tickets_for_activity for {activity_name}: {str(e)}", "Equipment Transfer Ticket")
 		return {"success": False, "error": str(e)}
