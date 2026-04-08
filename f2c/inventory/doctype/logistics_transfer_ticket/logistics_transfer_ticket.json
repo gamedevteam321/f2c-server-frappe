@@ -33,6 +33,7 @@
     "source_name",
     "transfer_category",
     "planner_row_ref",
+    "transport_vehicle",
     "farm_task_execution",
     "purchase_order",
     "purchase_invoice",
@@ -213,6 +214,13 @@
       "fieldtype": "Data",
       "label": "Planner Row Ref",
       "read_only": 1
+    },
+    {
+      "fieldname": "transport_vehicle",
+      "fieldtype": "Link",
+      "label": "Transport Vehicle",
+      "options": "Machinery",
+      "description": "Vehicle or tractor used for transport (Machinery type Vehicle or Tractor)"
     },
     {
       "fieldname": "farm_task_execution",

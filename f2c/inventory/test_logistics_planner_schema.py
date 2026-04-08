@@ -51,6 +51,10 @@ class TestLogisticsPlannerSchema(FrappeTestCase):
 		self.assertIn("current_implement", fields)
 		self.assertIn("assigned_transport_asset", fields)
 		self.assertIn("assigned_driver", fields)
+		self.assertIn("planned_pickup_on", fields)
+		self.assertIn("planned_drop_off_on", fields)
+		self.assertEqual(fields["planned_pickup_on"]["fieldtype"], "Datetime")
+		self.assertEqual(fields["planned_drop_off_on"]["fieldtype"], "Datetime")
 		self.assertIn("action_type", fields)
 		self.assertIn("group_key", fields)
 
@@ -63,6 +67,7 @@ class TestLogisticsPlannerSchema(FrappeTestCase):
 		self.assertIn("source_name", ltt_fields)
 		self.assertIn("transfer_category", ltt_fields)
 		self.assertIn("planner_row_ref", ltt_fields)
+		self.assertIn("transport_vehicle", ltt_fields)
 
 		asset_doc = load_doctype_json("logistics_transfer_asset")
 		asset_fields = field_map(asset_doc)

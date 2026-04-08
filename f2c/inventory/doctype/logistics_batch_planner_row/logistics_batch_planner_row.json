@@ -19,6 +19,8 @@
     "current_implement",
     "assigned_transport_asset",
     "assigned_driver",
+    "planned_pickup_on",
+    "planned_drop_off_on",
     "action_type",
     "group_key"
   ],
@@ -94,6 +96,16 @@
       "fieldname": "assigned_driver",
       "fieldtype": "Data",
       "label": "Assigned Driver"
+    },
+    {
+      "fieldname": "planned_pickup_on",
+      "fieldtype": "Datetime",
+      "label": "Planned pickup"
+    },
+    {
+      "fieldname": "planned_drop_off_on",
+      "fieldtype": "Datetime",
+      "label": "Planned drop-off"
     },
     {
       "fieldname": "action_type",

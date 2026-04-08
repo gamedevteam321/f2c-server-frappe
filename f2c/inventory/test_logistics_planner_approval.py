@@ -39,6 +39,8 @@ class DummyBatchDoc:
 					"current_implement": "IMP-CURRENT-001",
 					"action_type": "move",
 					"group_key": "machinery::AST-TRACTOR-001",
+					"planned_pickup_on": "2026-05-01 08:00:00",
+					"planned_drop_off_on": "2026-05-01 18:00:00",
 				}
 			),
 			frappe._dict(
@@ -108,6 +110,8 @@ class TestLogisticsPlannerApproval(FrappeTestCase):
 		self.assertEqual(machinery_call["from_warehouse"], "TRACTOR-WH-001")
 		self.assertEqual(machinery_call["to_warehouse"], "FIELD-WH-001")
 		self.assertEqual(machinery_call["assets"][0]["asset"], "AST-TRACTOR-001")
+		self.assertEqual(machinery_call.get("planned_pickup_on"), "2026-05-01 08:00:00")
+		self.assertEqual(machinery_call.get("planned_drop_off_on"), "2026-05-01 18:00:00")
 
 		stock_call = create_calls[1]
 		self.assertEqual(stock_call["stock_items"][0]["item_code"], "ITEM-001")

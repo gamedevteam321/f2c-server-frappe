@@ -6,6 +6,7 @@ from typing import Any, Dict, List
 import frappe
 from frappe.utils import flt, now_datetime
 
+from f2c.inventory.logistics_constants import TRANSPORT_MACHINERY_TYPES
 from f2c.inventory.logistics_transfer_ticket_api import create_logistics_transfer_ticket
 
 
@@ -33,6 +34,88 @@ def _get_machinery_planner_context(asset: str | None) -> Dict[str, Any]:
 			or result["current_implement"]
 		)
 	return result
+
+
+def _machinery_transport_vehicle_from_asset(asset_name: str | None) -> str | None:
+	"""Resolve planner Assigned Transport Asset (Asset) to Machinery name for LTT.transport_vehicle."""
+	an = (asset_name or "").strip()
+	if not an:
+		return None
+	names = frappe.get_all(
+		"Machinery",
+		filters={"asset": an, "machinery_type": ["in", list(TRANSPORT_MACHINERY_TYPES)]},
+		pluck="name",
+		limit=1,
+	)
+	return names[0] if names else None
+
+
+def _default_assigned_transport_if_movable(asset: str | None) -> str | None:
+	"""If asset is linked to movable Machinery, return asset for storing as assigned_transport_asset."""
+	an = (asset or "").strip()
+	if not an or not _machinery_transport_vehicle_from_asset(an):
+		return None
+	return an
+
+
+def _persist_default_transport_for_draft_planner_rows(batch_doc) -> None:
+	"""Write assigned_transport_asset = primary asset to DB when unset and asset is movable (draft batches only)."""
+	if (getattr(batch_doc, "planning_status", None) or "Draft") != "Draft":
+		return
+	changed = False
+	for row in getattr(batch_doc, "planner_rows", []) or []:
+		if (row.get("transfer_category") or "").strip() == "stocks":
+			continue
+		if (row.get("assigned_transport_asset") or "").strip():
+			continue
+		asset = (row.get("asset") or "").strip()
+		if not asset:
+			continue
+		dft = _default_assigned_transport_if_movable(asset)
+		if not dft:
+			continue
+		row.set("assigned_transport_asset", dft)
+		changed = True
+	if changed:
+		batch_doc.save(ignore_permissions=True)
+
+
+def _apply_default_transport_to_planner_row_dict(row: Dict[str, Any]) -> None:
+	if (row.get("transfer_category") or "").strip() == "stocks":
+		return
+	if (row.get("assigned_transport_asset") or "").strip():
+		return
+	asset = (row.get("asset") or "").strip()
+	if not asset:
+		return
+	dft = _default_assigned_transport_if_movable(asset)
+	if dft:
+		row["assigned_transport_asset"] = dft
+
+
+def _first_non_empty_planner_datetime(rows: List[Dict[str, Any]], fieldname: str) -> str | None:
+	"""First non-empty datetime string among rows in a ticket request (grouped or single)."""
+	for row in rows:
+		val = row.get(fieldname)
+		if val is None:
+			continue
+		s = str(val).strip()
+		if s:
+			return s
+	return None
+
+
+def _first_effective_transport_asset_for_ltt(rows: List[Dict[str, Any]]) -> str | None:
+	"""Explicit assigned_transport_asset, else primary row asset when it is movable (Vehicle/Tractor/etc.)."""
+	for row in rows:
+		a = (row.get("assigned_transport_asset") or "").strip()
+		if a:
+			return a
+	for row in rows:
+		asset = (row.get("asset") or "").strip()
+		if asset and _machinery_transport_vehicle_from_asset(asset):
+			return asset
+	return None
 
 
 def _get_asset_source_warehouse(source_doc, asset: str | None, fallback_warehouse: str | None) -> str | None:
@@ -89,52 +172,52 @@ def _build_draft_planner_rows(source_doc) -> List[Dict[str, Any]]:
 	for machinery_row in getattr(source_doc, "machinery", []) or []:
 		asset = getattr(machinery_row, "asset", None) or machinery_row.get("asset")
 		context = _get_machinery_planner_context(asset)
-		rows.append(
-			{
-				"transfer_category": "machinery",
-				"source_warehouse": _get_asset_source_warehouse(source_doc, asset, cluster_warehouse),
-				"target_warehouse": target_warehouse,
-				"asset": asset,
-				"primary_asset": asset,
-				"paired_implement": getattr(machinery_row, "paired_implement", None)
-				or machinery_row.get("paired_implement"),
-				"current_implement": context.get("current_implement"),
-				"action_type": "move",
-				"group_key": f"machinery::{asset or ''}",
-			}
-		)
+		r = {
+			"transfer_category": "machinery",
+			"source_warehouse": _get_asset_source_warehouse(source_doc, asset, cluster_warehouse),
+			"target_warehouse": target_warehouse,
+			"asset": asset,
+			"primary_asset": asset,
+			"paired_implement": getattr(machinery_row, "paired_implement", None)
+			or machinery_row.get("paired_implement"),
+			"current_implement": context.get("current_implement"),
+			"action_type": "move",
+			"group_key": f"machinery::{asset or ''}",
+		}
+		_apply_default_transport_to_planner_row_dict(r)
+		rows.append(r)
 
 	for tool_row in getattr(source_doc, "hand_tools", []) or []:
 		asset = getattr(tool_row, "asset", None) or tool_row.get("asset")
 		source_warehouse = _get_asset_source_warehouse(source_doc, asset, cluster_warehouse)
-		rows.append(
-			{
-				"transfer_category": "hand_tools",
-				"source_warehouse": source_warehouse,
-				"target_warehouse": target_warehouse,
-				"asset": asset,
-				"primary_asset": asset,
-				"qty": 1,
-				"action_type": "move",
-				"group_key": _get_non_machinery_group_key(source_warehouse, target_warehouse),
-			}
-		)
+		r = {
+			"transfer_category": "hand_tools",
+			"source_warehouse": source_warehouse,
+			"target_warehouse": target_warehouse,
+			"asset": asset,
+			"primary_asset": asset,
+			"qty": 1,
+			"action_type": "move",
+			"group_key": _get_non_machinery_group_key(source_warehouse, target_warehouse),
+		}
+		_apply_default_transport_to_planner_row_dict(r)
+		rows.append(r)
 
 	for tool_row in getattr(source_doc, "other_tools", []) or []:
 		asset = getattr(tool_row, "asset", None) or tool_row.get("asset")
 		source_warehouse = _get_asset_source_warehouse(source_doc, asset, cluster_warehouse)
-		rows.append(
-			{
-				"transfer_category": "other_tools",
-				"source_warehouse": source_warehouse,
-				"target_warehouse": target_warehouse,
-				"asset": asset,
-				"primary_asset": asset,
-				"qty": 1,
-				"action_type": "move",
-				"group_key": _get_non_machinery_group_key(source_warehouse, target_warehouse),
-			}
-		)
+		r = {
+			"transfer_category": "other_tools",
+			"source_warehouse": source_warehouse,
+			"target_warehouse": target_warehouse,
+			"asset": asset,
+			"primary_asset": asset,
+			"qty": 1,
+			"action_type": "move",
+			"group_key": _get_non_machinery_group_key(source_warehouse, target_warehouse),
+		}
+		_apply_default_transport_to_planner_row_dict(r)
+		rows.append(r)
 
 	input_source_helper = getattr(source_doc, "_get_source_warehouse_for_inputs", None)
 	input_source_warehouse = input_source_helper() if callable(input_source_helper) else cluster_warehouse
@@ -216,12 +299,17 @@ def approve_logistics_batch(batch_name: str) -> List[str]:
 			if row.get("transfer_category") != "stocks" and row.get("asset")
 		]
 
+		planned_pickup_on = _first_non_empty_planner_datetime(rows, "planned_pickup_on")
+		planned_drop_off_on = _first_non_empty_planner_datetime(rows, "planned_drop_off_on")
+
 		if stock_items:
 			result = create_logistics_transfer_ticket(
 				from_warehouse=request.get("source_warehouse"),
 				to_warehouse=request.get("target_warehouse"),
 				stock_items=stock_items,
 				assets=assets or None,
+				planned_pickup_on=planned_pickup_on or None,
+				planned_drop_off_on=planned_drop_off_on or None,
 			)
 		else:
 			result = create_logistics_transfer_ticket(
@@ -229,6 +317,8 @@ def approve_logistics_batch(batch_name: str) -> List[str]:
 				to_warehouse=request.get("target_warehouse"),
 				stock_items=None,
 				assets=assets,
+				planned_pickup_on=planned_pickup_on or None,
+				planned_drop_off_on=planned_drop_off_on or None,
 			)
 
 		ticket_name = result.get("ticket") if result else None
@@ -249,6 +339,12 @@ def approve_logistics_batch(batch_name: str) -> List[str]:
 					asset_row.current_implement = row.get("current_implement")
 					asset_row.action_type = row.get("action_type")
 					break
+
+		ltt_meta = frappe.get_meta("Logistics Transfer Ticket")
+		if ltt_meta.get_field("transport_vehicle"):
+			tv = _machinery_transport_vehicle_from_asset(_first_effective_transport_asset_for_ltt(rows))
+			if tv:
+				ticket_doc.transport_vehicle = tv
 
 		ticket_doc.save(ignore_permissions=True)
 		created_ticket_names.append(ticket_name)
@@ -351,6 +447,7 @@ def get_logistics_batch_list(planning_status: str = "Draft") -> List[Dict[str, A
 @frappe.whitelist()
 def get_logistics_batch_detail(batch_name: str) -> Dict[str, Any]:
 	batch_doc = frappe.get_doc("Logistics Batch", batch_name)
+	_persist_default_transport_for_draft_planner_rows(batch_doc)
 	return batch_doc.as_dict()
 
 
@@ -366,6 +463,11 @@ def update_logistics_batch_planner_row(batch_name: str, row_name: str, updates: 
 		for key, value in payload.items():
 			row.set(key, value)
 		_sync_row_group_key(row)
+		if not (row.get("assigned_transport_asset") or "").strip():
+			asset = (row.get("asset") or "").strip()
+			dft = _default_assigned_transport_if_movable(asset)
+			if dft:
+				row.set("assigned_transport_asset", dft)
 		batch_doc.save(ignore_permissions=True)
 		return _row_to_dict(row)
 
@@ -378,6 +480,7 @@ def add_manual_logistics_batch_row(batch_name: str, row_data: str | Dict[str, An
 	_ensure_draft_batch(batch_doc)
 	payload = json.loads(row_data) if isinstance(row_data, str) else dict(row_data or {})
 	payload.setdefault("action_type", "manual_add")
+	_apply_default_transport_to_planner_row_dict(payload)
 	batch_doc.append("planner_rows", payload)
 	_sync_row_group_key(batch_doc.planner_rows[-1])
 	batch_doc.save(ignore_permissions=True)
@@ -428,6 +531,7 @@ def add_replacement_logistics_batch_row(
 		"action_type": "replace",
 		"group_key": f"replacement::{asset}",
 	}
+	_apply_default_transport_to_planner_row_dict(row)
 	batch_doc.append("planner_rows", row)
 	batch_doc.save(ignore_permissions=True)
 	return _row_to_dict(batch_doc.planner_rows[-1])

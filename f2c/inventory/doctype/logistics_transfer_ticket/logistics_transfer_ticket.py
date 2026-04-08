@@ -4,6 +4,8 @@ from frappe.model.document import Document
 from frappe.utils import flt
 from erpnext.stock.utils import get_stock_balance
 
+from f2c.inventory.logistics_constants import TRANSPORT_MACHINERY_TYPES
+
 
 class LogisticsTransferTicket(Document):
 	def validate(self):
@@ -17,8 +19,10 @@ class LogisticsTransferTicket(Document):
 		if not getattr(self, "transport_vehicle", None):
 			return
 		mtype = frappe.db.get_value("Machinery", self.transport_vehicle, "machinery_type")
-		if mtype not in ("Vehicle", "Tractor"):
-			frappe.throw(_("Transport vehicle must be Machinery with type Vehicle or Tractor"))
+		if mtype not in TRANSPORT_MACHINERY_TYPES:
+			frappe.throw(
+				_("Transport vehicle must be Machinery with a movable type (e.g. Vehicle, Tractor)")
+			)
 	
 	def _calculate_available_balances(self):
 		"""Calculate and set available balance for each stock item in the source warehouse"""
