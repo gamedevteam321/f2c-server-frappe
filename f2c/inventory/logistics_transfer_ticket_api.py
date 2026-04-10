@@ -1068,6 +1068,85 @@ def _enrich_attachment_from_equipment(row: dict, equipment: tuple[str, str]) -> 
 		row["attached_tractor_machinery_label"] = frappe.db.get_value("Machinery", mach, "machinery_name") or mach
 
 
+def _location_warehouse_level_from_location_name(location_name: str | None) -> str | None:
+	"""
+	farm | cluster | field from Location.location_name depth (Farm-Cluster-Field path).
+	"""
+	if not (location_name or "").strip():
+		return None
+	parts = [p.strip() for p in str(location_name).split("-") if p.strip()]
+	n = len(parts)
+	if n >= 3:
+		return "field"
+	if n == 2:
+		return "cluster"
+	if n == 1:
+		return "farm"
+	return None
+
+
+def _location_warehouse_level_for_warehouse_name(warehouse: str) -> str | None:
+	"""Resolve Warehouse -> Location -> path depth (same rule as asset rows)."""
+	if not warehouse:
+		return None
+	try:
+		res = get_location_for_warehouse(warehouse)
+	except Exception:
+		return None
+	loc = (res or {}).get("location")
+	if not loc:
+		return None
+	try:
+		location_name = frappe.db.get_value("Location", loc, "location_name")
+	except Exception:
+		location_name = None
+	return _location_warehouse_level_from_location_name(location_name)
+
+
+def _enrich_location_geo_labels(row: dict) -> None:
+	"""Set location_warehouse_level from Asset.location -> Location.location_name."""
+	loc = row.get("location")
+	if not loc:
+		return
+	try:
+		location_name = frappe.db.get_value("Location", loc, "location_name")
+	except Exception:
+		location_name = None
+	lvl = _location_warehouse_level_from_location_name(location_name)
+	if lvl:
+		row["location_warehouse_level"] = lvl
+
+
+@frappe.whitelist()
+def get_location_warehouse_levels_for_warehouses(warehouses=None):
+	"""
+	Map each Warehouse name to farm | cluster | field (or null if unmapped).
+	warehouses: JSON array string, e.g. '["WH-A","WH-B"]', or a list.
+	"""
+	import json
+
+	if warehouses is None:
+		names = []
+	elif isinstance(warehouses, str):
+		try:
+			names = json.loads(warehouses)
+		except Exception:
+			s = warehouses.strip()
+			names = [s] if s else []
+	else:
+		names = list(warehouses) if isinstance(warehouses, (list, tuple)) else []
+
+	out = {}
+	for wh in names:
+		if not wh:
+			continue
+		try:
+			out[wh] = _location_warehouse_level_for_warehouse_name(wh)
+		except Exception:
+			out[wh] = None
+	return out
+
+
 def _get_equipment_status_for_destination_warehouse(warehouse: str) -> str | None:
 	"""
 	Return equipment status to set based on warehouse's geo type.
@@ -1222,6 +1301,7 @@ def get_assets_for_warehouse(warehouse: str):
 		if equipment:
 			a["equipment_doctype"], a["equipment_name"] = equipment
 			_enrich_attachment_from_equipment(a, equipment)
+		_enrich_location_geo_labels(a)
 	
 	return {
 		"warehouse": warehouse,
@@ -1282,6 +1362,7 @@ def get_all_assets():
 		if equipment:
 			row["equipment_doctype"], row["equipment_name"] = equipment
 			_enrich_attachment_from_equipment(row, equipment)
+		_enrich_location_geo_labels(row)
 		out.append(row)
 	return {"assets": out, "count": len(out)}
 
