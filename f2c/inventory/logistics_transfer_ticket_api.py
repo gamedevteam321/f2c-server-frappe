@@ -1048,6 +1048,26 @@ def _get_equipment_doc_for_asset(asset_name: str) -> tuple[str, str] | None:
 	return None
 
 
+def _enrich_attachment_from_equipment(row: dict, equipment: tuple[str, str]) -> None:
+	"""Optional tractor↔implement labels for warehouse inventory UI."""
+	doctype, eqname = equipment
+	if doctype == "Machinery":
+		mtype = frappe.db.get_value("Machinery", eqname, "machinery_type")
+		if (mtype or "").strip() != "Tractor":
+			return
+		impl = frappe.db.get_value("Machinery", eqname, "current_implement")
+		if not impl:
+			return
+		row["attached_implement_id"] = impl
+		row["attached_implement_label"] = frappe.db.get_value("Implement", impl, "implement_name") or impl
+	elif doctype == "Implement":
+		mach = frappe.db.get_value("Implement", eqname, "attached_to_machinery")
+		if not mach:
+			return
+		row["attached_tractor_machinery_id"] = mach
+		row["attached_tractor_machinery_label"] = frappe.db.get_value("Machinery", mach, "machinery_name") or mach
+
+
 def _get_equipment_status_for_destination_warehouse(warehouse: str) -> str | None:
 	"""
 	Return equipment status to set based on warehouse's geo type.
@@ -1201,6 +1221,7 @@ def get_assets_for_warehouse(warehouse: str):
 		equipment = _get_equipment_doc_for_asset(a.get("name"))
 		if equipment:
 			a["equipment_doctype"], a["equipment_name"] = equipment
+			_enrich_attachment_from_equipment(a, equipment)
 	
 	return {
 		"warehouse": warehouse,
@@ -1260,6 +1281,7 @@ def get_all_assets():
 		equipment = _get_equipment_doc_for_asset(row.get("name"))
 		if equipment:
 			row["equipment_doctype"], row["equipment_name"] = equipment
+			_enrich_attachment_from_equipment(row, equipment)
 		out.append(row)
 	return {"assets": out, "count": len(out)}
 
