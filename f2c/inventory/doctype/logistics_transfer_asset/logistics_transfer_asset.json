@@ -11,6 +11,7 @@
     "asset",
     "asset_name",
     "asset_category",
+    "paired_implement",
     "qty",
     "available_balance"
   ],
@@ -37,6 +38,13 @@
       "label": "Category",
       "fetch_from": "asset.asset_category",
       "read_only": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "paired_implement",
+      "fieldtype": "Link",
+      "label": "Implement",
+      "options": "Implement",
       "in_list_view": 1
     },
     {

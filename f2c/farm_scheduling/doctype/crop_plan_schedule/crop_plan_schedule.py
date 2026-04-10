@@ -29,6 +29,7 @@ class CropPlanSchedule(Document):
 		# Validate equipment slot availability
 		if self.status == "Scheduled" and self.planned_start and self.planned_end:
 			self._validate_equipment_slot_availability()
+		self._validate_transport_vehicle_for_schedule()
 
 	def on_trash(self):
 		"""Prevent deletion if linked to execution or if it's a rescheduled source."""
@@ -846,7 +847,8 @@ class CropPlanSchedule(Document):
 					from_warehouse=from_warehouse,
 					to_warehouse=target_warehouse,
 					stock_items=stock_items_for_ticket,
-					assets=asset_list
+					assets=asset_list,
+					transport_vehicle=getattr(self, "transport_vehicle", None),
 				)
 				if result and result.get("ticket"):
 					created_tickets.append(result.get("ticket"))
@@ -887,6 +889,32 @@ class CropPlanSchedule(Document):
 			if qty > 0:
 				input_items.append({"item_code": inp.item, "qty": qty})
 		return input_items
+
+	def _needs_transport_vehicle(self) -> bool:
+		if self._collect_input_items():
+			return True
+		for row in self.get("hand_tools") or []:
+			if row.get("asset"):
+				return True
+		for row in self.get("other_tools") or []:
+			if row.get("asset"):
+				return True
+		return False
+
+	def _validate_transport_vehicle_for_schedule(self):
+		tv = (getattr(self, "transport_vehicle", None) or "").strip()
+		if tv:
+			mtype = frappe.db.get_value("Machinery", tv, "machinery_type")
+			if mtype != "Vehicle":
+				frappe.throw(
+					"Transport Vehicle must be a Machinery record with type Vehicle (tractors are not allowed)."
+				)
+		if self.status != "Scheduled":
+			return
+		if self._needs_transport_vehicle() and not tv:
+			frappe.throw(
+				"Transport Vehicle is required when the schedule includes approved inputs with quantity, hand tools, or other tools."
+			)
 
 	def _get_source_warehouse_for_inputs(self) -> str | None:
 		"""Get source warehouse for input items. Chooses cluster ledger warehouse where items have stock (by location); else first cluster ledger or company default."""
@@ -1126,7 +1154,8 @@ class CropPlanSchedule(Document):
 				from_warehouse=source_warehouse,
 				to_warehouse=target_warehouse,
 				stock_items=input_items,
-				assets=None
+				assets=None,
+				transport_vehicle=getattr(self, "transport_vehicle", None),
 			)
 			if result and result.get("ticket"):
 				frappe.msgprint(f"Created input transfer ticket {result.get('ticket')} for {len(input_items)} item(s)", indicator="green", title="Input Transfer Ticket Created")
@@ -1334,7 +1363,8 @@ class CropPlanSchedule(Document):
 				from_warehouse=field_warehouse,
 				to_warehouse=cluster_warehouse,
 				stock_items=None,
-				assets=[{"asset": asset, "qty": 1} for asset in equipment_assets]
+				assets=[{"asset": asset, "qty": 1} for asset in equipment_assets],
+				transport_vehicle=getattr(self, "transport_vehicle", None),
 			)
 			if result and result.get("ticket"):
 				frappe.msgprint(f"Created return transfer ticket {result.get('ticket')} to return equipment to cluster", indicator="green", title="Return Transfer Ticket Created")

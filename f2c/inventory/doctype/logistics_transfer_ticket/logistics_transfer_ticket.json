@@ -29,6 +29,7 @@
     "pickup_phase",
     "drop_off_phase",
     "farm_task_execution",
+    "transport_vehicle",
     "purchase_order",
     "purchase_invoice",
     "sales_order",
@@ -183,6 +184,12 @@
       "label": "Farm Task Execution",
       "options": "Farm Task Execution",
       "in_list_view": 1
+    },
+    {
+      "fieldname": "transport_vehicle",
+      "fieldtype": "Link",
+      "label": "Transport Vehicle",
+      "options": "Machinery"
     },
     {
       "fieldname": "purchase_order",

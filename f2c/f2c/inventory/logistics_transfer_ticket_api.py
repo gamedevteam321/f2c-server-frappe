@@ -241,6 +241,7 @@ def create_logistics_transfer_ticket(
 	to_warehouse: str,
 	stock_items: list[dict] | None = None,
 	assets: list | None = None,
+	transport_vehicle: str | None = None,
 ):
 	"""
 	Create ONE Logistics Transfer Ticket that links:
@@ -436,22 +437,24 @@ def create_logistics_transfer_ticket(
 			am.insert(ignore_permissions=True)
 			asset_movement_name = am.name
 
-	ticket = frappe.get_doc(
-		{
-			"doctype": "Logistics Transfer Ticket",
-			"from_warehouse": from_warehouse,
-			"to_warehouse": to_warehouse,
-			"from_location": from_loc,
-			"to_location": to_loc,
-			"stock_entry": stock_entry_name,
-			"asset_movement": asset_movement_name,
-			"status": "Pending Pickup",
-			"stock_items": [
-				{"item_code": r.get("item_code"), "qty": flt(r.get("qty"))} for r in (stock_items or []) if r.get("item_code")
-			],
-			"asset_items": [{"asset": r.get("asset"), "qty": r.get("qty") or 1} for r in asset_item_rows_for_ticket if r.get("asset")],
-		}
-	)
+	ticket_fields = {
+		"doctype": "Logistics Transfer Ticket",
+		"from_warehouse": from_warehouse,
+		"to_warehouse": to_warehouse,
+		"from_location": from_loc,
+		"to_location": to_loc,
+		"stock_entry": stock_entry_name,
+		"asset_movement": asset_movement_name,
+		"status": "Pending Pickup",
+		"stock_items": [
+			{"item_code": r.get("item_code"), "qty": flt(r.get("qty"))} for r in (stock_items or []) if r.get("item_code")
+		],
+		"asset_items": [{"asset": r.get("asset"), "qty": r.get("qty") or 1} for r in asset_item_rows_for_ticket if r.get("asset")],
+	}
+	tv = (transport_vehicle or "").strip()
+	if tv:
+		ticket_fields["transport_vehicle"] = tv
+	ticket = frappe.get_doc(ticket_fields)
 	ticket.insert(ignore_permissions=True)
 
 	return {

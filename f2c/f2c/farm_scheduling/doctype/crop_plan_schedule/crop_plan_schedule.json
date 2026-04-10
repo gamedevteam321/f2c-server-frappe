@@ -47,6 +47,8 @@
     "hand_tools",
   "section_break_other_tools",
   "other_tools",
+  "section_break_transport_vehicle",
+  "transport_vehicle",
   "section_break_labour",
   "male_count",
   "female_count",
@@ -305,6 +307,18 @@
    "fieldtype": "Table",
    "label": "Other Tools",
    "options": "Crop Plan Schedule Other Tool"
+  },
+  {
+   "fieldname": "section_break_transport_vehicle",
+   "fieldtype": "Section Break",
+   "label": "Transport Vehicle"
+  },
+  {
+   "description": "Used on Logistics Transfer Tickets for this schedule; must be Machinery with type Vehicle (not Tractor).",
+   "fieldname": "transport_vehicle",
+   "fieldtype": "Link",
+   "label": "Transport Vehicle",
+   "options": "Machinery"
   },
   {
    "fieldname": "section_break_labour",

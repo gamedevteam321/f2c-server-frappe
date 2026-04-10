@@ -1,5 +1,6 @@
 import frappe
 from frappe import _
+from frappe.utils import cint
 import json
 import math
 
@@ -373,5 +374,68 @@ def create_locations_from_geo_warehouses(update_existing: int = 0):
 		"errors": errors,
 		"pairs_processed": len(pairs),
 	}
+
+
+def _get_location_docname_by_location_name(location_name_str: str):
+	"""Resolve Location docname from location_name (exact, then case-insensitive)."""
+	if not (location_name_str or "").strip():
+		return None
+	docname = frappe.db.get_value("Location", {"location_name": location_name_str}, "name")
+	if docname:
+		return docname
+	result = frappe.db.sql(
+		"SELECT name FROM `tabLocation` WHERE LOWER(TRIM(location_name)) = LOWER(TRIM(%s)) LIMIT 1",
+		(location_name_str,),
+		as_dict=False,
+	)
+	return result[0][0] if result else None
+
+
+@frappe.whitelist()
+def get_enabled_warehouse_locations():
+	"""
+	Locations (ERPNext Asset Location) that correspond to at least one **enabled**
+	Warehouse linked on Geo Fencing Area → Warehouses.
+
+	Used by equipment UIs so users only pick field/warehouse-backed locations that
+	are not tied to disabled warehouses.
+	"""
+	rows = frappe.get_all(
+		"Geo Fencing Area Warehouse",
+		fields=["warehouse", "parent as geo_fencing_area"],
+		filters={"warehouse": ["is", "set"]},
+		limit_page_length=0,
+		ignore_permissions=True,
+	)
+
+	seen_pairs = set()
+	docnames = []
+	seen_docnames = set()
+
+	for r in rows:
+		wh = r.get("warehouse")
+		geo = r.get("geo_fencing_area")
+		if not wh or not geo:
+			continue
+		pair = (wh, geo)
+		if pair in seen_pairs:
+			continue
+		seen_pairs.add(pair)
+
+		if cint(frappe.db.get_value("Warehouse", wh, "disabled") or 0):
+			continue
+
+		location_name = _build_location_name_from_area(geo)
+		if not location_name:
+			continue
+
+		docname = _get_location_docname_by_location_name(location_name)
+		if not docname or docname in seen_docnames:
+			continue
+		seen_docnames.add(docname)
+		docnames.append(docname)
+
+	docnames.sort(key=lambda n: (n or "").lower())
+	return [{"name": n} for n in docnames]
 
 

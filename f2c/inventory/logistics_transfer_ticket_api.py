@@ -241,6 +241,122 @@ def _get_default_company():
 	return companies[0] if companies else None
 
 
+def _implement_asset_for_tractor_transfer(tractor_asset: str, paired_implement: str | None) -> str | None:
+	"""
+	Asset name linked to the implement that should move with this tractor.
+	Uses Implement doc name from paired_implement when provided; else Machinery.current_implement.
+	"""
+	if not tractor_asset:
+		return None
+	pi = (paired_implement or "").strip()
+	if pi and frappe.db.exists("Implement", pi):
+		return frappe.db.get_value("Implement", pi, "asset")
+	cur_impl = frappe.db.get_value("Machinery", {"asset": tractor_asset}, "current_implement")
+	if cur_impl and frappe.db.exists("Implement", cur_impl):
+		return frappe.db.get_value("Implement", cur_impl, "asset")
+	return None
+
+
+def _append_co_moving_implement_assets(requests: list[dict]) -> list[dict]:
+	"""Add implement Asset rows for each tractor row so Asset Movement moves both."""
+	seen = {r.get("asset") for r in requests if r.get("asset")}
+	out = list(requests)
+	for req in requests:
+		ta = req.get("asset")
+		if not ta:
+			continue
+		ia = _implement_asset_for_tractor_transfer(ta, req.get("paired_implement"))
+		if not ia or ia == ta or ia in seen:
+			continue
+		seen.add(ia)
+		out.append({"asset": ia, "qty": 1})
+	return out
+
+
+def _sync_equipment_location_from_asset(asset_name: str) -> None:
+	"""Copy Asset.location onto the linked Machinery / Implement / Hand Tool / Other Tool doc."""
+	if not asset_name:
+		return
+	loc = frappe.db.get_value("Asset", asset_name, "location")
+	if not loc:
+		return
+	for doctype in ("Machinery", "Implement", "Hand Tool", "Other Tool"):
+		name = frappe.db.get_value(doctype, {"asset": asset_name}, "name")
+		if name:
+			frappe.db.set_value(doctype, name, "location", loc, update_modified=False)
+			return
+
+
+def _sync_equipment_locations_after_asset_movement(ticket) -> None:
+	"""After Asset Movement submit/cancel, refresh equipment doc locations from Asset."""
+	seen: set[str] = set()
+	for row in getattr(ticket, "asset_items", None) or []:
+		an = row.get("asset")
+		if not an or an in seen:
+			continue
+		seen.add(an)
+		_sync_equipment_location_from_asset(an)
+
+
+def _reapply_tractor_implement_links_after_transfer(ticket) -> None:
+	"""
+	Ensure Machinery.current_implement and Implement.attached_to_machinery stay consistent
+	for ticket rows that record a paired implement (runs Machinery save → existing sync hooks).
+	"""
+	for row in getattr(ticket, "asset_items", None) or []:
+		pi = (getattr(row, "paired_implement", None) or "").strip()
+		if not pi or not frappe.db.exists("Implement", pi):
+			continue
+		asset = row.get("asset")
+		if not asset:
+			continue
+		mach_name = frappe.db.get_value("Machinery", {"asset": asset}, "name")
+		if not mach_name:
+			continue
+		m = frappe.get_doc("Machinery", mach_name)
+		if (m.machinery_type or "") != "Tractor":
+			continue
+		impl_owner = frappe.db.get_value("Implement", pi, "attached_to_machinery") or None
+		if (m.current_implement or "") == pi and impl_owner == mach_name:
+			continue
+		m.current_implement = pi
+		m.save(ignore_permissions=True)
+
+
+def _tractor_machinery_name_for_moved_asset(asset_name: str | None) -> str | None:
+	"""If this Asset is linked to a Machinery row with type Tractor, return that Machinery name."""
+	if not asset_name:
+		return None
+	row = frappe.db.get_value(
+		"Machinery",
+		{"asset": asset_name},
+		["name", "machinery_type"],
+		as_dict=True,
+	)
+	if not row:
+		return None
+	if (row.get("machinery_type") or "").strip() == "Tractor":
+		return row.get("name")
+	return None
+
+
+def _default_transport_vehicle_from_assets(assets: list | None) -> str | None:
+	"""
+	Use the moved tractor as Transport vehicle on the LTT when no vehicle was passed.
+	Skips non-tractor assets (e.g. implements co-moved with the tractor).
+	"""
+	if not assets:
+		return None
+	for a in assets:
+		an = a if isinstance(a, str) else (a.get("asset") if isinstance(a, dict) else None)
+		if not an:
+			continue
+		mname = _tractor_machinery_name_for_moved_asset(an)
+		if mname:
+			return mname
+	return None
+
+
 @frappe.whitelist()
 def create_logistics_transfer_ticket(
 	from_warehouse: str | None = None,
@@ -262,6 +378,7 @@ def create_logistics_transfer_ticket(
 	purchase_invoice: str | None = None,
 	sales_order: str | None = None,
 	sales_invoice: str | None = None,
+	transport_vehicle: str | None = None,
 ):
 	"""
 	Create ONE Logistics Transfer Ticket.
@@ -450,7 +567,17 @@ def create_logistics_transfer_ticket(
 			if isinstance(a, str):
 				requests.append({"asset": a, "qty": 1})
 			elif isinstance(a, dict):
-				requests.append({"asset": a.get("asset"), "qty": a.get("qty")})
+				pi = (a.get("paired_implement") or "").strip()
+				requests.append(
+					{
+						"asset": a.get("asset"),
+						"qty": a.get("qty"),
+						**({"paired_implement": pi} if pi else {}),
+					}
+				)
+
+		# Move implement assets together with tractors (same Asset Movement + destination Location).
+		requests = _append_co_moving_implement_assets(requests)
 
 		asset_rows = []
 		first_company = None
@@ -497,7 +624,11 @@ def create_logistics_transfer_ticket(
 					"target_location": to_loc,
 				}
 			)
-			asset_item_rows_for_ticket.append({"asset": move_asset.name, "qty": move_qty})
+			ticket_asset_row = {"asset": move_asset.name, "qty": move_qty}
+			req_pi = (req.get("paired_implement") or "").strip()
+			if req_pi and frappe.db.exists("Implement", req_pi):
+				ticket_asset_row["paired_implement"] = req_pi
+			asset_item_rows_for_ticket.append(ticket_asset_row)
 
 		if already_there and not asset_rows:
 			frappe.throw(
@@ -521,11 +652,38 @@ def create_logistics_transfer_ticket(
 
 	# External transfer: accept assets for ticket.asset_items (no Asset Movement)
 	if not both_warehouse and assets:
+		ext_reqs: list[dict] = []
 		for a in assets:
-			asset_name = a.get("asset") if isinstance(a, dict) else a
-			qty = max(1, flt(a.get("qty") or 1)) if isinstance(a, dict) else 1
+			if isinstance(a, str):
+				ext_reqs.append({"asset": a, "qty": 1})
+			elif isinstance(a, dict):
+				ext_pi = (a.get("paired_implement") or "").strip()
+				ext_reqs.append(
+					{
+						"asset": a.get("asset"),
+						"qty": max(1, flt(a.get("qty") or 1)),
+						**({"paired_implement": ext_pi} if ext_pi else {}),
+					}
+				)
+		for req in _append_co_moving_implement_assets(ext_reqs):
+			asset_name = req.get("asset")
+			qty = max(1, flt(req.get("qty") or 1))
 			if asset_name and qty > 0:
-				asset_item_rows_for_ticket.append({"asset": asset_name, "qty": qty})
+				ext_row = {"asset": asset_name, "qty": qty}
+				req_pi = (req.get("paired_implement") or "").strip()
+				if req_pi and frappe.db.exists("Implement", req_pi):
+					ext_row["paired_implement"] = req_pi
+				asset_item_rows_for_ticket.append(ext_row)
+
+	asset_items_payload = []
+	for r in asset_item_rows_for_ticket:
+		if not r.get("asset"):
+			continue
+		row = {"asset": r.get("asset"), "qty": r.get("qty") or 1}
+		pi = (r.get("paired_implement") or "").strip()
+		if pi and frappe.db.exists("Implement", pi):
+			row["paired_implement"] = pi
+		asset_items_payload.append(row)
 
 	ticket_data = {
 		"doctype": "Logistics Transfer Ticket",
@@ -544,7 +702,7 @@ def create_logistics_transfer_ticket(
 		"stock_items": [
 			{"item_code": r.get("item_code"), "qty": flt(r.get("qty"))} for r in (stock_items or []) if r.get("item_code")
 		],
-		"asset_items": [{"asset": r.get("asset"), "qty": r.get("qty") or 1} for r in asset_item_rows_for_ticket if r.get("asset")],
+		"asset_items": asset_items_payload,
 	}
 	if purchase_order:
 		ticket_data["purchase_order"] = purchase_order
@@ -567,6 +725,12 @@ def create_logistics_transfer_ticket(
 		ticket_data["planned_pickup_on"] = get_datetime(planned_pickup_on)
 	if planned_drop_off_on:
 		ticket_data["planned_drop_off_on"] = get_datetime(planned_drop_off_on)
+
+	tv = (transport_vehicle or "").strip()
+	if not tv:
+		tv = (_default_transport_vehicle_from_assets(assets) or "").strip()
+	if tv:
+		ticket_data["transport_vehicle"] = tv
 
 	ticket = frappe.get_doc(ticket_data)
 	ticket.insert(ignore_permissions=True)
@@ -632,6 +796,9 @@ def mark_received(ticket_name: str, receive_photo_url=None):
 		if am.docstatus == 0:
 			am.submit()
 
+	_sync_equipment_locations_after_asset_movement(ticket)
+	_reapply_tractor_implement_links_after_transfer(ticket)
+
 	new_status = _get_equipment_status_for_destination_warehouse(ticket.to_warehouse)
 	if new_status and getattr(ticket, "asset_items", None):
 		for row in ticket.asset_items:
@@ -667,6 +834,8 @@ def revert_received(ticket_name: str):
 		am = frappe.get_doc("Asset Movement", ticket.asset_movement)
 		if am.docstatus == 1:
 			am.cancel()
+
+	_sync_equipment_locations_after_asset_movement(ticket)
 
 	new_status = _get_equipment_status_for_destination_warehouse(ticket.from_warehouse)
 	if new_status and getattr(ticket, "asset_items", None):
