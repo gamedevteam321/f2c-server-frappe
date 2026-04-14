@@ -8,7 +8,9 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 import frappe
 from frappe.model.document import Document
-from frappe.utils import flt
+from frappe.utils import flt, get_datetime
+
+from f2c.farm_scheduling.cluster_area_resolution import resolve_cluster_warehouses_locations
 
 SQ_METERS_TO_ACRES = 0.000247105
 
@@ -731,6 +733,76 @@ class CropPlanSchedule(Document):
 		
 		return assets_by_warehouse
 
+	def _find_open_equipment_ltt_duplicate(
+		self, from_warehouse: str, to_warehouse: str, asset_list: list[str]
+	) -> str | None:
+		"""Return name of an open LTT with same from→to where ticket already covers this leg's assets.
+
+		Uses subset match: scheduled assets may be a subset of ticket rows because
+		create_logistics_transfer_ticket appends co-moving implement assets (superset on LTT).
+		"""
+		asset_set = {a for a in (asset_list or []) if a}
+		if not asset_set:
+			return None
+		ticket_names = frappe.get_all(
+			"Logistics Transfer Ticket",
+			filters={
+				"from_warehouse": from_warehouse,
+				"to_warehouse": to_warehouse,
+				"status": ["not in", ["Received", "Cancelled"]],
+			},
+			pluck="name",
+			limit_page_length=200,
+		)
+		for ticket_name in ticket_names:
+			try:
+				ticket_doc = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
+				if not ticket_doc.asset_items or len(ticket_doc.asset_items) == 0:
+					continue
+				ticket_assets = {ai.asset for ai in ticket_doc.asset_items if ai.asset}
+				if asset_set <= ticket_assets:
+					return ticket_name
+			except Exception:
+				continue
+		return None
+
+	def _find_open_input_only_ltt_duplicate(
+		self, from_warehouse: str, to_warehouse: str, input_items: list[dict]
+	) -> str | None:
+		"""Return name of an open input-only LTT with same from→to and identical stock lines."""
+		input_items_set = {
+			(str(it.get("item_code")).strip(), flt(it.get("qty")))
+			for it in input_items
+			if it.get("item_code")
+		}
+		if not input_items_set:
+			return None
+		ticket_names = frappe.get_all(
+			"Logistics Transfer Ticket",
+			filters={
+				"from_warehouse": from_warehouse,
+				"to_warehouse": to_warehouse,
+				"status": ["not in", ["Received", "Cancelled"]],
+			},
+			pluck="name",
+			limit_page_length=200,
+		)
+		for ticket_name in ticket_names:
+			try:
+				ticket_doc = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
+				if ticket_doc.asset_items and len(ticket_doc.asset_items) > 0:
+					continue
+				if not ticket_doc.stock_items:
+					continue
+				ticket_items = {
+					(str(si.item_code).strip(), flt(si.qty)) for si in ticket_doc.stock_items if si.item_code
+				}
+				if ticket_items == input_items_set:
+					return ticket_name
+			except Exception:
+				continue
+		return None
+
 	def _create_equipment_transfer_tickets(self):
 		"""Create Logistics Transfer Tickets for all equipment when schedule is saved with status Scheduled."""
 		if self.status != "Scheduled":
@@ -795,46 +867,14 @@ class CropPlanSchedule(Document):
 				frappe.log_error(f"Asset(s) {asset_list} already at target warehouse {target_warehouse}, skipping", "Equipment Transfer Ticket")
 				continue  # Skip if already at target
 			
-			# Check if a ticket already exists for this transfer (prevent duplicates)
-			# Only check for very recent tickets (last 5 seconds) to catch true duplicates from rapid multiple saves
-			from frappe.utils import add_to_date, now_datetime
-			recent_time = add_to_date(now_datetime(), seconds=-5)
-			
-			existing_tickets = frappe.get_all(
-				"Logistics Transfer Ticket",
-				filters={
-					"from_warehouse": from_warehouse,
-					"to_warehouse": target_warehouse,
-					"status": ["!=", "Cancelled"],
-					"creation": [">=", recent_time]
-				},
-				fields=["name"],
-				limit=10
-			)
-			
-			# Check if any existing ticket has the same assets
-			# Only consider tickets that have assets (not input-only tickets)
-			ticket_exists = False
-			for ticket_name in [t.name for t in existing_tickets]:
-				try:
-					ticket_doc = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
-					# Only check tickets that have assets (skip input-only tickets)
-					if ticket_doc.asset_items and len(ticket_doc.asset_items) > 0:
-						ticket_assets = {ai.asset for ai in ticket_doc.asset_items if ai.asset}
-						# Skip if no valid assets found
-						if not ticket_assets:
-							continue
-						asset_set = set(asset_list)
-						# If ticket has exactly the same assets, it's a duplicate
-						if ticket_assets == asset_set:
-							ticket_exists = True
-							frappe.log_error(f"Duplicate equipment transfer ticket already exists for schedule {self.name}: {ticket_name} (same assets and warehouses), skipping", "Equipment Transfer Ticket")
-							break
-				except Exception:
-					continue  # Skip if ticket can't be read
-			
-			if ticket_exists:
-				continue  # Skip creating duplicate ticket
+			# Skip if an open ticket already exists for this lane with the same asset set (edit / re-save safe)
+			dup_ticket = self._find_open_equipment_ltt_duplicate(from_warehouse, target_warehouse, asset_list)
+			if dup_ticket:
+				frappe.log_error(
+					f"Duplicate equipment transfer ticket already exists for schedule {self.name}: {dup_ticket} (same assets and warehouses), skipping",
+					"Equipment Transfer Ticket",
+				)
+				continue
 			
 			# Always include inputs in equipment tickets (as suggestions, regardless of source warehouse)
 			stock_items_for_ticket = input_items if input_items else None
@@ -1107,45 +1147,14 @@ class CropPlanSchedule(Document):
 		except Exception as e:
 			frappe.log_error(f"Shortfall check/MR for schedule {self.name}: {str(e)}", "Input Transfer Ticket")
 		
-		# Check if a ticket already exists for the same transfer (prevent duplicates)
-		# Only check for very recent tickets (last 5 seconds) to catch true duplicates from rapid multiple saves
-		# Look for input-only tickets (no assets) with same warehouses and items
-		from frappe.utils import add_to_date, now_datetime
-		recent_time = add_to_date(now_datetime(), seconds=-5)
-		
-		existing_tickets = frappe.get_all(
-			"Logistics Transfer Ticket",
-			filters={
-				"from_warehouse": source_warehouse,
-				"to_warehouse": target_warehouse,
-				"status": ["!=", "Cancelled"],
-				"creation": [">=", recent_time]
-			},
-			fields=["name"],
-			limit=10
-		)
-		
-		# Check if any existing ticket has the same stock items AND no assets (input-only ticket)
-		for ticket_name in [t.name for t in existing_tickets]:
-			try:
-				ticket_doc = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
-				# Only consider tickets with no assets (input-only tickets) as potential duplicates
-				# Tickets with assets are from equipment transfer tickets and should be ignored
-				if ticket_doc.asset_items and len(ticket_doc.asset_items) > 0:
-					continue  # Skip tickets with assets - they're from equipment tickets
-				
-				# Check if stock items match
-				if ticket_doc.stock_items and len(ticket_doc.stock_items) == len(input_items):
-					# Compare items - check if all items match
-					ticket_items = {(si.item_code, flt(si.qty)) for si in ticket_doc.stock_items if si.item_code}
-					input_items_set = {(item.get("item_code"), flt(item.get("qty"))) for item in input_items if item.get("item_code")}
-					
-					if ticket_items == input_items_set:
-						# Duplicate ticket found - skip creation
-						frappe.log_error(f"Duplicate input transfer ticket already exists for schedule {self.name}: {ticket_name} (same items and warehouses), skipping", "Input Transfer Ticket")
-						return
-			except Exception:
-				continue  # Skip if ticket can't be read
+		# Skip if an open input-only ticket already exists for same warehouses and stock lines
+		dup_in = self._find_open_input_only_ltt_duplicate(source_warehouse, target_warehouse, input_items)
+		if dup_in:
+			frappe.log_error(
+				f"Duplicate input transfer ticket already exists for schedule {self.name}: {dup_in} (same items and warehouses), skipping",
+				"Input Transfer Ticket",
+			)
+			return
 		
 		# Create transfer ticket for input items
 		from f2c.inventory.logistics_transfer_ticket_api import create_logistics_transfer_ticket
@@ -1548,6 +1557,45 @@ def get_block_details(crop_plan: str, block: str) -> Dict[str, Any]:
 		}
 	return {}
 
+
+@frappe.whitelist()
+def get_machinery_display_labels_for_assets(assets=None) -> Dict[str, str]:
+	"""
+	Map Asset.name -> display label for scheduling tags (same as Machinery form / Equipment List NAME).
+
+	Uses Machinery.machinery_name when set, else Machinery.name — not Asset.asset_name composites.
+	"""
+	import json
+
+	if assets is None:
+		return {}
+	if isinstance(assets, str):
+		try:
+			assets = json.loads(assets)
+		except Exception:
+			assets = [x.strip() for x in str(assets).split(",") if x.strip()]
+	if not isinstance(assets, (list, tuple)):
+		return {}
+	names = [str(a).strip() for a in assets if a is not None and str(a).strip()]
+	if not names:
+		return {}
+	rows = frappe.get_all(
+		"Machinery",
+		filters={"asset": ["in", names]},
+		fields=["name", "asset", "machinery_name"],
+		limit=max(len(names) + 10, 50),
+	)
+	out: Dict[str, str] = {}
+	for r in rows:
+		ak = (r.get("asset") or "").strip()
+		if not ak or ak in out:
+			continue
+		mn = (r.get("machinery_name") or "").strip()
+		docn = (r.get("name") or "").strip()
+		out[ak] = mn if mn else docn
+	return out
+
+
 @frappe.whitelist()
 def create_transfer_tickets_for_schedule(schedule_name: str):
 	"""Manually trigger transfer ticket creation for a schedule (equipment + input tickets)."""
@@ -1746,103 +1794,34 @@ def get_available_assets_for_cluster(
 		List of available assets with name, asset_name, location, etc.
 	"""
 	try:
-		# Get cluster from field or block
 		target_area = block or field
 		if not target_area:
 			frappe.log_error(f"get_available_assets_for_cluster: No field/block provided. field={field}, block={block}", "Asset Filter")
 			return []
-		
-		# Debug logging
-		frappe.log_error(f"get_available_assets_for_cluster: target_area={target_area}, asset_category={asset_category}", "Asset Filter Debug")
-		
-		# Get cluster for the field/block
-		cluster = None
-		try:
-			area_doc = frappe.get_doc("Geo Fencing Area", target_area)
-			current = area_doc
-			# Traverse up to find cluster
-			while current:
-				if current.geo_fencing_type == "Cluster":
-					cluster = current.name
-					break
-				if current.parent_area:
-					current = frappe.get_doc("Geo Fencing Area", current.parent_area)
-				else:
-					break
-		except Exception as e:
-			# Log error but keep it short
-			frappe.log_error(f"Error getting cluster for {target_area}: {str(e)[:100]}", "Asset Filter")
-			return []
-		
-		if not cluster:
-			frappe.log_error(f"get_available_assets_for_cluster: No cluster found for {target_area}", "Asset Filter")
-			return []
-		
-		frappe.log_error(f"get_available_assets_for_cluster: Found cluster={cluster} for target_area={target_area}", "Asset Filter Debug")
-		
-		# Build list of all geo areas in cluster (cluster + fields + blocks) so we include
-		# warehouses linked at cluster, field, or block level (equipment may be in any of these)
-		cluster_geo_areas = [cluster]
-		try:
-			child_areas = frappe.get_all(
-				"Geo Fencing Area",
-				filters={"parent_area": cluster},
-				fields=["name"],
-				limit_page_length=0
-			)
-			for area in child_areas:
-				cluster_geo_areas.append(area.name)
-				blocks = frappe.get_all(
-					"Geo Fencing Area",
-					filters={"parent_area": area.name},
-					fields=["name"],
-					limit_page_length=0
-				)
-				for b in blocks:
-					cluster_geo_areas.append(b.name)
-		except Exception:
-			pass
-		
-		# Get all warehouses linked to cluster or any descendant area (field/block)
-		warehouses = frappe.get_all(
-			"Geo Fencing Area Warehouse",
-			fields=["warehouse"],
-			filters={"parent": ["in", cluster_geo_areas], "parenttype": "Geo Fencing Area"},
-			limit_page_length=0
+
+		frappe.log_error(
+			f"get_available_assets_for_cluster: target_area={target_area}, asset_category={asset_category}",
+			"Asset Filter Debug",
 		)
-		cluster_warehouse_list = [w.warehouse for w in warehouses if w.warehouse]
-		
-		# Get all child warehouses for each cluster warehouse
-		from erpnext.stock.doctype.warehouse.warehouse import get_child_warehouses
-		warehouse_list = []
-		for cluster_wh in cluster_warehouse_list:
-			# get_child_warehouses returns [children..., warehouse] (includes self)
-			child_warehouses = get_child_warehouses(cluster_wh)
-			warehouse_list.extend(child_warehouses)
-		
-		# Remove duplicates while preserving order
-		warehouse_list = list(dict.fromkeys(warehouse_list))
-		
-		frappe.log_error(f"get_available_assets_for_cluster: Found {len(warehouse_list)} warehouses in cluster {cluster}: {warehouse_list[:3]}", "Asset Filter Debug")
-		
-		if not warehouse_list:
-			frappe.log_error(f"get_available_assets_for_cluster: No warehouses in cluster {cluster}", "Asset Filter")
+
+		ctx = resolve_cluster_warehouses_locations(field, block)
+		if not ctx:
+			frappe.log_error(f"get_available_assets_for_cluster: No cluster/warehouses for {target_area}", "Asset Filter")
 			return []
-		
-		# Get locations for these warehouses
-		from f2c.inventory.logistics_transfer_ticket_api import get_location_for_warehouse
-		location_list = []
-		warehouse_to_location = {}
-		for wh in warehouse_list:
-			try:
-				result = get_location_for_warehouse(wh)
-				if result and result.get("location"):
-					location_list.append(result.get("location"))
-					warehouse_to_location[wh] = result.get("location")
-			except Exception:
-				# Silently skip warehouses without locations
-				continue
-		
+
+		cluster = ctx["cluster"]
+		warehouse_list = ctx["warehouse_list"]
+		location_list = ctx["location_list"]
+
+		frappe.log_error(
+			f"get_available_assets_for_cluster: Found cluster={cluster} for target_area={target_area}",
+			"Asset Filter Debug",
+		)
+		frappe.log_error(
+			f"get_available_assets_for_cluster: Found {len(warehouse_list)} warehouses in cluster {cluster}: {warehouse_list[:3]}",
+			"Asset Filter Debug",
+		)
+
 		# Build asset filters - try both location-based and warehouse-based lookup
 		assets = []
 		
@@ -2087,12 +2066,147 @@ def get_available_assets_for_cluster(
 					)
 			assets = available_assets
 		
+		if assets:
+			from f2c.inventory.logistics_transfer_ticket_api import _enrich_equipment_display_names
+
+			_enrich_equipment_display_names(assets)
+
 		return assets
 	except Exception as e:
 		# Catch any unexpected errors and return empty list
 		# Log error but keep it short to avoid CharacterLengthExceededError
 		error_msg = str(e)[:100] if str(e) else "Unknown error"
 		frappe.log_error(f"Error in get_available_assets_for_cluster: {error_msg}", "Asset Filter")
+		return []
+
+
+@frappe.whitelist()
+def get_available_implements_for_cluster(
+	field: str = None,
+	block: str = None,
+	planned_start: str = None,
+	planned_end: str = None,
+	exclude_schedule: str = None,
+) -> List[Dict[str, Any]]:
+	"""
+	Implements physically at cluster-linked locations, plus implements on in-bound Logistics
+	Transfer Tickets to the cluster with planned_drop_off_on <= planned_start.
+
+	planned_end and exclude_schedule are accepted for API parity with asset availability; reserved for future use.
+	"""
+	_ = (planned_end, exclude_schedule)
+
+	try:
+		ctx = resolve_cluster_warehouses_locations(field, block)
+		if not ctx:
+			return []
+
+		warehouse_list = ctx["warehouse_list"]
+		location_list = ctx["location_list"] or []
+
+		by_name: Dict[str, Dict[str, Any]] = {}
+
+		if location_list:
+			locs = tuple(location_list)
+			rows = frappe.db.sql(
+				"""
+				SELECT DISTINCT i.name AS name, i.implement_name AS implement_name
+				FROM `tabImplement` i
+				LEFT JOIN `tabAsset` a ON a.name = i.asset AND a.docstatus < 2
+				WHERE i.docstatus < 2
+					AND (
+						(i.asset IS NOT NULL AND i.asset != '' AND a.location IN %(locs)s)
+						OR (IFNULL(i.asset, '') = '' AND i.location IN %(locs)s)
+					)
+				""",
+				{"locs": locs},
+				as_dict=True,
+			)
+			for r in rows or []:
+				nm = r.get("name")
+				if not nm:
+					continue
+				by_name[nm] = {
+					"name": nm,
+					"implement_name": (r.get("implement_name") or "").strip() or nm,
+					"availability": "at_cluster",
+				}
+
+		from f2c.inventory.logistics_transfer_ticket_api import get_assets_for_warehouse
+
+		for wh in warehouse_list:
+			try:
+				wh_result = get_assets_for_warehouse(wh)
+				for a in wh_result.get("assets") or []:
+					aname = a.get("name")
+					if not aname:
+						continue
+					impl_row = frappe.db.get_value(
+						"Implement",
+						{"asset": aname},
+						["name", "implement_name", "docstatus"],
+						as_dict=True,
+					)
+					if not impl_row or int(impl_row.docstatus or 0) >= 2:
+						continue
+					nm = impl_row.name
+					if nm in by_name:
+						continue
+					by_name[nm] = {
+						"name": nm,
+						"implement_name": (impl_row.implement_name or "").strip() or nm,
+						"availability": "at_cluster",
+					}
+			except Exception:
+				continue
+
+		planned_start_dt = get_datetime(planned_start) if planned_start else None
+		if planned_start_dt and warehouse_list:
+			tickets = frappe.get_all(
+				"Logistics Transfer Ticket",
+				filters={
+					"to_warehouse": ["in", warehouse_list],
+					"status": ["in", ["Pending Pickup", "In Transit"]],
+					"planned_drop_off_on": ["<=", planned_start_dt],
+					"docstatus": ["<", 2],
+				},
+				fields=["name"],
+				limit_page_length=500,
+			)
+			for t in tickets or []:
+				try:
+					doc = frappe.get_doc("Logistics Transfer Ticket", t.name)
+				except Exception:
+					continue
+				if not doc.get("planned_drop_off_on"):
+					continue
+				pdo = str(doc.planned_drop_off_on)
+				for row in doc.get("asset_items") or []:
+					impl = row.get("paired_implement")
+					if not impl and row.get("asset"):
+						impl = frappe.db.get_value(
+							"Implement", {"asset": row.asset}, "name", order_by="modified desc"
+						)
+					if not impl:
+						continue
+					meta = frappe.db.get_value("Implement", impl, ["implement_name", "docstatus"], as_dict=True)
+					if not meta or int(meta.docstatus or 0) >= 2:
+						continue
+					if impl in by_name and by_name[impl].get("availability") == "at_cluster":
+						continue
+					if impl in by_name:
+						continue
+					by_name[impl] = {
+						"name": impl,
+						"implement_name": (meta.implement_name or "").strip() or impl,
+						"availability": "in_transit",
+						"planned_drop_off_on": pdo,
+					}
+
+		return list(by_name.values())
+	except Exception as e:
+		error_msg = str(e)[:100] if str(e) else "Unknown error"
+		frappe.log_error(f"Error in get_available_implements_for_cluster: {error_msg}", "Implement Filter")
 		return []
 
 

@@ -772,6 +772,76 @@ class OnDemandActivity(Document):
 		
 		return assets_by_warehouse
 
+	def _find_open_equipment_ltt_duplicate(
+		self, from_warehouse: str, to_warehouse: str, asset_list: List[str]
+	) -> str | None:
+		"""Return name of an open LTT with same from→to where ticket already covers this leg's assets.
+
+		Uses subset match: scheduled assets may be a subset of ticket rows because
+		create_logistics_transfer_ticket appends co-moving implement assets (superset on LTT).
+		"""
+		asset_set = {a for a in (asset_list or []) if a}
+		if not asset_set:
+			return None
+		ticket_names = frappe.get_all(
+			"Logistics Transfer Ticket",
+			filters={
+				"from_warehouse": from_warehouse,
+				"to_warehouse": to_warehouse,
+				"status": ["not in", ["Received", "Cancelled"]],
+			},
+			pluck="name",
+			limit_page_length=200,
+		)
+		for ticket_name in ticket_names:
+			try:
+				ticket_doc = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
+				if not ticket_doc.asset_items or len(ticket_doc.asset_items) == 0:
+					continue
+				ticket_assets = {ai.asset for ai in ticket_doc.asset_items if ai.asset}
+				if asset_set <= ticket_assets:
+					return ticket_name
+			except Exception:
+				continue
+		return None
+
+	def _find_open_input_only_ltt_duplicate(
+		self, from_warehouse: str, to_warehouse: str, input_items: List[Dict[str, Any]]
+	) -> str | None:
+		"""Return name of an open input-only LTT with same from→to and identical stock lines."""
+		input_items_set = {
+			(str(it.get("item_code")).strip(), flt(it.get("qty")))
+			for it in input_items
+			if it.get("item_code")
+		}
+		if not input_items_set:
+			return None
+		ticket_names = frappe.get_all(
+			"Logistics Transfer Ticket",
+			filters={
+				"from_warehouse": from_warehouse,
+				"to_warehouse": to_warehouse,
+				"status": ["not in", ["Received", "Cancelled"]],
+			},
+			pluck="name",
+			limit_page_length=200,
+		)
+		for ticket_name in ticket_names:
+			try:
+				ticket_doc = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
+				if ticket_doc.asset_items and len(ticket_doc.asset_items) > 0:
+					continue
+				if not ticket_doc.stock_items:
+					continue
+				ticket_items = {
+					(str(si.item_code).strip(), flt(si.qty)) for si in ticket_doc.stock_items if si.item_code
+				}
+				if ticket_items == input_items_set:
+					return ticket_name
+			except Exception:
+				continue
+		return None
+
 	def _create_equipment_transfer_tickets(self):
 		"""Create Logistics Transfer Tickets for all equipment when activity is saved with status Scheduled."""
 		if self.status != "Scheduled":
@@ -836,46 +906,13 @@ class OnDemandActivity(Document):
 				frappe.log_error(f"Asset(s) {asset_list} already at target warehouse {target_warehouse}, skipping", "Equipment Transfer Ticket")
 				continue  # Skip if already at target
 			
-			# Check if a ticket already exists for this transfer (prevent duplicates)
-			# Only check for very recent tickets (last 5 seconds) to catch true duplicates from rapid multiple saves
-			from frappe.utils import add_to_date, now_datetime
-			recent_time = add_to_date(now_datetime(), seconds=-5)
-			
-			existing_tickets = frappe.get_all(
-				"Logistics Transfer Ticket",
-				filters={
-					"from_warehouse": from_warehouse,
-					"to_warehouse": target_warehouse,
-					"status": ["!=", "Cancelled"],
-					"creation": [">=", recent_time]
-				},
-				fields=["name"],
-				limit=10
-			)
-			
-			# Check if any existing ticket has the same assets
-			# Only consider tickets that have assets (not input-only tickets)
-			ticket_exists = False
-			for ticket_name in [t.name for t in existing_tickets]:
-				try:
-					ticket_doc = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
-					# Only check tickets that have assets (skip input-only tickets)
-					if ticket_doc.asset_items and len(ticket_doc.asset_items) > 0:
-						ticket_assets = {ai.asset for ai in ticket_doc.asset_items if ai.asset}
-						# Skip if no valid assets found
-						if not ticket_assets:
-							continue
-						asset_set = set(asset_list)
-						# If ticket has exactly the same assets, it's a duplicate
-						if ticket_assets == asset_set:
-							ticket_exists = True
-							frappe.log_error(f"Duplicate equipment transfer ticket already exists for activity {self.name}: {ticket_name} (same assets and warehouses), skipping", "Equipment Transfer Ticket")
-							break
-				except Exception:
-					continue  # Skip if ticket can't be read
-			
-			if ticket_exists:
-				continue  # Skip creating duplicate ticket
+			dup_ticket = self._find_open_equipment_ltt_duplicate(from_warehouse, target_warehouse, asset_list)
+			if dup_ticket:
+				frappe.log_error(
+					f"Duplicate equipment transfer ticket already exists for activity {self.name}: {dup_ticket} (same assets and warehouses), skipping",
+					"Equipment Transfer Ticket",
+				)
+				continue
 			
 			# Always include inputs in equipment tickets (as suggestions, regardless of source warehouse)
 			stock_items_for_ticket = input_items if input_items else None
@@ -1111,45 +1148,13 @@ class OnDemandActivity(Document):
 		except Exception as e:
 			frappe.log_error(f"Shortfall check/MR for activity {self.name}: {str(e)}", "Input Transfer Ticket")
 		
-		# Check if a ticket already exists for the same transfer (prevent duplicates)
-		# Only check for very recent tickets (last 5 seconds) to catch true duplicates from rapid multiple saves
-		# Look for input-only tickets (no assets) with same warehouses and items
-		from frappe.utils import add_to_date, now_datetime
-		recent_time = add_to_date(now_datetime(), seconds=-5)
-		
-		existing_tickets = frappe.get_all(
-			"Logistics Transfer Ticket",
-			filters={
-				"from_warehouse": source_warehouse,
-				"to_warehouse": target_warehouse,
-				"status": ["!=", "Cancelled"],
-				"creation": [">=", recent_time]
-			},
-			fields=["name"],
-			limit=10
-		)
-		
-		# Check if any existing ticket has the same stock items AND no assets (input-only ticket)
-		for ticket_name in [t.name for t in existing_tickets]:
-			try:
-				ticket_doc = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
-				# Only consider tickets with no assets (input-only tickets) as potential duplicates
-				# Tickets with assets are from equipment transfer tickets and should be ignored
-				if ticket_doc.asset_items and len(ticket_doc.asset_items) > 0:
-					continue  # Skip tickets with assets - they're from equipment tickets
-				
-				# Check if stock items match
-				if ticket_doc.stock_items and len(ticket_doc.stock_items) == len(input_items):
-					# Compare items - check if all items match
-					ticket_items = {(si.item_code, flt(si.qty)) for si in ticket_doc.stock_items if si.item_code}
-					input_items_set = {(item.get("item_code"), flt(item.get("qty"))) for item in input_items if item.get("item_code")}
-					
-					if ticket_items == input_items_set:
-						# Duplicate ticket found - skip creation
-						frappe.log_error(f"Duplicate input transfer ticket already exists for activity {self.name}: {ticket_name} (same items and warehouses), skipping", "Input Transfer Ticket")
-						return
-			except Exception:
-				continue  # Skip if ticket can't be read
+		dup_in = self._find_open_input_only_ltt_duplicate(source_warehouse, target_warehouse, input_items)
+		if dup_in:
+			frappe.log_error(
+				f"Duplicate input transfer ticket already exists for activity {self.name}: {dup_in} (same items and warehouses), skipping",
+				"Input Transfer Ticket",
+			)
+			return
 		
 		# Create transfer ticket for input items
 		from f2c.inventory.logistics_transfer_ticket_api import create_logistics_transfer_ticket
@@ -1573,10 +1578,21 @@ def get_farm_task_items(farm_task: str) -> List[Dict[str, Any]]:
 
 @frappe.whitelist()
 def create_transfer_tickets_for_activity(activity_name: str):
-	"""Manually trigger transfer ticket creation for an activity (for debugging)."""
+	"""Manually trigger transfer ticket creation for an activity (equipment + inputs when applicable)."""
 	try:
 		activity = frappe.get_doc("On Demand Activity", activity_name)
-		activity._create_equipment_transfer_tickets()
+		if activity.status != "Scheduled":
+			return {"success": False, "error": "Activity status must be Scheduled"}
+		if set(activity._collect_equipment_assets()):
+			activity._create_equipment_transfer_tickets()
+		if activity._collect_input_items():
+			try:
+				activity._create_input_transfer_tickets()
+			except Exception as inp_e:
+				frappe.log_error(
+					f"Input ticket error in create_transfer_tickets_for_activity for {activity_name}: {str(inp_e)[:80]}",
+					"Input Transfer Ticket",
+				)
 		return {"success": True, "message": "Transfer ticket creation triggered"}
 	except Exception as e:
 		frappe.log_error(f"Error in create_transfer_tickets_for_activity for {activity_name}: {str(e)}", "Equipment Transfer Ticket")
@@ -1856,6 +1872,11 @@ def get_available_assets_for_cluster(
 					available_assets.append(asset)
 			assets = available_assets
 		
+		if assets:
+			from f2c.inventory.logistics_transfer_ticket_api import _enrich_equipment_display_names
+
+			_enrich_equipment_display_names(assets)
+
 		return assets
 	except Exception as e:
 		# Catch any unexpected errors and return empty list
@@ -1863,6 +1884,28 @@ def get_available_assets_for_cluster(
 		error_msg = str(e)[:100] if str(e) else "Unknown error"
 		frappe.log_error(f"Error in get_available_assets_for_cluster: {error_msg}", "Asset Filter")
 		return []
+
+
+@frappe.whitelist()
+def get_available_implements_for_cluster(
+	field: str = None,
+	block: str = None,
+	planned_start: str = None,
+	planned_end: str = None,
+	exclude_activity: str = None,
+) -> List[Dict[str, Any]]:
+	"""Delegate to crop_plan_schedule.get_available_implements_for_cluster (exclude_activity → exclude_schedule)."""
+	from f2c.farm_scheduling.doctype.crop_plan_schedule.crop_plan_schedule import (
+		get_available_implements_for_cluster as _get_available_implements_for_cluster,
+	)
+
+	return _get_available_implements_for_cluster(
+		field=field,
+		block=block,
+		planned_start=planned_start,
+		planned_end=planned_end,
+		exclude_schedule=exclude_activity,
+	)
 
 
 @frappe.whitelist()

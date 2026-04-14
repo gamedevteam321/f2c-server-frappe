@@ -1095,6 +1095,30 @@ def _enrich_equipment_display_names(assets: list[dict]) -> None:
 			a["equipment_display_name"] = disp[an]
 
 
+@frappe.whitelist()
+def enrich_asset_rows_with_equipment_display_names(assets=None):
+	"""
+	For each row with Asset.name, set equipment_display_name from Machinery / Implement / Hand Tool / Other Tool
+	(same as warehouse inventory). Used when the client loads Asset via resource API without enrichment.
+	"""
+	import json
+
+	if assets is None:
+		return []
+	if isinstance(assets, str):
+		try:
+			assets = json.loads(assets)
+		except Exception:
+			return []
+	if not isinstance(assets, list) or not assets:
+		return []
+	rows = [dict(x) for x in assets if isinstance(x, dict) and str(x.get("name") or "").strip()]
+	if not rows:
+		return []
+	_enrich_equipment_display_names(rows)
+	return rows
+
+
 def _enrich_attachment_from_equipment(row: dict, equipment: tuple[str, str]) -> None:
 	"""Optional tractor↔implement labels for warehouse inventory UI."""
 	doctype, eqname = equipment
