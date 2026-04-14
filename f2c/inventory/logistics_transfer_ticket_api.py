@@ -9,6 +9,14 @@ from f2c.farm_report.doctype.farm_report_ticket.farm_report_ticket import create
 ASSET_DOCSTATUS_NOT_CANCELLED = [0, 1]
 
 
+def _f2c_enforce_logistics_location() -> bool:
+	"""When F2C Settings disables enforcement, relax client/server gates (e.g. receive before Delivered)."""
+	if not frappe.db.exists("DocType", "F2C Settings"):
+		return True
+	v = frappe.db.get_value("F2C Settings", "F2C Settings", "enforce_logistics_location_check")
+	return cint(v) == 1
+
+
 def _normalize_photo_urls(value):
 	"""Accept single URL string, list of URLs, or JSON string; return JSON string of list of URL strings."""
 	if value is None:
@@ -776,15 +784,21 @@ def mark_dispatched(ticket_name: str, dispatch_photo_url=None):
 @frappe.whitelist()
 def mark_received(ticket_name: str, receive_photo_url=None):
 	"""receive_photo_url can be a single URL string, list of URLs, or JSON string of URLs.
-	Allowed when status=In Transit and drop_off_phase is Delivered (new flow) or In Transit (legacy)."""
+	Allowed when status=In Transit and drop_off_phase is Delivered (new flow) or In Transit (legacy).
+	When F2C Settings disables location enforcement, At Drop Off Point is also allowed (receiver need not wait for driver Delivered)."""
 	if not ticket_name:
 		frappe.throw(_("ticket_name is required"))
 	ticket = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
 	if ticket.status != "In Transit":
 		frappe.throw(_("Only In Transit tickets can be marked Received"))
 	drop_phase = getattr(ticket, "drop_off_phase", None) or ""
-	if drop_phase not in ("Delivered", "In Transit"):
-		frappe.throw(_("Drop off phase must be Delivered or In Transit to mark Received"))
+	allowed_phases = {"Delivered", "In Transit"}
+	if not _f2c_enforce_logistics_location():
+		allowed_phases.add("At Drop Off Point")
+	if drop_phase not in allowed_phases:
+		frappe.throw(
+			_("Drop off phase must be one of {0} to mark Received").format(", ".join(sorted(allowed_phases)))
+		)
 
 	if ticket.stock_entry:
 		se = frappe.get_doc("Stock Entry", ticket.stock_entry)
@@ -1048,6 +1062,39 @@ def _get_equipment_doc_for_asset(asset_name: str) -> tuple[str, str] | None:
 	return None
 
 
+def _enrich_equipment_display_names(assets: list[dict]) -> None:
+	"""
+	Set equipment_display_name from linked equipment docs (machinery_name, implement_name, tool_name).
+	Preferred over Asset.asset_name, which may mirror item description (e.g. Brand - Model - Type).
+	"""
+	names = [str(a.get("name") or "").strip() for a in assets if (a.get("name") or "").strip()]
+	if not names:
+		return
+	disp: dict[str, str] = {}
+	for doctype, field in (
+		("Machinery", "machinery_name"),
+		("Implement", "implement_name"),
+		("Hand Tool", "tool_name"),
+		("Other Tool", "tool_name"),
+	):
+		rows = frappe.get_all(
+			doctype,
+			filters=[["asset", "in", names]],
+			fields=["asset", field],
+			limit=len(names) + 10,
+			ignore_permissions=True,
+		)
+		for r in rows:
+			an = str(r.get("asset") or "").strip()
+			v = str(r.get(field) or "").strip()
+			if an and v and an not in disp:
+				disp[an] = v
+	for a in assets:
+		an = str(a.get("name") or "").strip()
+		if an and an in disp:
+			a["equipment_display_name"] = disp[an]
+
+
 def _enrich_attachment_from_equipment(row: dict, equipment: tuple[str, str]) -> None:
 	"""Optional tractor↔implement labels for warehouse inventory UI."""
 	doctype, eqname = equipment
@@ -1285,6 +1332,7 @@ def get_assets_for_warehouse(warehouse: str):
 	if geo_area:
 		area_type = frappe.db.get_value("Geo Fencing Area", geo_area, "geo_fencing_type")
 		location_is_field = (area_type == "Field")
+	_enrich_equipment_display_names(assets)
 	# Enrich each asset with equipment status, image, and equipment doc ref (for View modal)
 	for a in assets:
 		if location_is_field:
@@ -1364,6 +1412,7 @@ def get_all_assets():
 			_enrich_attachment_from_equipment(row, equipment)
 		_enrich_location_geo_labels(row)
 		out.append(row)
+	_enrich_equipment_display_names(out)
 	return {"assets": out, "count": len(out)}
 
 

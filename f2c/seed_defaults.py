@@ -167,6 +167,24 @@ def ensure_equipment_spec_options() -> None:
 	frappe.db.commit()
 
 
+def ensure_f2c_settings() -> None:
+	"""Create default F2C Settings single if missing (idempotent)."""
+	if not frappe.db.exists("DocType", "F2C Settings"):
+		return
+	if frappe.db.exists("F2C Settings", "F2C Settings"):
+		return
+	try:
+		doc = frappe.new_doc("F2C Settings")
+		doc.enforce_logistics_location_check = 1
+		doc.logistics_proximity_radius_meters = 1000
+		doc.strict_geo_area_for_warehouse_lookup = 1
+		doc.manual_transfer_equipment_page_size = 10
+		doc.insert(ignore_permissions=True)
+		frappe.db.commit()
+	except Exception:
+		frappe.log_error(frappe.get_traceback(), "f2c ensure_f2c_settings failed")
+
+
 def after_migrate() -> None:
 	"""Hook: run after `bench migrate`."""
 	try:
@@ -176,6 +194,7 @@ def after_migrate() -> None:
 		ensure_default_gst_hsn_code_00000000()
 		ensure_equipment_parts_item_groups()
 		ensure_equipment_spec_options()
+		ensure_f2c_settings()
 	except Exception:
 		# Never block migrations due to seed failures
 		frappe.log_error(frappe.get_traceback(), "f2c.after_migrate seed_defaults failed")

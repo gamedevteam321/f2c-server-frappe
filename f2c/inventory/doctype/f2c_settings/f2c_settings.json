@@ -1,0 +1,82 @@
+{
+  "actions": [],
+  "allow_rename": 1,
+  "creation": "2026-04-14 12:00:00.000000",
+  "doctype": "DocType",
+  "document_type": "Document",
+  "editable_grid": 1,
+  "engine": "InnoDB",
+  "field_order": [
+    "section_logistics",
+    "enforce_logistics_location_check",
+    "logistics_proximity_radius_meters",
+    "section_inventory",
+    "strict_geo_area_for_warehouse_lookup",
+    "manual_transfer_equipment_page_size"
+  ],
+  "fields": [
+    {
+      "fieldname": "section_logistics",
+      "fieldtype": "Section Break",
+      "label": "Logistics"
+    },
+    {
+      "default": "1",
+      "description": "When enabled, pickup and drop-off flows require the user to be within the proximity radius of the location.",
+      "fieldname": "enforce_logistics_location_check",
+      "fieldtype": "Check",
+      "label": "Enforce Logistics Location Check"
+    },
+    {
+      "default": "1000",
+      "description": "Maximum distance (meters) from pickup/drop-off point to treat the user as on location.",
+      "fieldname": "logistics_proximity_radius_meters",
+      "fieldtype": "Int",
+      "label": "Logistics Proximity Radius (meters)",
+      "non_negative": 1,
+      "reqd": 1
+    },
+    {
+      "fieldname": "section_inventory",
+      "fieldtype": "Section Break",
+      "label": "Inventory"
+    },
+    {
+      "default": "1",
+      "description": "When enabled, warehouse lookup for a Geo Fencing Area only returns warehouses that map back to that exact area.",
+      "fieldname": "strict_geo_area_for_warehouse_lookup",
+      "fieldtype": "Check",
+      "label": "Strict Geo Area For Warehouse Lookup"
+    },
+    {
+      "default": "10",
+      "description": "Rows per page for equipment selection in manual logistics transfer.",
+      "fieldname": "manual_transfer_equipment_page_size",
+      "fieldtype": "Int",
+      "label": "Manual Transfer Equipment Page Size",
+      "non_negative": 1,
+      "reqd": 1
+    }
+  ],
+  "index_web_pages_for_search": 1,
+  "issingle": 1,
+  "links": [],
+  "modified": "2026-04-14 12:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "Inventory",
+  "name": "F2C Settings",
+  "owner": "Administrator",
+  "permissions": [
+    {
+      "create": 1,
+      "read": 1,
+      "role": "System Manager",
+      "share": 1,
+      "write": 1
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": [],
+  "track_changes": 1
+}
