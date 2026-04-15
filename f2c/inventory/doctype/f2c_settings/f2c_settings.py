@@ -7,6 +7,10 @@ from frappe.utils import cint
 
 
 class F2CSettings(Document):
+	def on_update(self):
+		# Other code may use get_cached_doc("F2C Settings", ...); invalidate so LTT timing reads stay in sync.
+		frappe.clear_document_cache(self.doctype, self.name)
+
 	def validate(self):
 		radius = cint(self.logistics_proximity_radius_meters)
 		if radius <= 0:

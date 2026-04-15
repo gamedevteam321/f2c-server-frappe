@@ -1,4 +1,7 @@
 import json
+import math
+from datetime import timedelta
+
 import frappe
 from frappe import _
 from frappe.utils import cint, flt, get_datetime, now_datetime
@@ -171,6 +174,170 @@ def get_location_for_geo_area(geo_area: str):
 	location_name = _build_location_name_for_geo_area(geo_area)
 	loc = _get_location_by_name(location_name)
 	return {"geo_area": geo_area, "location": loc, "location_name": location_name}
+
+
+def _warehouse_lat_lng(warehouse: str | None) -> tuple[float, float] | None:
+	"""Return (lat, lng) from Location linked to warehouse, or None if missing."""
+	if not warehouse:
+		return None
+	try:
+		location_name = get_location_for_warehouse(warehouse).get("location")
+		if not location_name:
+			return None
+		location_doc = frappe.get_doc("Location", location_name)
+		lat, lon = location_doc.latitude, location_doc.longitude
+		if lat and lon:
+			return (float(flt(lat)), float(flt(lon)))
+	except Exception:
+		return None
+	return None
+
+
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+	"""Great-circle distance in km between two WGS84 points."""
+	r = 6371.0
+	p1, p2 = math.radians(lat1), math.radians(lat2)
+	dlat = math.radians(lat2 - lat1)
+	dlon = math.radians(lon2 - lon1)
+	a = math.sin(dlat / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlon / 2) ** 2
+	c = 2 * math.atan2(math.sqrt(a), math.sqrt(max(0.0, 1.0 - a)))
+	return r * c
+
+
+def _get_f2c_ltt_timing_settings() -> dict:
+	"""Read LTT timing fields from F2C Settings with safe defaults."""
+	defaults = {
+		"ltt_schedule_planned_times_enabled": 1,
+		"ltt_dropoff_buffer_minutes": 10,
+		"ltt_travel_avg_speed_kph": 35.0,
+		"ltt_travel_road_factor": 1.25,
+		"ltt_travel_min_minutes": 5,
+		"ltt_travel_max_minutes": 480,
+		"ltt_travel_fallback_minutes": 60,
+	}
+	if not frappe.db.exists("DocType", "F2C Settings"):
+		return defaults
+	if not frappe.db.exists("F2C Settings", "F2C Settings"):
+		return defaults
+	# Read from DB (not get_cached_doc) so toggling LTT timing on F2C Settings applies on the next request without stale cache.
+	row = frappe.db.get_value(
+		"F2C Settings",
+		"F2C Settings",
+		[
+			"ltt_schedule_planned_times_enabled",
+			"ltt_dropoff_buffer_minutes",
+			"ltt_travel_avg_speed_kph",
+			"ltt_travel_road_factor",
+			"ltt_travel_min_minutes",
+			"ltt_travel_max_minutes",
+			"ltt_travel_fallback_minutes",
+		],
+		as_dict=True,
+	)
+	if not row:
+		return defaults
+	out = dict(defaults)
+	# NULL after migrate / never saved: cint(None)==0 would wrongly disable the feature (DocType default is 1).
+	_ltt_times_flag = row.get("ltt_schedule_planned_times_enabled")
+	if _ltt_times_flag is None:
+		out["ltt_schedule_planned_times_enabled"] = defaults["ltt_schedule_planned_times_enabled"]
+	else:
+		out["ltt_schedule_planned_times_enabled"] = cint(_ltt_times_flag)
+	out["ltt_dropoff_buffer_minutes"] = cint(row.get("ltt_dropoff_buffer_minutes")) or 10
+	speed = flt(row.get("ltt_travel_avg_speed_kph"))
+	out["ltt_travel_avg_speed_kph"] = float(speed) if speed > 0 else 35.0
+	factor = flt(row.get("ltt_travel_road_factor"))
+	out["ltt_travel_road_factor"] = float(factor) if factor > 0 else 1.25
+	tmin = cint(row.get("ltt_travel_min_minutes")) or 5
+	tmax = cint(row.get("ltt_travel_max_minutes")) or 480
+	if tmax < tmin:
+		tmax = tmin
+	out["ltt_travel_min_minutes"] = tmin
+	out["ltt_travel_max_minutes"] = tmax
+	out["ltt_travel_fallback_minutes"] = cint(row.get("ltt_travel_fallback_minutes")) or 60
+	return out
+
+
+def estimate_internal_ltt_travel_minutes(from_warehouse: str | None, to_warehouse: str | None) -> int:
+	"""
+	Estimated travel minutes between two warehouses from Location coordinates,
+	or fallback minutes when either side has no usable lat/lng.
+	"""
+	settings = _get_f2c_ltt_timing_settings()
+	fallback = int(settings["ltt_travel_fallback_minutes"])
+	tmin = int(settings["ltt_travel_min_minutes"])
+	tmax = int(settings["ltt_travel_max_minutes"])
+	a = _warehouse_lat_lng(from_warehouse)
+	b = _warehouse_lat_lng(to_warehouse)
+	if not a or not b:
+		return fallback
+	km = _haversine_km(a[0], a[1], b[0], b[1]) * float(settings["ltt_travel_road_factor"])
+	speed = float(settings["ltt_travel_avg_speed_kph"])
+	if speed <= 0:
+		speed = 35.0
+	minutes = int(round((km / speed) * 60.0))
+	return max(tmin, min(tmax, minutes))
+
+
+def planned_pickup_drop_for_activity_start(
+	activity_start,
+	from_warehouse: str | None,
+	to_warehouse: str | None,
+) -> tuple | None:
+	"""
+	Compute (planned_pickup_on, planned_drop_off_on) for internal LTTs tied to a scheduled activity.
+	planned_drop_off_on equals the anchor (e.g. planned_start / planned_end).
+	planned_pickup_on is anchor minus estimated travel minus ltt_dropoff_buffer_minutes (pickup lead).
+	Returns None when the feature is off or activity_start is missing (caller should omit datetimes).
+	"""
+	settings = _get_f2c_ltt_timing_settings()
+	if not cint(settings.get("ltt_schedule_planned_times_enabled")):
+		return None
+	if not activity_start:
+		return None
+	start = get_datetime(activity_start)
+	if not start:
+		return None
+	# Drop-off at activity anchor time; pickup is travel + optional extra lead before that moment.
+	lead_m = int(settings["ltt_dropoff_buffer_minutes"])
+	drop = start
+	travel_m = estimate_internal_ltt_travel_minutes(from_warehouse, to_warehouse)
+	pickup = start - timedelta(minutes=travel_m + lead_m)
+	if pickup > drop:
+		pickup = drop
+	return (pickup, drop)
+
+
+def schedule_ltt_planned_times_enabled() -> bool:
+	"""True when F2C Settings says schedule/on-demand should set LTT planned pickup/drop."""
+	return bool(cint(_get_f2c_ltt_timing_settings().get("ltt_schedule_planned_times_enabled")))
+
+
+def update_ltt_planned_times_if_pending_pickup(
+	ticket_name: str | None,
+	planned_pickup_on,
+	planned_drop_off_on,
+) -> bool:
+	"""
+	Update planned pickup/drop on an LTT that is still Pending Pickup (not dispatched).
+	Returns True if the document was saved with new times.
+	"""
+	if not ticket_name or planned_pickup_on is None or planned_drop_off_on is None:
+		return False
+	try:
+		doc = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
+	except Exception:
+		return False
+	if (doc.status or "").strip() != "Pending Pickup":
+		return False
+	pu = get_datetime(planned_pickup_on)
+	po = get_datetime(planned_drop_off_on)
+	if not pu or not po:
+		return False
+	doc.planned_pickup_on = pu
+	doc.planned_drop_off_on = po
+	doc.save(ignore_permissions=True)
+	return True
 
 
 @frappe.whitelist()
@@ -729,9 +896,9 @@ def create_logistics_transfer_ticket(
 		ticket_data["to_latitude"] = flt(to_latitude)
 		ticket_data["to_longitude"] = flt(to_longitude)
 
-	if planned_pickup_on:
+	if planned_pickup_on is not None:
 		ticket_data["planned_pickup_on"] = get_datetime(planned_pickup_on)
-	if planned_drop_off_on:
+	if planned_drop_off_on is not None:
 		ticket_data["planned_drop_off_on"] = get_datetime(planned_drop_off_on)
 
 	tv = (transport_vehicle or "").strip()
@@ -744,9 +911,9 @@ def create_logistics_transfer_ticket(
 	ticket.insert(ignore_permissions=True)
 
 	# Default planned dates to creation when not provided
-	if not ticket_data.get("planned_pickup_on"):
+	if ticket_data.get("planned_pickup_on") is None:
 		ticket.planned_pickup_on = ticket.creation
-	if not ticket_data.get("planned_drop_off_on"):
+	if ticket_data.get("planned_drop_off_on") is None:
 		ticket.planned_drop_off_on = ticket.creation
 	if ticket.planned_pickup_on or ticket.planned_drop_off_on:
 		ticket.save(ignore_permissions=True)

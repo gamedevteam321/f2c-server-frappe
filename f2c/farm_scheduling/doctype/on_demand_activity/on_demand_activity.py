@@ -842,6 +842,67 @@ class OnDemandActivity(Document):
 				continue
 		return None
 
+	def _sync_open_forward_ltts_planned_times(self):
+		"""Recompute planned pickup/drop on open forward LTTs when planned_start changes."""
+		if self.status != "Scheduled" or not self.planned_start or not self.field:
+			return
+		from f2c.inventory.logistics_transfer_ticket_api import (
+			planned_pickup_drop_for_activity_start,
+			schedule_ltt_planned_times_enabled,
+			update_ltt_planned_times_if_pending_pickup,
+		)
+		if not schedule_ltt_planned_times_enabled():
+			return
+		equipment_assets = self._collect_equipment_assets()
+		target_warehouse = self._get_target_warehouse_for_field(self.field)
+		if equipment_assets and target_warehouse:
+			assets_by_warehouse = self._group_assets_by_source_warehouse(equipment_assets)
+			for from_warehouse, asset_list in (assets_by_warehouse or {}).items():
+				if from_warehouse == target_warehouse:
+					continue
+				tid = self._find_open_equipment_ltt_duplicate(from_warehouse, target_warehouse, asset_list)
+				if not tid:
+					continue
+				pt = planned_pickup_drop_for_activity_start(self.planned_start, from_warehouse, target_warehouse)
+				if pt:
+					update_ltt_planned_times_if_pending_pickup(tid, pt[0], pt[1])
+		input_items = self._collect_input_items()
+		if input_items and target_warehouse:
+			source_warehouse = self._get_source_warehouse_for_inputs()
+			if source_warehouse:
+				dup_in = self._find_open_input_only_ltt_duplicate(source_warehouse, target_warehouse, input_items)
+				if dup_in:
+					pt = planned_pickup_drop_for_activity_start(
+						self.planned_start, source_warehouse, target_warehouse
+					)
+					if pt:
+						update_ltt_planned_times_if_pending_pickup(dup_in, pt[0], pt[1])
+
+	def _sync_open_return_ltts_planned_times(self):
+		"""Recompute planned pickup/drop on open return LTTs (field→cluster) when planned_end changes."""
+		if not self.field or not self.planned_end:
+			return
+		from f2c.inventory.logistics_transfer_ticket_api import (
+			planned_pickup_drop_for_activity_start,
+			schedule_ltt_planned_times_enabled,
+			update_ltt_planned_times_if_pending_pickup,
+		)
+		if not schedule_ltt_planned_times_enabled():
+			return
+		equipment_assets = self._collect_equipment_assets()
+		if not equipment_assets:
+			return
+		field_warehouse = self._get_target_warehouse_for_field(self.field)
+		cluster_warehouse = self._get_cluster_warehouse_for_field(self.field)
+		if not field_warehouse or not cluster_warehouse or field_warehouse == cluster_warehouse:
+			return
+		tid = self._find_open_equipment_ltt_duplicate(field_warehouse, cluster_warehouse, equipment_assets)
+		if not tid:
+			return
+		pt = planned_pickup_drop_for_activity_start(self.planned_end, field_warehouse, cluster_warehouse)
+		if pt:
+			update_ltt_planned_times_if_pending_pickup(tid, pt[0], pt[1])
+
 	def _create_equipment_transfer_tickets(self):
 		"""Create Logistics Transfer Tickets for all equipment when activity is saved with status Scheduled."""
 		if self.status != "Scheduled":
@@ -851,7 +912,10 @@ class OnDemandActivity(Document):
 		if not self.field:
 			frappe.log_error(f"Activity {self.name} has no field specified, skipping ticket creation", "Equipment Transfer Ticket")
 			return  # No field specified
-		
+
+		# When schedule-based planned times are on but planned_start is missing, still create LTTs;
+		# planned_pickup_drop_for_activity_start returns None and create_logistics_transfer_ticket uses creation-time defaults.
+
 		# Collect all equipment assets
 		equipment_assets = self._collect_equipment_assets()
 		if not equipment_assets:
@@ -867,7 +931,7 @@ class OnDemandActivity(Document):
 		if not target_warehouse:
 			error_msg = f"Cannot find target warehouse for field {self.field} in activity {self.name}"
 			frappe.log_error(error_msg, "Equipment Transfer Ticket")
-			# Don't show error to user - just log it, allow activity to be created
+			frappe.msgprint(error_msg, indicator="orange", title="Transfer ticket not created")
 			return
 		
 		# Check if target warehouse has a location (required for asset transfer)
@@ -877,7 +941,7 @@ class OnDemandActivity(Document):
 			if not target_location_result or not target_location_result.get("location"):
 				error_msg = f"Target warehouse {target_warehouse} for field {self.field} has no mapped location. Please run Location sync (Geo Warehouses → Location) for the destination area."
 				frappe.log_error(error_msg, "Equipment Transfer Ticket")
-				# Don't block activity creation - just log the error
+				frappe.msgprint(error_msg, indicator="orange", title="Transfer ticket not created")
 				return
 		except Exception as e:
 			frappe.log_error(f"Error checking location for target warehouse {target_warehouse}: {str(e)}", "Equipment Transfer Ticket")
@@ -895,7 +959,10 @@ class OnDemandActivity(Document):
 		input_items = self._collect_input_items()
 		
 		# Create transfer tickets for each source warehouse group
-		from f2c.inventory.logistics_transfer_ticket_api import create_logistics_transfer_ticket
+		from f2c.inventory.logistics_transfer_ticket_api import (
+			create_logistics_transfer_ticket,
+			planned_pickup_drop_for_activity_start,
+		)
 		created_tickets = []
 		errors = []
 		# Initialize flag - preserve existing value if already set (from previous call)
@@ -920,12 +987,20 @@ class OnDemandActivity(Document):
 				inputs_included_in_ticket = True
 				frappe.log_error(f"Including {len(input_items)} input item(s) in equipment transfer ticket from {from_warehouse}", "Equipment Transfer Ticket")
 			
+			planned_times = planned_pickup_drop_for_activity_start(
+				self.planned_start, from_warehouse, target_warehouse
+			)
+			planned_kwargs = {}
+			if planned_times:
+				planned_kwargs["planned_pickup_on"] = planned_times[0]
+				planned_kwargs["planned_drop_off_on"] = planned_times[1]
 			try:
 				result = create_logistics_transfer_ticket(
 					from_warehouse=from_warehouse,
 					to_warehouse=target_warehouse,
 					stock_items=stock_items_for_ticket,
-					assets=asset_list
+					assets=asset_list,
+					**planned_kwargs,
 				)
 				if result and result.get("ticket"):
 					created_tickets.append(result.get("ticket"))
@@ -1038,7 +1113,9 @@ class OnDemandActivity(Document):
 		if not self.field:
 			frappe.log_error(f"Activity {self.name} has no field specified, skipping input ticket creation", "Input Transfer Ticket")
 			return  # No field specified
-		
+
+		# When schedule-based planned times are on but planned_start is missing, still create LTTs (creation-time planned fields).
+
 		# If inputs were already included in equipment tickets in this same save, skip (avoids duplicate LTT)
 		if getattr(self, "_inputs_included_in_equipment_tickets", False):
 			return
@@ -1157,13 +1234,24 @@ class OnDemandActivity(Document):
 			return
 		
 		# Create transfer ticket for input items
-		from f2c.inventory.logistics_transfer_ticket_api import create_logistics_transfer_ticket
+		from f2c.inventory.logistics_transfer_ticket_api import (
+			create_logistics_transfer_ticket,
+			planned_pickup_drop_for_activity_start,
+		)
+		planned_times = planned_pickup_drop_for_activity_start(
+			self.planned_start, source_warehouse, target_warehouse
+		)
+		planned_kwargs = {}
+		if planned_times:
+			planned_kwargs["planned_pickup_on"] = planned_times[0]
+			planned_kwargs["planned_drop_off_on"] = planned_times[1]
 		try:
 			result = create_logistics_transfer_ticket(
 				from_warehouse=source_warehouse,
 				to_warehouse=target_warehouse,
 				stock_items=input_items,
-				assets=None
+				assets=None,
+				**planned_kwargs,
 			)
 			if result and result.get("ticket"):
 				frappe.msgprint(f"Created input transfer ticket {result.get('ticket')} for {len(input_items)} item(s)", indicator="green", title="Input Transfer Ticket Created")
@@ -1316,7 +1404,9 @@ class OnDemandActivity(Document):
 		if not self.field:
 			frappe.log_error(f"Activity {self.name} has no field specified, skipping return ticket creation", "Return Transfer Ticket")
 			return
-		
+
+		# When schedule-based planned times are on but planned_end is missing, still create return LTTs (auto planned fields).
+
 		# Get equipment assets
 		equipment_assets = self._collect_equipment_assets()
 		if not equipment_assets:
@@ -1362,13 +1452,24 @@ class OnDemandActivity(Document):
 			return
 		
 		# Create return transfer ticket
-		from f2c.inventory.logistics_transfer_ticket_api import create_logistics_transfer_ticket
+		from f2c.inventory.logistics_transfer_ticket_api import (
+			create_logistics_transfer_ticket,
+			planned_pickup_drop_for_activity_start,
+		)
+		planned_times = planned_pickup_drop_for_activity_start(
+			self.planned_end, field_warehouse, cluster_warehouse
+		)
+		planned_kwargs = {}
+		if planned_times:
+			planned_kwargs["planned_pickup_on"] = planned_times[0]
+			planned_kwargs["planned_drop_off_on"] = planned_times[1]
 		try:
 			result = create_logistics_transfer_ticket(
 				from_warehouse=field_warehouse,
 				to_warehouse=cluster_warehouse,
 				stock_items=None,
-				assets=[{"asset": asset, "qty": 1} for asset in equipment_assets]
+				assets=[{"asset": asset, "qty": 1} for asset in equipment_assets],
+				**planned_kwargs,
 			)
 			if result and result.get("ticket"):
 				frappe.msgprint(f"Created return transfer ticket {result.get('ticket')} to return equipment to cluster", indicator="green", title="Return Transfer Ticket Created")
@@ -1403,68 +1504,86 @@ class OnDemandActivity(Document):
 	def on_update(self):
 		"""Create transfer tickets when activity status changes to Scheduled or equipment is added.
 		Create return transfer tickets when status changes to Completed."""
+		old_doc = self.get_doc_before_save() if not self.is_new() else None
+		old_status = old_doc.get("status") if old_doc else None
+
 		if not self.is_new():
-			old_status = frappe.db.get_value(self.doctype, self.name, "status")
-			
-			# Check if status changed to Completed - create return transfer tickets
-			if old_status != "Completed" and self.status == "Completed":
+			if (old_status or "") != "Completed" and self.status == "Completed":
 				try:
 					self._create_return_transfer_tickets()
 				except Exception as e:
-					# Log error but don't block activity update
-					# Truncate error message to prevent CharacterLengthExceededError (max 140 chars for title)
-					# Keep message very short to avoid nested error log references causing overflow
 					error_str = str(e)[:60] if len(str(e)) > 60 else str(e)
-					error_msg = f"Return transfer ticket error for {self.name}: {error_str}"
-					frappe.log_error(error_msg, "Return Transfer Ticket")
-					# Don't raise - allow activity to be updated even if ticket creation fails
-				return  # Don't process forward transfers if status is Completed
-		
-		# Only create forward transfer tickets if status is Scheduled
+					frappe.log_error(f"Return transfer ticket error for {self.name}: {error_str}", "Return Transfer Ticket")
+				return
+			if (old_status or "") == "Completed" and self.status == "Completed" and old_doc:
+				from frappe.utils import get_datetime as _gdts_pe
+
+				def _planned_end_changed(a, b):
+					da, db = _gdts_pe(a), _gdts_pe(b)
+					if da is None and db is None:
+						return False
+					return da != db
+
+				if _planned_end_changed(old_doc.get("planned_end"), self.planned_end):
+					try:
+						self._sync_open_return_ltts_planned_times()
+					except Exception as e:
+						frappe.log_error(
+							f"Return LTT planned time sync for {self.name}: {str(e)[:80]}",
+							"Return Transfer Ticket",
+						)
+
 		if self.status != "Scheduled":
 			return
-		
-		# Check if status changed to Scheduled
+
 		if not self.is_new():
-			old_status = frappe.db.get_value(self.doctype, self.name, "status")
-			if old_status != "Scheduled":
-				# Status just changed to Scheduled, create tickets
+			if (old_status or "") != "Scheduled":
 				try:
-					# Check if there are equipment assets
 					current_assets = set(self._collect_equipment_assets())
-					
 					if current_assets:
 						self._create_equipment_transfer_tickets()
-					# Always create input tickets when activity has inputs (duplicate check inside skips if already in equipment ticket)
 					if self._collect_input_items():
 						try:
 							self._create_input_transfer_tickets()
 						except Exception as inp_e:
 							frappe.log_error(f"Input ticket error for {self.name}: {str(inp_e)[:60]}", "Input Transfer Ticket")
 				except Exception as e:
-					# Log error but don't block activity update
 					error_str = str(e)[:60] if len(str(e)) > 60 else str(e)
 					frappe.log_error(f"Transfer ticket error for {self.name}: {error_str}", "Transfer Ticket")
-			# If status was already Scheduled, check if equipment tickets need to be created
 			else:
-				# Get current equipment assets
 				current_assets = set(self._collect_equipment_assets())
-				
-				# If there are equipment assets, always try to create tickets
-				# The _create_equipment_transfer_tickets method will handle duplicate prevention internally
 				if current_assets:
 					try:
 						self._create_equipment_transfer_tickets()
 					except Exception as e:
 						error_str = str(e)[:60] if len(str(e)) > 60 else str(e)
 						frappe.log_error(f"Equipment transfer ticket error for {self.name}: {error_str}", "Equipment Transfer Ticket")
-				# Always create input tickets when activity has inputs (duplicate check inside skips if already in equipment ticket)
 				if self._collect_input_items():
 					try:
 						self._create_input_transfer_tickets()
 					except Exception as e:
 						error_str = str(e)[:60] if len(str(e)) > 60 else str(e)
 						frappe.log_error(f"Input transfer ticket error for {self.name}: {error_str}", "Input Transfer Ticket")
+
+		if not self.is_new() and old_doc:
+			from frappe.utils import get_datetime as _gdts_sync
+
+			def _schedule_time_changed(a, b):
+				da, db = _gdts_sync(a), _gdts_sync(b)
+				if da is None and db is None:
+					return False
+				return da != db
+
+			try:
+				if _schedule_time_changed(old_doc.get("planned_start"), self.planned_start):
+					self._sync_open_forward_ltts_planned_times()
+				if _schedule_time_changed(old_doc.get("planned_end"), self.planned_end):
+					self._sync_open_return_ltts_planned_times()
+			except Exception as e:
+				frappe.log_error(
+					f"LTT planned time sync for {self.name}: {str(e)[:80]}",
+					"Transfer Ticket",
+				)
 
 
 def compute_total_qty(*, water_liters: float, total_acres: float, rate: float, unit: str) -> float:

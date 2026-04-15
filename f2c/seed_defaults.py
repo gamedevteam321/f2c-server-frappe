@@ -179,6 +179,13 @@ def ensure_f2c_settings() -> None:
 		doc.logistics_proximity_radius_meters = 1000
 		doc.strict_geo_area_for_warehouse_lookup = 1
 		doc.manual_transfer_equipment_page_size = 10
+		doc.ltt_schedule_planned_times_enabled = 1
+		doc.ltt_dropoff_buffer_minutes = 10
+		doc.ltt_travel_avg_speed_kph = 35
+		doc.ltt_travel_road_factor = 1.25
+		doc.ltt_travel_min_minutes = 5
+		doc.ltt_travel_max_minutes = 480
+		doc.ltt_travel_fallback_minutes = 60
 		doc.insert(ignore_permissions=True)
 		frappe.db.commit()
 	except Exception:

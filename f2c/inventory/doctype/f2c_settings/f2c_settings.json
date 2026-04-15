@@ -10,6 +10,14 @@
     "section_logistics",
     "enforce_logistics_location_check",
     "logistics_proximity_radius_meters",
+    "column_break_ltt_timing",
+    "ltt_schedule_planned_times_enabled",
+    "ltt_dropoff_buffer_minutes",
+    "ltt_travel_avg_speed_kph",
+    "ltt_travel_road_factor",
+    "ltt_travel_min_minutes",
+    "ltt_travel_max_minutes",
+    "ltt_travel_fallback_minutes",
     "section_inventory",
     "strict_geo_area_for_warehouse_lookup",
     "manual_transfer_equipment_page_size"
@@ -33,6 +41,72 @@
       "fieldname": "logistics_proximity_radius_meters",
       "fieldtype": "Int",
       "label": "Logistics Proximity Radius (meters)",
+      "non_negative": 1,
+      "reqd": 1
+    },
+    {
+      "fieldname": "column_break_ltt_timing",
+      "fieldtype": "Column Break",
+      "label": "LTT schedule timing"
+    },
+    {
+      "default": "1",
+      "description": "When enabled and the schedule/activity has planned start (and end for returns), LTTs get planned drop-off at that anchor and pickup from travel plus pickup lead. If the anchor is not set yet, LTTs still create with automatic (creation-time) planned fields. When disabled, planned times always use ticket creation.",
+      "fieldname": "ltt_schedule_planned_times_enabled",
+      "fieldtype": "Check",
+      "label": "Use schedule-based LTT planned times"
+    },
+    {
+      "default": "10",
+      "description": "Extra minutes before the activity anchor to schedule pickup, added on top of estimated travel (planned_drop_off stays at activity start/end).",
+      "fieldname": "ltt_dropoff_buffer_minutes",
+      "fieldtype": "Int",
+      "label": "LTT pickup lead before activity (minutes)",
+      "non_negative": 1,
+      "reqd": 1
+    },
+    {
+      "default": "35",
+      "description": "Average speed (km/h) used to convert distance to travel minutes.",
+      "fieldname": "ltt_travel_avg_speed_kph",
+      "fieldtype": "Float",
+      "label": "LTT travel avg speed (km/h)",
+      "non_negative": 1,
+      "reqd": 1
+    },
+    {
+      "default": "1.25",
+      "description": "Multiply straight-line km to approximate road distance.",
+      "fieldname": "ltt_travel_road_factor",
+      "fieldtype": "Float",
+      "label": "LTT travel road factor",
+      "non_negative": 1,
+      "reqd": 1
+    },
+    {
+      "default": "5",
+      "description": "Minimum travel minutes between warehouses.",
+      "fieldname": "ltt_travel_min_minutes",
+      "fieldtype": "Int",
+      "label": "LTT travel min (minutes)",
+      "non_negative": 1,
+      "reqd": 1
+    },
+    {
+      "default": "480",
+      "description": "Maximum travel minutes (cap).",
+      "fieldname": "ltt_travel_max_minutes",
+      "fieldtype": "Int",
+      "label": "LTT travel max (minutes)",
+      "non_negative": 1,
+      "reqd": 1
+    },
+    {
+      "default": "60",
+      "description": "Travel minutes when warehouse coordinates are missing.",
+      "fieldname": "ltt_travel_fallback_minutes",
+      "fieldtype": "Int",
+      "label": "LTT travel fallback (minutes)",
       "non_negative": 1,
       "reqd": 1
     },
