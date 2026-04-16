@@ -448,6 +448,27 @@ def _append_co_moving_implement_assets(requests: list[dict]) -> list[dict]:
 	return out
 
 
+def expand_machinery_transfer_asset_requests(
+	primary_asset: str,
+	paired_implement: str | None = None,
+) -> list[dict]:
+	"""Expand one primary machinery asset into request dicts including co-moving implement(s), matching create_logistics_transfer_ticket."""
+	req: dict = {"asset": primary_asset, "qty": 1}
+	pi = (paired_implement or "").strip()
+	if pi:
+		req["paired_implement"] = pi
+	return _append_co_moving_implement_assets([req])
+
+
+def expected_asset_names_for_machinery_unit(
+	primary_asset: str,
+	paired_implement: str | None = None,
+) -> list[str]:
+	"""Asset names (primary + co-moving implements) for duplicate detection and sync."""
+	reqs = expand_machinery_transfer_asset_requests(primary_asset, paired_implement)
+	return [r["asset"] for r in reqs if r.get("asset")]
+
+
 def _sync_equipment_location_from_asset(asset_name: str) -> None:
 	"""Copy Asset.location onto the linked Machinery / Implement / Hand Tool / Other Tool doc."""
 	if not asset_name:
@@ -498,27 +519,49 @@ def _reapply_tractor_implement_links_after_transfer(ticket) -> None:
 		m.save(ignore_permissions=True)
 
 
-def _tractor_machinery_name_for_moved_asset(asset_name: str | None) -> str | None:
-	"""If this Asset is linked to a Machinery row with type Tractor, return that Machinery name."""
+# Machinery types that may legally be both moved asset and transport_vehicle on the same LTT.
+SELF_PROPELLED_MACHINERY_TYPES = frozenset(
+	{
+		"Tractor",
+		"Harvester",
+		"Combine Harvester",
+		"Thresher",
+		"Earthmoving",
+		"Baler",
+		"Tiller",
+	}
+)
+
+
+def self_transport_machinery_name_for_asset(asset_name: str | None) -> str | None:
+	"""Machinery `name` for self-propelled equipment linked to this Asset (excludes type Vehicle)."""
 	if not asset_name:
 		return None
-	row = frappe.db.get_value(
+	types = list(SELF_PROPELLED_MACHINERY_TYPES)
+	names = frappe.get_all(
 		"Machinery",
-		{"asset": asset_name},
-		["name", "machinery_type"],
-		as_dict=True,
+		filters={"asset": asset_name, "machinery_type": ["in", types]},
+		pluck="name",
+		order_by="modified desc",
+		limit_page_length=1,
 	)
-	if not row:
-		return None
-	if (row.get("machinery_type") or "").strip() == "Tractor":
-		return row.get("name")
-	return None
+	return names[0] if names else None
+
+
+def is_valid_transport_vehicle_machinery_type(machinery_type: str | None) -> bool:
+	"""Pickup Vehicle or self-propelled machinery may be LTT transport_vehicle."""
+	t = (machinery_type or "").strip()
+	if not t:
+		return False
+	if t == "Vehicle":
+		return True
+	return t in SELF_PROPELLED_MACHINERY_TYPES
 
 
 def _default_transport_vehicle_from_assets(assets: list | None) -> str | None:
 	"""
-	Use the moved tractor as Transport vehicle on the LTT when no vehicle was passed.
-	Skips non-tractor assets (e.g. implements co-moved with the tractor).
+	Use moved self-propelled machinery as Transport vehicle when no vehicle was passed.
+	Skips implements and other assets with no matching self-propelled Machinery row.
 	"""
 	if not assets:
 		return None
@@ -526,7 +569,7 @@ def _default_transport_vehicle_from_assets(assets: list | None) -> str | None:
 		an = a if isinstance(a, str) else (a.get("asset") if isinstance(a, dict) else None)
 		if not an:
 			continue
-		mname = _tractor_machinery_name_for_moved_asset(an)
+		mname = self_transport_machinery_name_for_asset(an)
 		if mname:
 			return mname
 	return None
@@ -554,6 +597,7 @@ def create_logistics_transfer_ticket(
 	sales_order: str | None = None,
 	sales_invoice: str | None = None,
 	transport_vehicle: str | None = None,
+	skip_default_transport_vehicle: bool = False,
 ):
 	"""
 	Create ONE Logistics Transfer Ticket.
@@ -902,8 +946,13 @@ def create_logistics_transfer_ticket(
 		ticket_data["planned_drop_off_on"] = get_datetime(planned_drop_off_on)
 
 	tv = (transport_vehicle or "").strip()
-	if not tv:
-		tv = (_default_transport_vehicle_from_assets(assets) or "").strip()
+	if not tv and not skip_default_transport_vehicle:
+		# Tickets that move stock (approved inputs) must use an explicit pickup Vehicle on the schedule.
+		# Do not fall back to the tractor — that blurs consumables vs machinery moves.
+		if stock_items:
+			tv = ""
+		else:
+			tv = (_default_transport_vehicle_from_assets(assets) or "").strip()
 	if tv:
 		ticket_data["transport_vehicle"] = tv
 
@@ -1174,6 +1223,280 @@ def resolve_reported(ticket_name: str, resolution_note: str = ""):
 	ticket.previous_status_before_report = None
 	ticket.save(ignore_permissions=True)
 	return {"ticket": ticket.name, "status": ticket.status}
+
+
+def _logistics_farm_report_resolve_phase(ltt) -> str | None:
+	"""
+	Return case key for enhanced logistics Farm Report resolve, or None for legacy (remark-only) resolve.
+	- case2_dropoff_in_transit: picked up, en route to drop off.
+	- case1_pickup_leg: active pickup leg (not case 2).
+	"""
+	pickup = (getattr(ltt, "pickup_phase", None) or "").strip()
+	drop = (getattr(ltt, "drop_off_phase", None) or "").strip()
+	status = (getattr(ltt, "status", None) or "").strip()
+	if pickup == "Picked Up" and drop == "In Transit":
+		return "case2_dropoff_in_transit"
+	if pickup in ("In Transit", "At Pickup Point"):
+		return "case1_pickup_leg"
+	if status == "In Transit" and pickup != "Picked Up":
+		return "case1_pickup_leg"
+	return None
+
+
+def _ltt_has_tractor_asset(ltt) -> bool:
+	"""True if any moved asset is self-propelled machinery (tractor, thresher, etc.)."""
+	for row in ltt.get("asset_items") or []:
+		an = (getattr(row, "asset", None) or "").strip()
+		if not an:
+			continue
+		if self_transport_machinery_name_for_asset(an):
+			return True
+	return False
+
+
+def _ltt_replacement_cargo_allowed(ltt) -> bool:
+	"""
+	Replacement LTT is only allowed when cargo is stock and/or Hand Tool / Other Tool assets only
+	(no Machinery, Implement, or unknown equipment on asset lines).
+	"""
+	has_stock_line = False
+	for row in ltt.get("stock_items") or []:
+		ic = (getattr(row, "item_code", None) or "").strip()
+		if ic and flt(getattr(row, "qty", None) or 0) > 0:
+			has_stock_line = True
+			break
+	assets = list(ltt.get("asset_items") or [])
+	if not has_stock_line and not assets:
+		return False
+	for row in assets:
+		an = (getattr(row, "asset", None) or "").strip()
+		if not an:
+			continue
+		if frappe.db.exists("Machinery", {"asset": an}):
+			return False
+		if frappe.db.exists("Implement", {"asset": an}):
+			return False
+		if frappe.db.exists("Hand Tool", {"asset": an}):
+			continue
+		if frappe.db.exists("Other Tool", {"asset": an}):
+			continue
+		return False
+	return True
+
+
+@frappe.whitelist()
+def get_logistics_farm_report_resolve_context(ltt_name: str | None = None):
+	"""Return phase and whether replacement (new LTT) is allowed for logistics farm-report resolve UI."""
+	name = (ltt_name or frappe.form_dict.get("ltt_name") or "").strip()
+	if not name:
+		frappe.throw(_("ltt_name is required"))
+	ltt = frappe.get_doc("Logistics Transfer Ticket", name)
+	phase = _logistics_farm_report_resolve_phase(ltt)
+	has_tractor = _ltt_has_tractor_asset(ltt)
+	cargo_ok = _ltt_replacement_cargo_allowed(ltt)
+	replacement_allowed = bool(phase and cargo_ok and not has_tractor)
+	return {
+		"phase": phase,
+		"has_tractor": has_tractor,
+		"cargo_replacement_eligible": cargo_ok,
+		"replacement_allowed": replacement_allowed,
+	}
+
+
+def _ltt_stock_items_payload(ltt) -> list[dict]:
+	out: list[dict] = []
+	for row in ltt.get("stock_items") or []:
+		ic = (getattr(row, "item_code", None) or "").strip()
+		if not ic:
+			continue
+		out.append({"item_code": ic, "qty": flt(getattr(row, "qty", None) or 0)})
+	return out
+
+
+def _ltt_assets_payload(ltt) -> list[dict]:
+	out: list[dict] = []
+	for row in ltt.get("asset_items") or []:
+		an = (getattr(row, "asset", None) or "").strip()
+		if not an:
+			continue
+		d: dict = {"asset": an, "qty": max(1, flt(getattr(row, "qty", None) or 1))}
+		pi = (getattr(row, "paired_implement", None) or "").strip()
+		if pi and frappe.db.exists("Implement", pi):
+			d["paired_implement"] = pi
+		out.append(d)
+	return out
+
+
+def _planned_dt_str(val):
+	if val is None:
+		return None
+	if hasattr(val, "strftime"):
+		return val.strftime("%Y-%m-%d %H:%M:%S")
+	s = str(val).strip()
+	return s or None
+
+
+@frappe.whitelist()
+def resolve_logistics_farm_report_ticket(
+	farm_report_ticket: str | None = None,
+	resolution_kind: str | None = None,
+	replacement_vehicle: str | None = None,
+	new_from_warehouse: str | None = None,
+	help_person_name: str | None = None,
+	help_person_contact: str | None = None,
+	resolve_remark: str | None = None,
+	resolve_image: str | None = None,
+):
+	"""
+	Resolve a Farm Report Ticket (Logistics module) with optional replacement LTT or help contact details.
+	Only for linked LTT phases that qualify (see _logistics_farm_report_resolve_phase); otherwise use standard client resolve.
+	"""
+	name = (farm_report_ticket or frappe.form_dict.get("farm_report_ticket") or "").strip()
+	kind = (resolution_kind or frappe.form_dict.get("resolution_kind") or "").strip().lower()
+	if not name:
+		frappe.throw(_("farm_report_ticket is required"))
+	if kind not in ("replacement", "help"):
+		frappe.throw(_("resolution_kind must be replacement or help"))
+
+	rpt = frappe.get_doc("Farm Report Ticket", name)
+	if (getattr(rpt, "report_module", None) or "").strip() != "Logistics":
+		frappe.throw(_("This action is only for Logistics farm report tickets"))
+	if (rpt.status or "").strip() == "Resolved":
+		frappe.throw(_("Farm Report Ticket is already resolved"))
+	ltt_name = (getattr(rpt, "logistics_transfer_ticket", None) or "").strip()
+	if not ltt_name:
+		frappe.throw(_("Farm Report Ticket has no linked Logistics Transfer Ticket"))
+
+	ltt = frappe.get_doc("Logistics Transfer Ticket", ltt_name)
+	phase = _logistics_farm_report_resolve_phase(ltt)
+	if not phase:
+		frappe.throw(
+			_("This logistics ticket is not in a pickup/dropoff phase that supports replacement/help resolve. Use standard resolve.")
+		)
+
+	resolve_remark = (resolve_remark or frappe.form_dict.get("resolve_remark") or "").strip() or None
+	resolve_image = (resolve_image or frappe.form_dict.get("resolve_image") or "").strip() or None
+	replacement_vehicle = (replacement_vehicle or frappe.form_dict.get("replacement_vehicle") or "").strip() or None
+	new_from_warehouse = (new_from_warehouse or frappe.form_dict.get("new_from_warehouse") or "").strip() or None
+	help_person_name = (help_person_name or frappe.form_dict.get("help_person_name") or "").strip() or None
+	help_person_contact = (help_person_contact or frappe.form_dict.get("help_person_contact") or "").strip() or None
+
+	new_ltt_name: str | None = None
+
+	if kind == "help":
+		if not help_person_name or not help_person_contact:
+			frappe.throw(_("Help person name and contact are required"))
+		lines = [f"Help: {help_person_name} ({help_person_contact})"]
+		if resolve_remark:
+			lines.append(resolve_remark)
+		rpt.resolve_remark = "\n".join(lines)
+		if resolve_image:
+			rpt.resolve_image = resolve_image
+		rpt.logistics_resolve_kind = "Help"
+		rpt.logistics_help_name = help_person_name
+		rpt.logistics_help_contact = help_person_contact
+		rpt.logistics_replacement_ltt = None
+		rpt.status = "Resolved"
+		rpt.save(ignore_permissions=True)
+		return {"farm_report_ticket": rpt.name, "status": rpt.status, "new_logistics_ticket": None}
+
+	# replacement
+	if not _ltt_replacement_cargo_allowed(ltt) or _ltt_has_tractor_asset(ltt):
+		frappe.throw(
+			_(
+				"Replacement is only available when the transfer has stock and/or hand tool or other tool assets only, with no tractor on the ticket. Use Send help or standard resolve."
+			)
+		)
+	if not replacement_vehicle or not frappe.db.exists("Machinery", replacement_vehicle):
+		frappe.throw(_("A valid replacement transport vehicle (Machinery) is required"))
+	current_transport = (getattr(ltt, "transport_vehicle", None) or "").strip()
+	if current_transport and replacement_vehicle == current_transport:
+		frappe.throw(_("Choose a different vehicle than the one already assigned to this transfer ticket."))
+
+	stock_items = _ltt_stock_items_payload(ltt)
+	assets = _ltt_assets_payload(ltt)
+	if not stock_items and not assets:
+		frappe.throw(_("Linked logistics ticket has no stock or asset lines to copy"))
+
+	from_location_type = (getattr(ltt, "from_location_type", None) or "Warehouse").strip() or "Warehouse"
+	to_location_type = (getattr(ltt, "to_location_type", None) or "Warehouse").strip() or "Warehouse"
+
+	from_wh = (getattr(ltt, "from_warehouse", None) or "").strip() or None
+	to_wh = (getattr(ltt, "to_warehouse", None) or "").strip() or None
+	from_address = getattr(ltt, "from_address", None)
+	from_latitude = getattr(ltt, "from_latitude", None)
+	from_longitude = getattr(ltt, "from_longitude", None)
+	to_address = getattr(ltt, "to_address", None)
+	to_latitude = getattr(ltt, "to_latitude", None)
+	to_longitude = getattr(ltt, "to_longitude", None)
+	if from_location_type == "Warehouse":
+		from_address = None
+		from_latitude = None
+		from_longitude = None
+	if to_location_type == "Warehouse":
+		to_address = None
+		to_latitude = None
+		to_longitude = None
+
+	if phase == "case2_dropoff_in_transit":
+		if from_location_type != "Warehouse":
+			frappe.throw(_("Replacement with a new pickup warehouse is only supported when the source From is a Warehouse"))
+		if not new_from_warehouse or not frappe.db.exists("Warehouse", new_from_warehouse):
+			frappe.throw(_("new_from_warehouse is required for this phase"))
+		from_wh = new_from_warehouse
+	elif phase == "case1_pickup_leg":
+		if new_from_warehouse:
+			frappe.throw(_("new_from_warehouse must not be set for pickup-leg replacement"))
+	else:
+		frappe.throw(_("Unsupported resolve phase"))
+
+	transfer_type = (getattr(ltt, "transfer_type", None) or "Internal").strip() or "Internal"
+
+	result = create_logistics_transfer_ticket(
+		from_warehouse=from_wh,
+		to_warehouse=to_wh,
+		stock_items=stock_items,
+		assets=assets,
+		transfer_type=transfer_type,
+		from_location_type=from_location_type,
+		to_location_type=to_location_type,
+		from_address=from_address,
+		from_latitude=from_latitude,
+		from_longitude=from_longitude,
+		to_address=to_address,
+		to_latitude=to_latitude,
+		to_longitude=to_longitude,
+		planned_pickup_on=_planned_dt_str(getattr(ltt, "planned_pickup_on", None)),
+		planned_drop_off_on=_planned_dt_str(getattr(ltt, "planned_drop_off_on", None)),
+		purchase_order=getattr(ltt, "purchase_order", None),
+		purchase_invoice=getattr(ltt, "purchase_invoice", None),
+		sales_order=getattr(ltt, "sales_order", None),
+		sales_invoice=getattr(ltt, "sales_invoice", None),
+		transport_vehicle=replacement_vehicle,
+	)
+	new_ltt_name = (result or {}).get("ticket")
+	if new_ltt_name:
+		new_doc = frappe.get_doc("Logistics Transfer Ticket", new_ltt_name)
+		if getattr(ltt, "farm_task_execution", None):
+			new_doc.farm_task_execution = ltt.farm_task_execution
+			new_doc.save(ignore_permissions=True)
+
+	rpt.logistics_resolve_kind = "Replacement"
+	rpt.logistics_replacement_ltt = new_ltt_name
+	rpt.logistics_help_name = None
+	rpt.logistics_help_contact = None
+	if resolve_remark:
+		rpt.resolve_remark = resolve_remark
+	if resolve_image:
+		rpt.resolve_image = resolve_image
+	rpt.status = "Resolved"
+	rpt.save(ignore_permissions=True)
+
+	return {
+		"farm_report_ticket": rpt.name,
+		"status": rpt.status,
+		"new_logistics_ticket": new_ltt_name,
+	}
 
 
 @frappe.whitelist()

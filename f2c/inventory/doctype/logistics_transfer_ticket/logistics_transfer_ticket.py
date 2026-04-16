@@ -16,9 +16,13 @@ class LogisticsTransferTicket(Document):
 	def _validate_transport_vehicle(self):
 		if not getattr(self, "transport_vehicle", None):
 			return
+		from f2c.inventory.logistics_transfer_ticket_api import is_valid_transport_vehicle_machinery_type
+
 		mtype = frappe.db.get_value("Machinery", self.transport_vehicle, "machinery_type")
-		if mtype not in ("Vehicle", "Tractor"):
-			frappe.throw(_("Transport vehicle must be Machinery with type Vehicle or Tractor"))
+		if not is_valid_transport_vehicle_machinery_type(mtype):
+			frappe.throw(
+				_("Transport vehicle must be Machinery with type Vehicle (pickup) or self-propelled equipment (Tractor, Thresher, etc.)")
+			)
 	
 	def _calculate_available_balances(self):
 		"""Calculate and set available balance for each stock item in the source warehouse"""

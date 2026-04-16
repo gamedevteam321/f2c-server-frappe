@@ -37,7 +37,12 @@
         "image_upload",
         "section_break_resolution",
         "resolve_remark",
-        "resolve_image"
+        "resolve_image",
+        "section_break_logistics_resolve",
+        "logistics_resolve_kind",
+        "logistics_help_name",
+        "logistics_help_contact",
+        "logistics_replacement_ltt"
     ],
     "fields": [
         {
@@ -249,6 +254,42 @@
             "fieldname": "resolve_image",
             "fieldtype": "Attach Image",
             "label": "Resolve Image"
+        },
+        {
+            "fieldname": "section_break_logistics_resolve",
+            "fieldtype": "Section Break",
+            "label": "Logistics resolution",
+            "depends_on": "eval:doc.report_module=='Logistics'"
+        },
+        {
+            "fieldname": "logistics_resolve_kind",
+            "fieldtype": "Select",
+            "label": "Logistics resolve kind",
+            "options": "\nReplacement\nHelp",
+            "read_only": 1,
+            "depends_on": "eval:doc.report_module=='Logistics'"
+        },
+        {
+            "fieldname": "logistics_help_name",
+            "fieldtype": "Data",
+            "label": "Help person name",
+            "read_only": 1,
+            "depends_on": "eval:doc.report_module=='Logistics' && doc.logistics_resolve_kind=='Help'"
+        },
+        {
+            "fieldname": "logistics_help_contact",
+            "fieldtype": "Data",
+            "label": "Help person contact",
+            "read_only": 1,
+            "depends_on": "eval:doc.report_module=='Logistics' && doc.logistics_resolve_kind=='Help'"
+        },
+        {
+            "fieldname": "logistics_replacement_ltt",
+            "fieldtype": "Link",
+            "label": "Replacement logistics ticket",
+            "options": "Logistics Transfer Ticket",
+            "read_only": 1,
+            "depends_on": "eval:doc.report_module=='Logistics' && doc.logistics_resolve_kind=='Replacement'"
         }
     ],
     "index_web_pages_for_search": 1,

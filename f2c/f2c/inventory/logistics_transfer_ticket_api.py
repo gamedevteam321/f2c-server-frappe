@@ -235,6 +235,56 @@ def get_warehouses_for_geo_area(geo_area: str, strict_geo_area: int = 0):
 	return {"geo_area": geo_area, "warehouses": combined}
 
 
+def _implement_asset_for_tractor_transfer(tractor_asset: str, paired_implement: str | None) -> str | None:
+	"""Asset name linked to the implement that should move with this tractor."""
+	if not tractor_asset:
+		return None
+	pi = (paired_implement or "").strip()
+	if pi and frappe.db.exists("Implement", pi):
+		return frappe.db.get_value("Implement", pi, "asset")
+	cur_impl = frappe.db.get_value("Machinery", {"asset": tractor_asset}, "current_implement")
+	if cur_impl and frappe.db.exists("Implement", cur_impl):
+		return frappe.db.get_value("Implement", cur_impl, "asset")
+	return None
+
+
+def _append_co_moving_implement_assets(requests: list[dict]) -> list[dict]:
+	"""Add implement Asset rows for each tractor row so Asset Movement moves both."""
+	seen = {r.get("asset") for r in requests if r.get("asset")}
+	out = list(requests)
+	for req in requests:
+		ta = req.get("asset")
+		if not ta:
+			continue
+		ia = _implement_asset_for_tractor_transfer(ta, req.get("paired_implement"))
+		if not ia or ia == ta or ia in seen:
+			continue
+		seen.add(ia)
+		out.append({"asset": ia, "qty": 1})
+	return out
+
+
+def expand_machinery_transfer_asset_requests(
+	primary_asset: str,
+	paired_implement: str | None = None,
+) -> list[dict]:
+	"""Expand one primary machinery asset into request dicts including co-moving implement(s), matching create_logistics_transfer_ticket."""
+	req: dict = {"asset": primary_asset, "qty": 1}
+	pi = (paired_implement or "").strip()
+	if pi:
+		req["paired_implement"] = pi
+	return _append_co_moving_implement_assets([req])
+
+
+def expected_asset_names_for_machinery_unit(
+	primary_asset: str,
+	paired_implement: str | None = None,
+) -> list[str]:
+	"""Asset names (primary + co-moving implements) for duplicate detection and sync."""
+	reqs = expand_machinery_transfer_asset_requests(primary_asset, paired_implement)
+	return [r["asset"] for r in reqs if r.get("asset")]
+
+
 @frappe.whitelist()
 def create_logistics_transfer_ticket(
 	from_warehouse: str,
@@ -242,6 +292,7 @@ def create_logistics_transfer_ticket(
 	stock_items: list[dict] | None = None,
 	assets: list | None = None,
 	transport_vehicle: str | None = None,
+	**kwargs,
 ):
 	"""
 	Create ONE Logistics Transfer Ticket that links:
@@ -368,7 +419,15 @@ def create_logistics_transfer_ticket(
 			if isinstance(a, str):
 				requests.append({"asset": a, "qty": 1})
 			elif isinstance(a, dict):
-				requests.append({"asset": a.get("asset"), "qty": a.get("qty")})
+				pi = (a.get("paired_implement") or "").strip()
+				requests.append(
+					{
+						"asset": a.get("asset"),
+						"qty": a.get("qty"),
+						**({"paired_implement": pi} if pi else {}),
+					}
+				)
+		requests = _append_co_moving_implement_assets(requests)
 
 		asset_rows = []
 		first_company = None

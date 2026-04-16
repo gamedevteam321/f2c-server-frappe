@@ -2743,6 +2743,7 @@ def get_execution_equipment_list(parent_names) -> List[Dict[str, Any]]:
 		filters={"parent": ["in", names]},
 		fields=["parent", "asset", "asset_name"],
 		limit=2000,
+		ignore_permissions=True,
 	)
 	return rows or []
 

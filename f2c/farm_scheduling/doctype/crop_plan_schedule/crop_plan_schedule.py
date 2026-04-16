@@ -336,28 +336,112 @@ class CropPlanSchedule(Document):
 	def _collect_equipment_assets(self) -> List[str]:
 		"""Helper to collect all unique assets from all equipment tables."""
 		assets = set()
-		
-		# Collect from machinery
 		for m in self.get("machinery") or []:
 			if m.asset:
 				assets.add(m.asset)
-		
-		# Collect from implements
 		for imp in self.get("implements") or []:
 			if imp.asset:
 				assets.add(imp.asset)
-		
-		# Collect from hand tools
 		for ht in self.get("hand_tools") or []:
 			if ht.asset:
 				assets.add(ht.asset)
-		
-		# Collect from other tools
 		for ot in self.get("other_tools") or []:
 			if ot.asset:
 				assets.add(ot.asset)
-		
 		return list(assets)
+
+	def _is_field_machinery_equipment_asset(self, asset_name: str | None) -> bool:
+		"""Tractor, thresher, implement assets — move on machinery LTT, not on pickup/inputs LTT.
+		Any asset linked to a Machinery doc (except type Vehicle) is field machinery.
+		Handles tractors mis-filed under Hand/Other Tool."""
+		if not asset_name:
+			return False
+		row = frappe.db.get_value(
+			"Machinery", {"asset": asset_name}, ["machinery_type"], as_dict=True,
+		)
+		if row:
+			mtype = (row.get("machinery_type") or "").strip()
+			return mtype != "Vehicle"
+		if frappe.db.exists("Implement", {"asset": asset_name}):
+			return True
+		return False
+
+	def _collect_machinery_and_implement_assets(self) -> List[str]:
+		"""Assets for machinery LTT: machinery + implements + tractors mis-filed under hand/other tools."""
+		assets = set()
+		for m in self.get("machinery") or []:
+			if m.asset:
+				assets.add(m.asset)
+		for imp in self.get("implements") or []:
+			if imp.asset:
+				assets.add(imp.asset)
+		for ht in self.get("hand_tools") or []:
+			if ht.asset and self._is_field_machinery_equipment_asset(ht.asset):
+				assets.add(ht.asset)
+		for ot in self.get("other_tools") or []:
+			if ot.asset and self._is_field_machinery_equipment_asset(ot.asset):
+				assets.add(ot.asset)
+		return list(assets)
+
+	def _collect_hand_and_other_tool_assets(self) -> List[str]:
+		"""Assets for vehicle LTT: hand tools + other tools only (not tractors/machinery)."""
+		assets = set()
+		for ht in self.get("hand_tools") or []:
+			if ht.asset and not self._is_field_machinery_equipment_asset(ht.asset):
+				assets.add(ht.asset)
+		for ot in self.get("other_tools") or []:
+			if ot.asset and not self._is_field_machinery_equipment_asset(ot.asset):
+				assets.add(ot.asset)
+		return list(assets)
+
+	def _get_source_warehouse_for_equipment_asset(self, asset: str) -> str | None:
+		"""Source warehouse for an asset (location → warehouse), fallback to cluster."""
+		if not asset or not self.field:
+			return None
+		cluster_warehouse = self._get_cluster_warehouse_for_field(self.field)
+		if not cluster_warehouse:
+			return None
+		wh = self._get_asset_current_warehouse(asset)
+		return wh or cluster_warehouse
+
+	def _machinery_transport_vehicle_for_primary_asset(self, primary_asset: str) -> str | None:
+		"""Machinery doc name for LTT transport_vehicle when the unit moves under its own power."""
+		from f2c.inventory.logistics_transfer_ticket_api import self_transport_machinery_name_for_asset
+
+		return self_transport_machinery_name_for_asset(primary_asset)
+
+	def _machinery_transfer_unit_payloads(self) -> List[tuple[list[dict], str | None]]:
+		"""One LTT per machinery row; standalone implements; promoted hand/other machinery.
+		Co-moved implements are not duplicated."""
+		from f2c.inventory.logistics_transfer_ticket_api import expand_machinery_transfer_asset_requests
+
+		covered: set[str] = set()
+		units: list[tuple[list[dict], str | None]] = []
+
+		def add_unit(primary: str) -> None:
+			if not primary or primary in covered:
+				return
+			reqs = expand_machinery_transfer_asset_requests(primary, None)
+			tv = self._machinery_transport_vehicle_for_primary_asset(primary)
+			units.append((reqs, tv))
+			for r in reqs:
+				a = r.get("asset")
+				if a:
+					covered.add(a)
+
+		for m in self.get("machinery") or []:
+			add_unit(m.asset)
+		for imp in self.get("implements") or []:
+			if imp.asset and imp.asset not in covered:
+				add_unit(imp.asset)
+		for ht in self.get("hand_tools") or []:
+			if ht.asset and self._is_field_machinery_equipment_asset(ht.asset) and ht.asset not in covered:
+				add_unit(ht.asset)
+		for ot in self.get("other_tools") or []:
+			if ot.asset and self._is_field_machinery_equipment_asset(ot.asset) and ot.asset not in covered:
+				add_unit(ot.asset)
+
+		return units
 
 	def _check_time_overlap(self, start1: str, end1: str, start2: str, end2: str) -> bool:
 		"""Check if two time ranges overlap."""
@@ -803,6 +887,37 @@ class CropPlanSchedule(Document):
 				continue
 		return None
 
+	def _find_open_vehicle_consumables_ltt_duplicate(
+		self, from_warehouse: str, to_warehouse: str, tool_asset_list: list[str], stock_items: list[dict] | None,
+	) -> str | None:
+		"""Open vehicle/consumables LTT: same stock lines and tool assets are subset of ticket."""
+		stock_set = {
+			(str(it.get("item_code")).strip(), flt(it.get("qty")))
+			for it in (stock_items or []) if it.get("item_code")
+		}
+		tool_set = {a for a in (tool_asset_list or []) if a}
+		ticket_names = frappe.get_all(
+			"Logistics Transfer Ticket",
+			filters={"from_warehouse": from_warehouse, "to_warehouse": to_warehouse, "status": ["not in", ["Received", "Cancelled"]]},
+			pluck="name", limit_page_length=200,
+		)
+		for ticket_name in ticket_names:
+			try:
+				ticket_doc = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
+				t_stock = {(str(si.item_code).strip(), flt(si.qty)) for si in (ticket_doc.stock_items or []) if si.item_code}
+				if t_stock != stock_set:
+					continue
+				t_assets = {ai.asset for ai in (ticket_doc.asset_items or []) if ai.asset}
+				if tool_set:
+					if not (tool_set <= t_assets):
+						continue
+				elif t_assets:
+					continue
+				return ticket_name
+			except Exception:
+				continue
+		return None
+
 	def _sync_open_forward_ltts_planned_times(self):
 		"""Recompute planned pickup/drop on open forward LTTs when planned_start changes."""
 		if self.status != "Scheduled" or not self.planned_start or not self.field:
@@ -814,30 +929,46 @@ class CropPlanSchedule(Document):
 		)
 		if not schedule_ltt_planned_times_enabled():
 			return
-		equipment_assets = self._collect_equipment_assets()
 		target_warehouse = self._get_target_warehouse_for_field(self.field)
-		if equipment_assets and target_warehouse:
-			assets_by_warehouse = self._group_assets_by_source_warehouse(equipment_assets)
-			for from_warehouse, asset_list in (assets_by_warehouse or {}).items():
-				if from_warehouse == target_warehouse:
-					continue
-				tid = self._find_open_equipment_ltt_duplicate(from_warehouse, target_warehouse, asset_list)
-				if not tid:
-					continue
-				pt = planned_pickup_drop_for_activity_start(self.planned_start, from_warehouse, target_warehouse)
-				if pt:
-					update_ltt_planned_times_if_pending_pickup(tid, pt[0], pt[1])
+		if not target_warehouse:
+			return
+		# Machinery-only legs (one open LTT per unit)
+		for asset_reqs, _tv in self._machinery_transfer_unit_payloads():
+			primary = asset_reqs[0].get("asset") if asset_reqs else None
+			if not primary:
+				continue
+			from_warehouse = self._get_source_warehouse_for_equipment_asset(primary)
+			if not from_warehouse or from_warehouse == target_warehouse:
+				continue
+			asset_names = [r.get("asset") for r in asset_reqs if r.get("asset")]
+			tid = self._find_open_equipment_ltt_duplicate(from_warehouse, target_warehouse, asset_names)
+			if not tid:
+				continue
+			pt = planned_pickup_drop_for_activity_start(self.planned_start, from_warehouse, target_warehouse)
+			if pt:
+				update_ltt_planned_times_if_pending_pickup(tid, pt[0], pt[1])
+		# Vehicle legs (inputs + hand/other tools)
 		input_items = self._collect_input_items()
-		if input_items and target_warehouse:
-			source_warehouse = self._get_source_warehouse_for_inputs()
-			if source_warehouse:
-				dup_in = self._find_open_input_only_ltt_duplicate(source_warehouse, target_warehouse, input_items)
-				if dup_in:
-					pt = planned_pickup_drop_for_activity_start(
-						self.planned_start, source_warehouse, target_warehouse
-					)
-					if pt:
-						update_ltt_planned_times_if_pending_pickup(dup_in, pt[0], pt[1])
+		tool_assets = self._collect_hand_and_other_tool_assets()
+		input_src = self._get_source_warehouse_for_inputs() if input_items else None
+		tool_by_wh = self._group_assets_by_source_warehouse(tool_assets) if tool_assets else {}
+		vehicle_from_wh: set[str] = set(tool_by_wh.keys())
+		if input_items and input_src:
+			vehicle_from_wh.add(input_src)
+		for from_warehouse in vehicle_from_wh:
+			tools = tool_by_wh.get(from_warehouse, [])
+			stocks = input_items if (input_items and input_src == from_warehouse) else None
+			if not stocks and not tools:
+				continue
+			dup_v = self._find_open_vehicle_consumables_ltt_duplicate(
+				from_warehouse, target_warehouse, tools, stocks
+			)
+			if dup_v:
+				pt = planned_pickup_drop_for_activity_start(
+					self.planned_start, from_warehouse, target_warehouse
+				)
+				if pt:
+					update_ltt_planned_times_if_pending_pickup(dup_v, pt[0], pt[1])
 
 	def _sync_open_return_ltts_planned_times(self):
 		"""Recompute planned pickup/drop on open return LTTs (field→cluster) when planned_end changes."""
@@ -850,105 +981,100 @@ class CropPlanSchedule(Document):
 		)
 		if not schedule_ltt_planned_times_enabled():
 			return
-		equipment_assets = self._collect_equipment_assets()
-		if not equipment_assets:
-			return
 		field_warehouse = self._get_target_warehouse_for_field(self.field)
 		cluster_warehouse = self._get_cluster_warehouse_for_field(self.field)
 		if not field_warehouse or not cluster_warehouse or field_warehouse == cluster_warehouse:
 			return
-		tid = self._find_open_equipment_ltt_duplicate(field_warehouse, cluster_warehouse, equipment_assets)
-		if not tid:
-			return
 		pt = planned_pickup_drop_for_activity_start(self.planned_end, field_warehouse, cluster_warehouse)
-		if pt:
-			update_ltt_planned_times_if_pending_pickup(tid, pt[0], pt[1])
+		if not pt:
+			return
+		for asset_reqs, _tv in self._machinery_transfer_unit_payloads():
+			primary = asset_reqs[0].get("asset") if asset_reqs else None
+			if not primary:
+				continue
+			asset_names = [r.get("asset") for r in asset_reqs if r.get("asset")]
+			tid_m = self._find_open_equipment_ltt_duplicate(
+				field_warehouse, cluster_warehouse, asset_names
+			)
+			if tid_m:
+				update_ltt_planned_times_if_pending_pickup(tid_m, pt[0], pt[1])
+		hand_other = self._collect_hand_and_other_tool_assets()
+		if hand_other:
+			tid_v = self._find_open_equipment_ltt_duplicate(
+				field_warehouse, cluster_warehouse, hand_other
+			)
+			if tid_v:
+				update_ltt_planned_times_if_pending_pickup(tid_v, pt[0], pt[1])
 
 	def _create_equipment_transfer_tickets(self):
-		"""Create Logistics Transfer Tickets for all equipment when schedule is saved with status Scheduled."""
+		"""Create forward LTTs: vehicle (inputs + hand/other tools) then machinery (per-unit)."""
+		self._inputs_included_in_vehicle_tickets = False
+		self._inputs_included_in_equipment_tickets = False
+		self._create_vehicle_consumables_transfer_tickets()
+		self._create_machinery_transfer_tickets()
+
+	def _create_vehicle_consumables_transfer_tickets(self):
+		"""LTT for approved inputs and hand/other tool assets; uses Transport Vehicle (Machinery type Vehicle)."""
 		if self.status != "Scheduled":
-			frappe.log_error(f"Schedule {self.name} status is not 'Scheduled' (current: {self.status}), skipping ticket creation", "Equipment Transfer Ticket")
 			return
-		
 		if not self.field:
-			frappe.log_error(f"Schedule {self.name} has no field specified, skipping ticket creation", "Equipment Transfer Ticket")
-			return  # No field specified
-
-		# When schedule-based planned times are on but planned_start is missing, still create LTTs;
-		# planned_pickup_drop_for_activity_start returns None and create_logistics_transfer_ticket uses creation-time defaults.
-
-		# Collect all equipment assets
-		equipment_assets = self._collect_equipment_assets()
-		if not equipment_assets:
-			frappe.log_error(f"Schedule {self.name} has no equipment assets to transfer", "Equipment Transfer Ticket")
-			# Explicitly set flag to False so _create_input_transfer_tickets knows inputs weren't included
-			self._inputs_included_in_equipment_tickets = False
-			return  # No equipment to transfer
-		
-		frappe.log_error(f"Creating transfer tickets for schedule {self.name} with {len(equipment_assets)} assets: {equipment_assets}", "Equipment Transfer Ticket")
-		
-		# Get target warehouse from field
+			return
+		input_items = self._collect_input_items()
+		tool_assets = self._collect_hand_and_other_tool_assets()
+		if not input_items and not tool_assets:
+			return
 		target_warehouse = self._get_target_warehouse_for_field(self.field)
 		if not target_warehouse:
-			error_msg = f"Cannot find target warehouse for field {self.field} in schedule {self.name}"
-			frappe.log_error(error_msg, "Equipment Transfer Ticket")
-			frappe.msgprint(error_msg, indicator="orange", title="Transfer ticket not created")
 			return
-		
-		# Check if target warehouse has a location (required for asset transfer)
 		from f2c.inventory.logistics_transfer_ticket_api import get_location_for_warehouse
 		try:
 			target_location_result = get_location_for_warehouse(target_warehouse)
 			if not target_location_result or not target_location_result.get("location"):
-				error_msg = f"Target warehouse {target_warehouse} for field {self.field} has no mapped location. Please run Location sync (Geo Warehouses → Location) for the destination area."
-				frappe.log_error(error_msg, "Equipment Transfer Ticket")
-				frappe.msgprint(error_msg, indicator="orange", title="Transfer ticket not created")
 				return
-		except Exception as e:
-			frappe.log_error(f"Error checking location for target warehouse {target_warehouse}: {str(e)}", "Equipment Transfer Ticket")
+		except Exception:
 			return
-		
-		# Group assets by source warehouse
-		assets_by_warehouse = self._group_assets_by_source_warehouse(equipment_assets)
-		if not assets_by_warehouse:
-			error_msg = f"Cannot find source warehouses for equipment assets in schedule {self.name}. Please ensure assets have locations mapped to warehouses."
-			frappe.log_error(error_msg, "Equipment Transfer Ticket")
-			frappe.msgprint(error_msg, indicator="orange", title="Transfer Ticket Creation Failed")
-			return  # No valid assets with source warehouses
-		
-		# Get input items (to always include in equipment tickets as suggestions)
-		input_items = self._collect_input_items()
-		
-		# Create transfer tickets for each source warehouse group
+
+		input_src = self._get_source_warehouse_for_inputs() if input_items else None
+		if input_items and not input_src:
+			frappe.msgprint(
+				f"Cannot find source warehouse for input items in schedule {self.name}.",
+				indicator="orange", title="Vehicle Transfer Ticket Creation Failed",
+			)
+			return
+
+		tool_by_wh = self._group_assets_by_source_warehouse(tool_assets) if tool_assets else {}
+		from_warehouses: set[str] = set(tool_by_wh.keys())
+		if input_items and input_src:
+			from_warehouses.add(input_src)
+
 		from f2c.inventory.logistics_transfer_ticket_api import (
 			create_logistics_transfer_ticket,
 			planned_pickup_drop_for_activity_start,
 		)
-		created_tickets = []
-		errors = []
-		# Initialize flag - preserve existing value if already set (from previous call)
-		inputs_included_in_ticket = getattr(self, '_inputs_included_in_equipment_tickets', False)
-		
-		for from_warehouse, asset_list in assets_by_warehouse.items():
-			if from_warehouse == target_warehouse:
-				frappe.log_error(f"Asset(s) {asset_list} already at target warehouse {target_warehouse}, skipping", "Equipment Transfer Ticket")
-				continue  # Skip if already at target
-			
-			# Skip if an open ticket already exists for this lane with the same asset set (edit / re-save safe)
-			dup_ticket = self._find_open_equipment_ltt_duplicate(from_warehouse, target_warehouse, asset_list)
-			if dup_ticket:
-				frappe.log_error(
-					f"Duplicate equipment transfer ticket already exists for schedule {self.name}: {dup_ticket} (same assets and warehouses), skipping",
-					"Equipment Transfer Ticket",
-				)
+
+		inputs_included = False
+		created: list[str] = []
+		errors: list[str] = []
+		tv = (getattr(self, "transport_vehicle", None) or "").strip()
+
+		for from_warehouse in sorted(from_warehouses):
+			tools_here = tool_by_wh.get(from_warehouse, [])
+			stock_here = input_items if (input_items and input_src == from_warehouse) else None
+			if not stock_here and not tools_here:
 				continue
-			
-			# Always include inputs in equipment tickets (as suggestions, regardless of source warehouse)
-			stock_items_for_ticket = input_items if input_items else None
-			if stock_items_for_ticket:
-				inputs_included_in_ticket = True
-				frappe.log_error(f"Including {len(input_items)} input item(s) in equipment transfer ticket from {from_warehouse}", "Equipment Transfer Ticket")
-			
+			if from_warehouse == target_warehouse and tools_here:
+				continue
+			if from_warehouse == target_warehouse and not tools_here and stock_here:
+				pass
+			elif from_warehouse == target_warehouse:
+				continue
+
+			dup = self._find_open_vehicle_consumables_ltt_duplicate(
+				from_warehouse, target_warehouse, tools_here, stock_here
+			)
+			if dup:
+				continue
+
 			planned_times = planned_pickup_drop_for_activity_start(
 				self.planned_start, from_warehouse, target_warehouse
 			)
@@ -960,32 +1086,101 @@ class CropPlanSchedule(Document):
 				result = create_logistics_transfer_ticket(
 					from_warehouse=from_warehouse,
 					to_warehouse=target_warehouse,
-					stock_items=stock_items_for_ticket,
-					assets=asset_list,
-					transport_vehicle=getattr(self, "transport_vehicle", None),
+					stock_items=stock_here,
+					assets=tools_here or None,
+					transport_vehicle=tv or None,
+					skip_default_transport_vehicle=True,
+					**planned_kwargs,
+				)
+				if result and result.get("ticket"):
+					created.append(result.get("ticket"))
+					if stock_here:
+						inputs_included = True
+			except Exception as e:
+				error_str = str(e)[:60] if len(str(e)) > 60 else str(e)
+				frappe.log_error(f"Vehicle transfer ticket error for {self.name}: {error_str}", "Vehicle Transfer Ticket")
+				errors.append(str(e))
+
+		self._inputs_included_in_vehicle_tickets = inputs_included
+		self._inputs_included_in_equipment_tickets = inputs_included
+		if created:
+			frappe.msgprint(
+				f"Created {len(created)} vehicle/consumables transfer ticket(s): {', '.join(created)}",
+				indicator="green", title="Transfer Tickets Created",
+			)
+
+	def _create_machinery_transfer_tickets(self):
+		"""LTT per machinery unit (no approved inputs on this ticket)."""
+		if self.status != "Scheduled" or not self.field:
+			return
+		unit_payloads = self._machinery_transfer_unit_payloads()
+		if not unit_payloads:
+			return
+		target_warehouse = self._get_target_warehouse_for_field(self.field)
+		if not target_warehouse:
+			return
+		from f2c.inventory.logistics_transfer_ticket_api import get_location_for_warehouse
+		try:
+			target_location_result = get_location_for_warehouse(target_warehouse)
+			if not target_location_result or not target_location_result.get("location"):
+				return
+		except Exception:
+			return
+
+		from f2c.inventory.logistics_transfer_ticket_api import (
+			create_logistics_transfer_ticket,
+			planned_pickup_drop_for_activity_start,
+		)
+		created_tickets: list[str] = []
+		errors: list[str] = []
+
+		for asset_reqs, transport_machinery in unit_payloads:
+			primary = asset_reqs[0].get("asset") if asset_reqs else None
+			if not primary:
+				continue
+			from_warehouse = self._get_source_warehouse_for_equipment_asset(primary)
+			if not from_warehouse:
+				continue
+			asset_names = [r.get("asset") for r in asset_reqs if r.get("asset")]
+			if from_warehouse == target_warehouse:
+				continue
+			dup_ticket = self._find_open_equipment_ltt_duplicate(from_warehouse, target_warehouse, asset_names)
+			if dup_ticket:
+				continue
+			planned_times = planned_pickup_drop_for_activity_start(
+				self.planned_start, from_warehouse, target_warehouse
+			)
+			planned_kwargs = {}
+			if planned_times:
+				planned_kwargs["planned_pickup_on"] = planned_times[0]
+				planned_kwargs["planned_drop_off_on"] = planned_times[1]
+			try:
+				result = create_logistics_transfer_ticket(
+					from_warehouse=from_warehouse,
+					to_warehouse=target_warehouse,
+					stock_items=None,
+					assets=asset_reqs,
+					transport_vehicle=transport_machinery,
+					skip_default_transport_vehicle=True,
 					**planned_kwargs,
 				)
 				if result and result.get("ticket"):
 					created_tickets.append(result.get("ticket"))
-					ticket_type = "equipment and inputs" if stock_items_for_ticket else "equipment"
-					frappe.log_error(f"Successfully created transfer ticket {result.get('ticket')} for {ticket_type} from {from_warehouse} to {target_warehouse}", "Equipment Transfer Ticket")
 			except Exception as e:
-				# Truncate error message to prevent CharacterLengthExceededError (max 140 chars for title)
-				# Keep message very short to avoid nested error log references causing overflow
 				error_str = str(e)[:60] if len(str(e)) > 60 else str(e)
-				error_msg = f"Transfer ticket error for {self.name}: {error_str}"
-				frappe.log_error(error_msg, "Equipment Transfer Ticket")
-				errors.append(f"Error creating transfer ticket from {from_warehouse} to {target_warehouse}: {str(e)}")
-				continue
-		
-		# Store flag to indicate inputs were included (used by _create_input_transfer_tickets to skip if already included)
-		self._inputs_included_in_equipment_tickets = inputs_included_in_ticket
-		
+				frappe.log_error(f"Machinery transfer ticket error for {self.name}: {error_str}", "Equipment Transfer Ticket")
+				errors.append(str(e))
+
 		if created_tickets:
-			ticket_type = "equipment and inputs" if inputs_included_in_ticket else "equipment"
-			frappe.msgprint(f"Created {len(created_tickets)} transfer ticket(s) for {ticket_type}: {', '.join(created_tickets)}", indicator="green", title="Transfer Tickets Created")
+			frappe.msgprint(
+				f"Created {len(created_tickets)} machinery transfer ticket(s): {', '.join(created_tickets)}",
+				indicator="green", title="Transfer Tickets Created",
+			)
 		elif errors:
-			frappe.msgprint("Failed to create transfer tickets. Please check Error Log for details.", indicator="red", title="Transfer Ticket Creation Failed")
+			frappe.msgprint(
+				"Failed to create some machinery transfer tickets. Please check Error Log.",
+				indicator="red", title="Transfer Ticket Creation Failed",
+			)
 
 	def _collect_input_items(self) -> List[Dict[str, Any]]:
 		"""Helper to collect input items from inputs table.
@@ -1468,18 +1663,46 @@ class CropPlanSchedule(Document):
 		if planned_times:
 			planned_kwargs["planned_pickup_on"] = planned_times[0]
 			planned_kwargs["planned_drop_off_on"] = planned_times[1]
+		created_names: list[str] = []
 		try:
-			result = create_logistics_transfer_ticket(
-				from_warehouse=field_warehouse,
-				to_warehouse=cluster_warehouse,
-				stock_items=None,
-				assets=[{"asset": asset, "qty": 1} for asset in equipment_assets],
-				transport_vehicle=getattr(self, "transport_vehicle", None),
-				**planned_kwargs,
-			)
-			if result and result.get("ticket"):
-				frappe.msgprint(f"Created return transfer ticket {result.get('ticket')} to return equipment to cluster", indicator="green", title="Return Transfer Ticket Created")
-				frappe.log_error(f"Successfully created return transfer ticket {result.get('ticket')} for assets {equipment_assets} from {field_warehouse} to {cluster_warehouse}", "Return Transfer Ticket")
+			for asset_reqs, transport_machinery in self._machinery_transfer_unit_payloads():
+				if not asset_reqs:
+					continue
+				asset_names = [r.get("asset") for r in asset_reqs if r.get("asset")]
+				dup_m = self._find_open_equipment_ltt_duplicate(
+					field_warehouse, cluster_warehouse, asset_names
+				)
+				if dup_m:
+					continue
+				result_m = create_logistics_transfer_ticket(
+					from_warehouse=field_warehouse,
+					to_warehouse=cluster_warehouse,
+					stock_items=None,
+					assets=asset_reqs,
+					transport_vehicle=transport_machinery,
+					skip_default_transport_vehicle=True,
+					**planned_kwargs,
+				)
+				if result_m and result_m.get("ticket"):
+					created_names.append(result_m.get("ticket"))
+			hand_other_assets = self._collect_hand_and_other_tool_assets()
+			if hand_other_assets:
+				result_v = create_logistics_transfer_ticket(
+					from_warehouse=field_warehouse,
+					to_warehouse=cluster_warehouse,
+					stock_items=None,
+					assets=[{"asset": asset, "qty": 1} for asset in hand_other_assets],
+					transport_vehicle=(getattr(self, "transport_vehicle", None) or "").strip() or None,
+					skip_default_transport_vehicle=True,
+					**planned_kwargs,
+				)
+				if result_v and result_v.get("ticket"):
+					created_names.append(result_v.get("ticket"))
+			if created_names:
+				frappe.msgprint(
+					f"Created return transfer ticket(s): {', '.join(created_names)}",
+					indicator="green", title="Return Transfer Ticket Created",
+				)
 		except Exception as e:
 			error_msg = f"Error creating return transfer ticket from {field_warehouse} to {cluster_warehouse} for schedule {self.name}: {str(e)}"
 			frappe.log_error(error_msg, "Return Transfer Ticket")
@@ -1489,12 +1712,9 @@ class CropPlanSchedule(Document):
 		"""Create transfer tickets when schedule is first created with status Scheduled."""
 		if self.status == "Scheduled":
 			try:
-				# Check if there are equipment assets
 				current_assets = set(self._collect_equipment_assets())
-				frappe.log_error(f"after_insert for {self.name}: {len(current_assets)} assets", "Transfer Ticket Debug")
-				if current_assets:
+				if current_assets or self._collect_input_items():
 					self._create_equipment_transfer_tickets()
-				# Always create input tickets when schedule has inputs (duplicate check inside skips if already in equipment ticket)
 				if self._collect_input_items():
 					try:
 						self._create_input_transfer_tickets()
@@ -1558,18 +1778,10 @@ class CropPlanSchedule(Document):
 			if (old_status or "") != "Scheduled":
 				# Status just changed to Scheduled, create tickets
 				try:
-					# Check if there are equipment assets
 					current_assets = set(self._collect_equipment_assets())
-					# MARKER: CODE_VERSION_2026_01_23_v2
-					frappe.log_error(f"🔧 NEW CODE RUNNING for {self.name}: Found {len(current_assets)} assets", "Transfer Ticket Debug")
-					
-					if current_assets:
-						# If equipment exists, create equipment ticket (which may include inputs)
-						frappe.log_error(f"✅ Creating equipment ticket for {self.name} (includes inputs)", "Transfer Ticket Debug")
+					if current_assets or self._collect_input_items():
 						self._create_equipment_transfer_tickets()
-					# Always create input tickets when schedule has inputs; duplicate check inside will skip if already in equipment ticket
 					if self._collect_input_items():
-						frappe.log_error(f"📦 Creating input ticket for {self.name} (approved inputs)", "Transfer Ticket Debug")
 						try:
 							self._create_input_transfer_tickets()
 						except Exception as inp_e:
@@ -1586,34 +1798,19 @@ class CropPlanSchedule(Document):
 			# If status was already Scheduled, check if equipment tickets need to be created
 			# Check if tickets already exist for this schedule's equipment
 			else:
-				# Get current equipment assets
 				current_assets = set(self._collect_equipment_assets())
-				
-				# If there are equipment assets, always try to create tickets
-				# The _create_equipment_transfer_tickets method will handle duplicate prevention internally
-				if current_assets:
+				if current_assets or self._collect_input_items():
 					try:
 						self._create_equipment_transfer_tickets()
 					except Exception as e:
-						# Log error but don't block schedule update
-						# Truncate error message to prevent CharacterLengthExceededError (max 140 chars for title)
-						# Keep message very short to avoid nested error log references causing overflow
 						error_str = str(e)[:60] if len(str(e)) > 60 else str(e)
-						error_msg = f"Equipment transfer ticket error for {self.name}: {error_str}"
-						frappe.log_error(error_msg, "Equipment Transfer Ticket")
-						# Don't raise - allow schedule to be updated even if ticket creation fails
-				# Always create input tickets when schedule has inputs (duplicate check inside skips if already in equipment ticket)
+						frappe.log_error(f"Equipment transfer ticket error for {self.name}: {error_str}", "Equipment Transfer Ticket")
 				if self._collect_input_items():
 					try:
 						self._create_input_transfer_tickets()
 					except Exception as e:
-						# Log error but don't block schedule update
-						# Truncate error message to prevent CharacterLengthExceededError (max 140 chars for title)
-						# Keep message very short to avoid nested error log references causing overflow
 						error_str = str(e)[:60] if len(str(e)) > 60 else str(e)
-						error_msg = f"Input transfer ticket error for {self.name}: {error_str}"
-						frappe.log_error(error_msg, "Input Transfer Ticket")
-						# Don't raise - allow schedule to be updated even if ticket creation fails
+						frappe.log_error(f"Input transfer ticket error for {self.name}: {error_str}", "Input Transfer Ticket")
 
 		if not self.is_new() and old_doc:
 			from frappe.utils import get_datetime as _gdts_sync
@@ -3221,5 +3418,57 @@ def crop_plan_block_query(doctype, txt, searchfield, start, page_len, filters):
 		},
 		as_dict=False,
 	)
+
+
+_SCHEDULE_EQUIPMENT_CHILD_TABLES = (
+	"Crop Plan Schedule Machinery",
+	"Crop Plan Schedule Implement",
+	"Crop Plan Schedule Hand Tool",
+	"Crop Plan Schedule Other Tool",
+)
+
+
+@frappe.whitelist()
+def get_schedule_equipment_list(schedule_names) -> List[Dict[str, Any]]:
+	"""
+	Return equipment rows {parent, asset, asset_name} for Crop Plan Schedule documents.
+	Aggregates machinery / implements / hand_tools / other_tools child tables (same shape as
+	get_execution_equipment_list for list UI). Whitelisted so the frontend can avoid getDocList
+	on child tables when permissions are tight.
+	"""
+	if not schedule_names:
+		return []
+	if isinstance(schedule_names, str):
+		try:
+			schedule_names = json.loads(schedule_names)
+		except Exception:
+			schedule_names = [schedule_names]
+	names = [str(n).strip() for n in schedule_names if n and str(n).strip()]
+	if not names:
+		return []
+	out: List[Dict[str, Any]] = []
+	seen: Set[Tuple[str, str]] = set()
+	for table in _SCHEDULE_EQUIPMENT_CHILD_TABLES:
+		rows = frappe.get_all(
+			table,
+			filters={"parent": ["in", names]},
+			fields=["parent", "asset", "asset_name"],
+			limit=5000,
+			ignore_permissions=True,
+		)
+		for r in rows or []:
+			parent = (r.get("parent") or "").strip()
+			asset = (r.get("asset") or "").strip()
+			asset_name = (r.get("asset_name") or "").strip()
+			if not parent:
+				continue
+			if not asset and not asset_name:
+				continue
+			dedupe_key = (parent, asset or asset_name)
+			if dedupe_key in seen:
+				continue
+			seen.add(dedupe_key)
+			out.append({"parent": parent, "asset": asset or None, "asset_name": asset_name or None})
+	return out
 
 
