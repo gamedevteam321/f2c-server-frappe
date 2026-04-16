@@ -7,6 +7,7 @@ import json
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import frappe
+from frappe import _
 from frappe.model.document import Document
 from frappe.utils import flt, get_datetime
 
@@ -17,6 +18,8 @@ SQ_METERS_TO_ACRES = 0.000247105
 
 class CropPlanSchedule(Document):
 	def validate(self):
+		self._ltt_forward_planned_warn_shown = False
+		self._ltt_return_planned_warn_shown = False
 		self._validate_status_cancel_reason()
 		self._validate_rescheduled_readonly()
 		self._validate_block_belongs_to_crop_plan()
@@ -918,6 +921,60 @@ class CropPlanSchedule(Document):
 				continue
 		return None
 
+	def _warn_if_forward_ltts_will_use_creation_planned_times(self):
+		"""When schedule-based LTT times are on but Planned Start is missing, tickets still create using creation as planned anchor."""
+		if getattr(self, "_ltt_forward_planned_warn_shown", False):
+			return
+		from f2c.inventory.logistics_transfer_ticket_api import schedule_ltt_planned_times_enabled
+
+		if not schedule_ltt_planned_times_enabled():
+			return
+		if self.planned_start:
+			return
+		if self.status != "Scheduled" or not self.field:
+			return
+		if not (
+			set(self._collect_equipment_assets())
+			or self._collect_input_items()
+			or self._collect_hand_and_other_tool_assets()
+		):
+			return
+		frappe.msgprint(
+			"F2C Settings have schedule-based LTT planned times enabled, but this schedule has no Planned Start yet. "
+			"Forward transfer tickets will use the current time as the planned drop-off anchor (and derive pickup from travel and lead) until Planned Start is set; "
+			"save again after setting it to refresh open tickets that are still Pending Pickup.",
+			title="LTT planned times",
+			indicator="orange",
+		)
+		self._ltt_forward_planned_warn_shown = True
+
+	def _ltt_forward_planned_drop_off_anchor_str(self) -> str:
+		"""planned_drop_off_on for forward LTTs from scheduling: planned_start when set and parseable, else server now."""
+		from frappe.utils import get_datetime, get_datetime_str, now_datetime
+
+		dt = get_datetime(self.planned_start) if self.planned_start else None
+		if not dt:
+			dt = now_datetime()
+		return get_datetime_str(dt)
+
+	def _warn_if_return_ltts_will_use_creation_planned_times(self):
+		"""When schedule-based LTT times are on but Planned End is missing, return LTTs use creation as planned anchor."""
+		if getattr(self, "_ltt_return_planned_warn_shown", False):
+			return
+		from f2c.inventory.logistics_transfer_ticket_api import schedule_ltt_planned_times_enabled
+
+		if not schedule_ltt_planned_times_enabled():
+			return
+		if self.planned_end:
+			return
+		frappe.msgprint(
+			"Schedule-based LTT planned times are enabled, but Planned End is not set. "
+			"Return transfer tickets will use ticket creation time for planned pickup and drop-off until Planned End is set.",
+			title="LTT planned times",
+			indicator="orange",
+		)
+		self._ltt_return_planned_warn_shown = True
+
 	def _sync_open_forward_ltts_planned_times(self):
 		"""Recompute planned pickup/drop on open forward LTTs when planned_start changes."""
 		if self.status != "Scheduled" or not self.planned_start or not self.field:
@@ -1008,6 +1065,12 @@ class CropPlanSchedule(Document):
 
 	def _create_equipment_transfer_tickets(self):
 		"""Create forward LTTs: vehicle (inputs + hand/other tools) then machinery (per-unit)."""
+		frappe.log_error(
+			f"LTT TRACE: _create_equipment_transfer_tickets called for {self.name} "
+			f"(status={self.status}, field={self.field}, planned_start={self.planned_start!s})",
+			"Crop Plan Schedule LTT Trace",
+		)
+		self._warn_if_forward_ltts_will_use_creation_planned_times()
 		self._inputs_included_in_vehicle_tickets = False
 		self._inputs_included_in_equipment_tickets = False
 		self._create_vehicle_consumables_transfer_tickets()
@@ -1025,13 +1088,32 @@ class CropPlanSchedule(Document):
 			return
 		target_warehouse = self._get_target_warehouse_for_field(self.field)
 		if not target_warehouse:
+			frappe.log_error(
+				f"Schedule {self.name}: vehicle LTT skipped — no target warehouse for field {self.field}.",
+				"Crop Plan Schedule LTT",
+			)
 			return
 		from f2c.inventory.logistics_transfer_ticket_api import get_location_for_warehouse
 		try:
 			target_location_result = get_location_for_warehouse(target_warehouse)
 			if not target_location_result or not target_location_result.get("location"):
+				frappe.log_error(
+					f"Schedule {self.name}: vehicle LTT skipped — field warehouse {target_warehouse} has no ERPNext Location "
+					"(run Geo Warehouses → Location sync).",
+					"Crop Plan Schedule LTT",
+				)
+				frappe.msgprint(
+					_("Field warehouse has no mapped Location, so logistics tickets cannot be created. "
+					  "Run Location sync from Geo Warehouses. Details were written to Error Log (Crop Plan Schedule LTT)."),
+					indicator="orange",
+					title=_("Transfer ticket skipped"),
+				)
 				return
-		except Exception:
+		except Exception as ex:
+			frappe.log_error(
+				f"Schedule {self.name}: vehicle LTT skipped — get_location_for_warehouse failed for {target_warehouse}: {ex!s}",
+				"Crop Plan Schedule LTT",
+			)
 			return
 
 		input_src = self._get_source_warehouse_for_inputs() if input_items else None
@@ -1047,6 +1129,21 @@ class CropPlanSchedule(Document):
 		if input_items and input_src:
 			from_warehouses.add(input_src)
 
+		if not from_warehouses and (input_items or tool_assets):
+			frappe.log_error(
+				f"Schedule {self.name}: vehicle LTT skipped — no source warehouse resolved "
+				f"(field={self.field}, tools={len(tool_assets)}, input_lines={len(input_items)}). "
+				"Often caused by missing cluster warehouse for the field.",
+				"Crop Plan Schedule LTT",
+			)
+			frappe.msgprint(
+				_("Could not resolve a source warehouse for this transfer. Check cluster warehouse for the field. "
+				  "Details: Error Log (Crop Plan Schedule LTT)."),
+				indicator="orange",
+				title=_("Transfer ticket skipped"),
+			)
+			return
+
 		from f2c.inventory.logistics_transfer_ticket_api import (
 			create_logistics_transfer_ticket,
 			planned_pickup_drop_for_activity_start,
@@ -1055,34 +1152,63 @@ class CropPlanSchedule(Document):
 		inputs_included = False
 		created: list[str] = []
 		errors: list[str] = []
+		leg_skips: list[str] = []
 		tv = (getattr(self, "transport_vehicle", None) or "").strip()
+
+		frappe.log_error(
+			f"LTT TRACE vehicle: {self.name} — from_warehouses={sorted(from_warehouses)}, "
+			f"target={target_warehouse}, inputs={len(input_items)}, tools={len(tool_assets)}, tv={tv!r}",
+			"Crop Plan Schedule LTT Trace",
+		)
 
 		for from_warehouse in sorted(from_warehouses):
 			tools_here = tool_by_wh.get(from_warehouse, [])
 			stock_here = input_items if (input_items and input_src == from_warehouse) else None
 			if not stock_here and not tools_here:
+				leg_skips.append(f"{from_warehouse}: no stock or tools for this leg")
 				continue
 			if from_warehouse == target_warehouse and tools_here:
+				leg_skips.append(
+					f"{from_warehouse}: hand/other tools are already at the field warehouse — no forward vehicle ticket"
+				)
 				continue
 			if from_warehouse == target_warehouse and not tools_here and stock_here:
 				pass
 			elif from_warehouse == target_warehouse:
+				leg_skips.append(f"{from_warehouse}: same as target and no stock leg")
 				continue
 
 			dup = self._find_open_vehicle_consumables_ltt_duplicate(
 				from_warehouse, target_warehouse, tools_here, stock_here
 			)
 			if dup:
+				# Ticket already exists — update its planned times if setting is on and planned_start is set.
+				try:
+					from f2c.inventory.logistics_transfer_ticket_api import update_ltt_planned_times_if_pending_pickup
+					pt = planned_pickup_drop_for_activity_start(
+						self.planned_start, from_warehouse, target_warehouse
+					)
+					if pt:
+						update_ltt_planned_times_if_pending_pickup(dup, pt[0], pt[1])
+				except Exception:
+					pass
+				leg_skips.append(f"{from_warehouse}: open ticket already exists ({dup})")
 				continue
 
-			planned_times = planned_pickup_drop_for_activity_start(
-				self.planned_start, from_warehouse, target_warehouse
-			)
-			planned_kwargs = {}
-			if planned_times:
-				planned_kwargs["planned_pickup_on"] = planned_times[0]
-				planned_kwargs["planned_drop_off_on"] = planned_times[1]
 			try:
+				planned_times = planned_pickup_drop_for_activity_start(
+					self.planned_start, from_warehouse, target_warehouse
+				)
+				planned_kwargs = {}
+				if planned_times:
+					planned_kwargs["planned_pickup_on"] = planned_times[0]
+					planned_kwargs["planned_drop_off_on"] = planned_times[1]
+				planned_kwargs.setdefault("planned_drop_off_on", self._ltt_forward_planned_drop_off_anchor_str())
+				frappe.log_error(
+					f"LTT TRACE vehicle leg: {self.name} from={from_warehouse} → to={target_warehouse}, "
+					f"stock={len(stock_here or [])}, tools={len(tools_here)}, planned_times={planned_times!r}",
+					"Crop Plan Schedule LTT Trace",
+				)
 				result = create_logistics_transfer_ticket(
 					from_warehouse=from_warehouse,
 					to_warehouse=target_warehouse,
@@ -1097,7 +1223,7 @@ class CropPlanSchedule(Document):
 					if stock_here:
 						inputs_included = True
 			except Exception as e:
-				error_str = str(e)[:60] if len(str(e)) > 60 else str(e)
+				error_str = str(e)[:120] if len(str(e)) > 120 else str(e)
 				frappe.log_error(f"Vehicle transfer ticket error for {self.name}: {error_str}", "Vehicle Transfer Ticket")
 				errors.append(str(e))
 
@@ -1107,6 +1233,19 @@ class CropPlanSchedule(Document):
 			frappe.msgprint(
 				f"Created {len(created)} vehicle/consumables transfer ticket(s): {', '.join(created)}",
 				indicator="green", title="Transfer Tickets Created",
+			)
+		elif errors:
+			frappe.msgprint(
+				_("Failed to create vehicle/consumables transfer ticket(s). See Error Log (Vehicle Transfer Ticket)."),
+				indicator="red",
+				title=_("Transfer ticket creation failed"),
+			)
+		elif (input_items or tool_assets) and leg_skips:
+			# Nothing created and no exception — explain skips (duplicate / same warehouse / empty leg)
+			frappe.log_error(
+				f"Schedule {self.name}: no new vehicle/consumables LTT. target_wh={target_warehouse}, "
+				f"planned_start={self.planned_start!s}, transport_vehicle={tv!s}. Legs: {' | '.join(leg_skips)}",
+				"Crop Plan Schedule LTT",
 			)
 
 	def _create_machinery_transfer_tickets(self):
@@ -1123,8 +1262,16 @@ class CropPlanSchedule(Document):
 		try:
 			target_location_result = get_location_for_warehouse(target_warehouse)
 			if not target_location_result or not target_location_result.get("location"):
+				frappe.log_error(
+					f"Schedule {self.name}: machinery LTT skipped — field warehouse {target_warehouse} has no Location.",
+					"Crop Plan Schedule LTT",
+				)
 				return
-		except Exception:
+		except Exception as ex:
+			frappe.log_error(
+				f"Schedule {self.name}: machinery LTT skipped — location lookup failed for {target_warehouse}: {ex!s}",
+				"Crop Plan Schedule LTT",
+			)
 			return
 
 		from f2c.inventory.logistics_transfer_ticket_api import (
@@ -1133,6 +1280,13 @@ class CropPlanSchedule(Document):
 		)
 		created_tickets: list[str] = []
 		errors: list[str] = []
+		machinery_skips: list[str] = []
+
+		frappe.log_error(
+			f"LTT TRACE machinery: {self.name} — {len(unit_payloads)} unit(s), target={target_warehouse}, "
+			f"planned_start={self.planned_start!s}",
+			"Crop Plan Schedule LTT Trace",
+		)
 
 		for asset_reqs, transport_machinery in unit_payloads:
 			primary = asset_reqs[0].get("asset") if asset_reqs else None
@@ -1140,21 +1294,40 @@ class CropPlanSchedule(Document):
 				continue
 			from_warehouse = self._get_source_warehouse_for_equipment_asset(primary)
 			if not from_warehouse:
+				machinery_skips.append(f"{primary}: no source warehouse")
 				continue
 			asset_names = [r.get("asset") for r in asset_reqs if r.get("asset")]
 			if from_warehouse == target_warehouse:
+				machinery_skips.append(f"{primary}: already at field warehouse {target_warehouse}")
 				continue
 			dup_ticket = self._find_open_equipment_ltt_duplicate(from_warehouse, target_warehouse, asset_names)
 			if dup_ticket:
+				# Ticket already exists — update its planned times if setting is on and planned_start is set.
+				try:
+					from f2c.inventory.logistics_transfer_ticket_api import update_ltt_planned_times_if_pending_pickup
+					pt = planned_pickup_drop_for_activity_start(
+						self.planned_start, from_warehouse, target_warehouse
+					)
+					if pt:
+						update_ltt_planned_times_if_pending_pickup(dup_ticket, pt[0], pt[1])
+				except Exception:
+					pass
+				machinery_skips.append(f"{primary}: open ticket {dup_ticket}")
 				continue
-			planned_times = planned_pickup_drop_for_activity_start(
-				self.planned_start, from_warehouse, target_warehouse
-			)
-			planned_kwargs = {}
-			if planned_times:
-				planned_kwargs["planned_pickup_on"] = planned_times[0]
-				planned_kwargs["planned_drop_off_on"] = planned_times[1]
 			try:
+				planned_times = planned_pickup_drop_for_activity_start(
+					self.planned_start, from_warehouse, target_warehouse
+				)
+				planned_kwargs = {}
+				if planned_times:
+					planned_kwargs["planned_pickup_on"] = planned_times[0]
+					planned_kwargs["planned_drop_off_on"] = planned_times[1]
+				planned_kwargs.setdefault("planned_drop_off_on", self._ltt_forward_planned_drop_off_anchor_str())
+				frappe.log_error(
+					f"LTT TRACE machinery unit: {self.name} asset={primary} from={from_warehouse} → to={target_warehouse}, "
+					f"tv={transport_machinery!r}, planned_times={planned_times!r}",
+					"Crop Plan Schedule LTT Trace",
+				)
 				result = create_logistics_transfer_ticket(
 					from_warehouse=from_warehouse,
 					to_warehouse=target_warehouse,
@@ -1167,7 +1340,7 @@ class CropPlanSchedule(Document):
 				if result and result.get("ticket"):
 					created_tickets.append(result.get("ticket"))
 			except Exception as e:
-				error_str = str(e)[:60] if len(str(e)) > 60 else str(e)
+				error_str = str(e)[:120] if len(str(e)) > 120 else str(e)
 				frappe.log_error(f"Machinery transfer ticket error for {self.name}: {error_str}", "Equipment Transfer Ticket")
 				errors.append(str(e))
 
@@ -1180,6 +1353,12 @@ class CropPlanSchedule(Document):
 			frappe.msgprint(
 				"Failed to create some machinery transfer tickets. Please check Error Log.",
 				indicator="red", title="Transfer Ticket Creation Failed",
+			)
+		elif unit_payloads and machinery_skips:
+			frappe.log_error(
+				f"Schedule {self.name}: no new machinery LTT. target_wh={target_warehouse}, "
+				f"planned_start={self.planned_start!s}. Skips: {' | '.join(machinery_skips)}",
+				"Crop Plan Schedule LTT",
 			)
 
 	def _collect_input_items(self) -> List[Dict[str, Any]]:
@@ -1427,7 +1606,9 @@ class CropPlanSchedule(Document):
 				"Input Transfer Ticket",
 			)
 			return
-		
+
+		self._warn_if_forward_ltts_will_use_creation_planned_times()
+
 		# Create transfer ticket for input items
 		from f2c.inventory.logistics_transfer_ticket_api import (
 			create_logistics_transfer_ticket,
@@ -1440,6 +1621,7 @@ class CropPlanSchedule(Document):
 		if planned_times:
 			planned_kwargs["planned_pickup_on"] = planned_times[0]
 			planned_kwargs["planned_drop_off_on"] = planned_times[1]
+		planned_kwargs.setdefault("planned_drop_off_on", self._ltt_forward_planned_drop_off_anchor_str())
 		try:
 			result = create_logistics_transfer_ticket(
 				from_warehouse=source_warehouse,
@@ -1605,7 +1787,7 @@ class CropPlanSchedule(Document):
 			return
 
 		# When schedule-based planned times are on but planned_end is missing, still create return LTTs;
-		# planned_pickup_drop_for_activity_start(None, ...) yields no planned kwargs → creation-time defaults.
+		# planned_pickup_drop_for_activity_start uses now as drop anchor so LTT gets explicit planned times.
 
 		# Get equipment assets
 		equipment_assets = self._collect_equipment_assets()
@@ -1650,7 +1832,9 @@ class CropPlanSchedule(Document):
 		except Exception as e:
 			frappe.log_error(f"Error checking location for cluster warehouse {cluster_warehouse}: {str(e)}", "Return Transfer Ticket")
 			return
-		
+
+		self._warn_if_return_ltts_will_use_creation_planned_times()
+
 		# Create return transfer ticket
 		from f2c.inventory.logistics_transfer_ticket_api import (
 			create_logistics_transfer_ticket,
@@ -1710,6 +1894,10 @@ class CropPlanSchedule(Document):
 
 	def after_insert(self):
 		"""Create transfer tickets when schedule is first created with status Scheduled."""
+		frappe.log_error(
+			f"LTT TRACE after_insert: {self.name} status={self.status}, is_new={self.is_new()}",
+			"Crop Plan Schedule LTT Trace",
+		)
 		if self.status == "Scheduled":
 			try:
 				current_assets = set(self._collect_equipment_assets())
@@ -1732,6 +1920,10 @@ class CropPlanSchedule(Document):
 	def on_update(self):
 		"""Create transfer tickets when schedule status changes to Scheduled or equipment is added.
 		Create return transfer tickets when status changes to Completed."""
+		frappe.log_error(
+			f"LTT TRACE on_update: {self.name} status={self.status}, is_new={self.is_new()}",
+			"Crop Plan Schedule LTT Trace",
+		)
 		# Use doc-before-save for old status; on_update runs after DB commit so get_value would return new value
 		old_doc = self.get_doc_before_save() if not self.is_new() else None
 		old_status = old_doc.get("status") if old_doc else None
@@ -1769,48 +1961,26 @@ class CropPlanSchedule(Document):
 							"Return Transfer Ticket",
 						)
 		
-		# Only create forward transfer tickets if status is Scheduled
+		# Forward LTTs: only when Scheduled. During insert, `is_new()` is still True inside on_update
+		# (see Document.insert → run_post_save_methods before __islocal is cleared), so skip here —
+		# after_insert already ran ticket creation for new rows.
 		if self.status != "Scheduled":
 			return
-		
-		# Check if status changed to Scheduled (use old_status from doc-before-save, not DB)
-		if not self.is_new():
-			if (old_status or "") != "Scheduled":
-				# Status just changed to Scheduled, create tickets
+		if self.is_new():
+			return
+		try:
+			if set(self._collect_equipment_assets()) or self._collect_input_items():
+				self._create_equipment_transfer_tickets()
+			if self._collect_input_items():
 				try:
-					current_assets = set(self._collect_equipment_assets())
-					if current_assets or self._collect_input_items():
-						self._create_equipment_transfer_tickets()
-					if self._collect_input_items():
-						try:
-							self._create_input_transfer_tickets()
-						except Exception as inp_e:
-							err_str = str(inp_e)[:60] if len(str(inp_e)) > 60 else str(inp_e)
-							frappe.log_error(f"Input ticket error for {self.name}: {err_str}", "Input Transfer Ticket")
-				except Exception as e:
-					# Log error but don't block schedule update
-					# Truncate error message to prevent CharacterLengthExceededError (max 140 chars for title)
-					# Keep message very short to avoid nested error log references causing overflow
-					error_str = str(e)[:60] if len(str(e)) > 60 else str(e)
-					error_msg = f"Transfer ticket error for {self.name}: {error_str}"
-					frappe.log_error(error_msg, "Transfer Ticket")
-					# Don't raise - allow schedule to be updated even if ticket creation fails
-			# If status was already Scheduled, check if equipment tickets need to be created
-			# Check if tickets already exist for this schedule's equipment
-			else:
-				current_assets = set(self._collect_equipment_assets())
-				if current_assets or self._collect_input_items():
-					try:
-						self._create_equipment_transfer_tickets()
-					except Exception as e:
-						error_str = str(e)[:60] if len(str(e)) > 60 else str(e)
-						frappe.log_error(f"Equipment transfer ticket error for {self.name}: {error_str}", "Equipment Transfer Ticket")
-				if self._collect_input_items():
-					try:
-						self._create_input_transfer_tickets()
-					except Exception as e:
-						error_str = str(e)[:60] if len(str(e)) > 60 else str(e)
-						frappe.log_error(f"Input transfer ticket error for {self.name}: {error_str}", "Input Transfer Ticket")
+					self._create_input_transfer_tickets()
+				except Exception as inp_e:
+					err_str = str(inp_e)[:60] if len(str(inp_e)) > 60 else str(inp_e)
+					frappe.log_error(f"Input ticket error for {self.name}: {err_str}", "Input Transfer Ticket")
+		except Exception as e:
+			error_str = str(e)[:60] if len(str(e)) > 60 else str(e)
+			error_msg = f"Transfer ticket error for {self.name}: {error_str}"
+			frappe.log_error(error_msg, "Transfer Ticket")
 
 		if not self.is_new() and old_doc:
 			from frappe.utils import get_datetime as _gdts_sync
@@ -1994,8 +2164,10 @@ def create_transfer_tickets_for_schedule(schedule_name: str):
 		schedule = frappe.get_doc("Crop Plan Schedule", schedule_name)
 		if schedule.status != "Scheduled":
 			return {"success": False, "error": "Schedule status must be Scheduled"}
-		if set(schedule._collect_equipment_assets()):
-			schedule._create_equipment_transfer_tickets()
+		# Always run equipment path first: it creates vehicle LTTs for inputs + hand/other tools and
+		# machinery LTTs. Skipping when `_collect_equipment_assets()` is empty incorrectly skipped
+		# input-only legs that still need the vehicle/consumables ticket in some setups.
+		schedule._create_equipment_transfer_tickets()
 		if schedule._collect_input_items():
 			schedule._create_input_transfer_tickets()
 		return {"success": True, "message": "Transfer ticket creation triggered"}

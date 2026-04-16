@@ -51,7 +51,7 @@
     },
     {
       "default": "1",
-      "description": "When enabled and the schedule/activity has planned start (and end for returns), LTTs get planned drop-off at that anchor and pickup from travel plus pickup lead. If the anchor is not set yet, LTTs still create with automatic (creation-time) planned fields. When disabled, planned times always use ticket creation.",
+      "description": "When enabled and the schedule/activity has planned start (and end for returns), LTTs get planned drop-off at that anchor and pickup from travel plus pickup lead. If the anchor is not set yet, LTTs still create with automatic (creation-time) planned fields and Crop Plan Schedule / On Demand Activity shows an orange notice. When disabled, planned times always use ticket creation.",
       "fieldname": "ltt_schedule_planned_times_enabled",
       "fieldtype": "Check",
       "label": "Use schedule-based LTT planned times"

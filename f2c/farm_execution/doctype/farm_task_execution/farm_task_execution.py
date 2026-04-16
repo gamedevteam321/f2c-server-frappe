@@ -2163,12 +2163,20 @@ def create_stock_return_ticket_for_execution(execution_name: str, stock_items: L
 		frappe.throw("Could not resolve field or cluster warehouse for this execution.")
 	if from_warehouse == to_warehouse:
 		frappe.throw("Field and cluster warehouse are the same; cannot create return ticket.")
-	from f2c.inventory.logistics_transfer_ticket_api import create_logistics_transfer_ticket
+	from f2c.inventory.logistics_transfer_ticket_api import (
+		create_logistics_transfer_ticket,
+		execution_anchor_datetime_for_ltt,
+		planned_internal_ltt_kwargs_from_anchor,
+	)
+
+	anchor = execution_anchor_datetime_for_ltt(doc, anchor_kind="activity_end")
+	planned_kwargs = planned_internal_ltt_kwargs_from_anchor(anchor, from_warehouse, to_warehouse)
 	result = create_logistics_transfer_ticket(
 		from_warehouse=from_warehouse,
 		to_warehouse=to_warehouse,
 		stock_items=payload,
 		assets=[],
+		**planned_kwargs,
 	)
 	ticket_name = result.get("ticket") if result else None
 	if ticket_name:
@@ -2246,12 +2254,20 @@ def create_input_return_ticket_for_execution(execution_name: str) -> str:
 		frappe.throw("Could not resolve field or cluster warehouse for this execution.")
 	if from_warehouse == to_warehouse:
 		frappe.throw("Field and cluster warehouse are the same; cannot create return ticket.")
-	from f2c.inventory.logistics_transfer_ticket_api import create_logistics_transfer_ticket
+	from f2c.inventory.logistics_transfer_ticket_api import (
+		create_logistics_transfer_ticket,
+		execution_anchor_datetime_for_ltt,
+		planned_internal_ltt_kwargs_from_anchor,
+	)
+
+	anchor = execution_anchor_datetime_for_ltt(doc, anchor_kind="activity_end")
+	planned_kwargs = planned_internal_ltt_kwargs_from_anchor(anchor, from_warehouse, to_warehouse)
 	result = create_logistics_transfer_ticket(
 		from_warehouse=from_warehouse,
 		to_warehouse=to_warehouse,
 		stock_items=payload,
 		assets=[],
+		**planned_kwargs,
 	)
 	ticket_name = result.get("ticket") if result else None
 	if ticket_name:

@@ -4,7 +4,7 @@ from datetime import timedelta
 
 import frappe
 from frappe import _
-from frappe.utils import cint, flt, get_datetime, now_datetime
+from frappe.utils import cint, flt, get_datetime, get_datetime_str, now_datetime
 
 from f2c.farm_report.doctype.farm_report_ticket.farm_report_ticket import create_report_and_mark_reported
 
@@ -279,38 +279,129 @@ def estimate_internal_ltt_travel_minutes(from_warehouse: str | None, to_warehous
 	return max(tmin, min(tmax, minutes))
 
 
+def _min_lead_minutes_before_planned_drop() -> int:
+	"""Planned pickup must be at least this many minutes before planned drop-off."""
+	return 60
+
+
+def clamp_planned_pickup_before_drop_str(
+	pickup_in,
+	drop_in,
+	*,
+	min_lead_minutes: int | None = None,
+) -> tuple[str | None, str | None]:
+	"""
+	Ensure planned_pickup_on is strictly before planned_drop_off_on by at least min_lead_minutes
+	(default 60). Fixes cases where pickup was defaulted to ticket creation after a scheduled drop.
+	"""
+	if min_lead_minutes is None:
+		min_lead_minutes = _min_lead_minutes_before_planned_drop()
+	if not drop_in:
+		pu = get_datetime(pickup_in) if pickup_in else None
+		return (get_datetime_str(pu) if pu else None, None)
+	po = get_datetime(drop_in)
+	if not po:
+		pu = get_datetime(pickup_in) if pickup_in else None
+		di = get_datetime(drop_in)
+		return (get_datetime_str(pu) if pu else None, get_datetime_str(di) if di else None)
+	lim = po - timedelta(minutes=min_lead_minutes)
+	pu = get_datetime(pickup_in) if pickup_in else None
+	if not pu or pu >= po:
+		pu = lim
+	elif pu > lim:
+		pu = lim
+	return get_datetime_str(pu), get_datetime_str(po)
+
+
 def planned_pickup_drop_for_activity_start(
 	activity_start,
 	from_warehouse: str | None,
 	to_warehouse: str | None,
-) -> tuple | None:
+) -> tuple[str, str] | None:
 	"""
 	Compute (planned_pickup_on, planned_drop_off_on) for internal LTTs tied to a scheduled activity.
-	planned_drop_off_on equals the anchor (e.g. planned_start / planned_end).
+	planned_drop_off_on equals the anchor (e.g. Crop Plan Schedule planned_start, or planned_end for returns).
+	If the anchor is missing or not parseable, uses current server time so LTT still gets explicit planned times.
 	planned_pickup_on is anchor minus estimated travel minus ltt_dropoff_buffer_minutes (pickup lead).
-	Returns None when the feature is off or activity_start is missing (caller should omit datetimes).
+	Returns None when the feature is off (caller should omit datetimes; create_logistics_transfer_ticket uses creation defaults).
+	Returns strings so callers can pass them directly to @whitelist functions.
 	"""
-	settings = _get_f2c_ltt_timing_settings()
-	if not cint(settings.get("ltt_schedule_planned_times_enabled")):
-		return None
-	if not activity_start:
-		return None
-	start = get_datetime(activity_start)
-	if not start:
-		return None
-	# Drop-off at activity anchor time; pickup is travel + optional extra lead before that moment.
-	lead_m = int(settings["ltt_dropoff_buffer_minutes"])
-	drop = start
-	travel_m = estimate_internal_ltt_travel_minutes(from_warehouse, to_warehouse)
-	pickup = start - timedelta(minutes=travel_m + lead_m)
-	if pickup > drop:
-		pickup = drop
-	return (pickup, drop)
+	try:
+		settings = _get_f2c_ltt_timing_settings()
+		if not cint(settings.get("ltt_schedule_planned_times_enabled")):
+			return None
+		start = get_datetime(activity_start) if activity_start else None
+		if not start:
+			start = now_datetime()
+		lead_m = int(settings["ltt_dropoff_buffer_minutes"])
+		drop = start
+		travel_m = estimate_internal_ltt_travel_minutes(from_warehouse, to_warehouse)
+		pickup = start - timedelta(minutes=travel_m + lead_m)
+		if pickup > drop:
+			pickup = drop
+		return clamp_planned_pickup_before_drop_str(pickup, drop)
+	except Exception as e:
+		frappe.log_error(
+			f"planned_pickup_drop_for_activity_start failed\n"
+			f"activity_start={activity_start!r}\n"
+			f"from_warehouse={from_warehouse!r}\n"
+			f"to_warehouse={to_warehouse!r}\n\n"
+			f"{e!s}\n\n"
+			f"{frappe.get_traceback()}",
+			"LTT planned_pickup_drop_for_activity_start",
+		)
+		raise
 
 
 def schedule_ltt_planned_times_enabled() -> bool:
 	"""True when F2C Settings says schedule/on-demand should set LTT planned pickup/drop."""
 	return bool(cint(_get_f2c_ltt_timing_settings().get("ltt_schedule_planned_times_enabled")))
+
+
+def planned_internal_ltt_kwargs_from_anchor(
+	activity_anchor,
+	from_warehouse: str | None,
+	to_warehouse: str | None,
+) -> dict:
+	"""Build planned_pickup_on / planned_drop_off_on kwargs for create_logistics_transfer_ticket (empty if disabled or no anchor)."""
+	pt = planned_pickup_drop_for_activity_start(activity_anchor, from_warehouse, to_warehouse)
+	if not pt:
+		return {}
+	return {"planned_pickup_on": pt[0], "planned_drop_off_on": pt[1]}
+
+
+def execution_anchor_datetime_for_ltt(execution_doc, *, anchor_kind: str):
+	"""
+	Datetime anchor from linked Crop Plan Schedule / On Demand Activity for execution-scoped internal LTTs.
+	anchor_kind:
+	  - activity_start: planned_start on the link, else actual_start on the execution.
+	  - activity_end: planned_end on the link, else actual_end, else actual_start.
+	"""
+	if anchor_kind not in ("activity_start", "activity_end"):
+		anchor_kind = "activity_start"
+	schedule_ref = (getattr(execution_doc, "schedule_ref", None) or "").strip()
+	oda_ref = (getattr(execution_doc, "on_demand_activity_ref", None) or "").strip()
+	if anchor_kind == "activity_start":
+		for doctype, ref, col in (
+			("Crop Plan Schedule", schedule_ref, "planned_start"),
+			("On Demand Activity", oda_ref, "planned_start"),
+		):
+			if not ref:
+				continue
+			v = frappe.db.get_value(doctype, ref, col)
+			if v:
+				return v
+		return getattr(execution_doc, "actual_start", None)
+	for doctype, ref, col in (
+		("Crop Plan Schedule", schedule_ref, "planned_end"),
+		("On Demand Activity", oda_ref, "planned_end"),
+	):
+		if not ref:
+			continue
+		v = frappe.db.get_value(doctype, ref, col)
+		if v:
+			return v
+	return getattr(execution_doc, "actual_end", None) or getattr(execution_doc, "actual_start", None)
 
 
 def update_ltt_planned_times_if_pending_pickup(
@@ -334,8 +425,11 @@ def update_ltt_planned_times_if_pending_pickup(
 	po = get_datetime(planned_drop_off_on)
 	if not pu or not po:
 		return False
-	doc.planned_pickup_on = pu
-	doc.planned_drop_off_on = po
+	pu_s, po_s = clamp_planned_pickup_before_drop_str(pu, po)
+	if not pu_s or not po_s:
+		return False
+	doc.planned_pickup_on = pu_s
+	doc.planned_drop_off_on = po_s
 	doc.save(ignore_permissions=True)
 	return True
 
@@ -940,10 +1034,25 @@ def create_logistics_transfer_ticket(
 		ticket_data["to_latitude"] = flt(to_latitude)
 		ticket_data["to_longitude"] = flt(to_longitude)
 
+	# Only set when parseable; store as string so Frappe's insert handles all versions uniformly.
 	if planned_pickup_on is not None:
-		ticket_data["planned_pickup_on"] = get_datetime(planned_pickup_on)
+		_pu = get_datetime(planned_pickup_on)
+		if _pu:
+			ticket_data["planned_pickup_on"] = get_datetime_str(_pu)
 	if planned_drop_off_on is not None:
-		ticket_data["planned_drop_off_on"] = get_datetime(planned_drop_off_on)
+		_po = get_datetime(planned_drop_off_on)
+		if _po:
+			ticket_data["planned_drop_off_on"] = get_datetime_str(_po)
+
+	# Pickup must be strictly before drop (min 60 min lead). Fixes drop from schedule + pickup defaulting to creation.
+	if ticket_data.get("planned_drop_off_on"):
+		_pu_c, _po_c = clamp_planned_pickup_before_drop_str(
+			ticket_data.get("planned_pickup_on"), ticket_data["planned_drop_off_on"]
+		)
+		if _pu_c:
+			ticket_data["planned_pickup_on"] = _pu_c
+		if _po_c:
+			ticket_data["planned_drop_off_on"] = _po_c
 
 	tv = (transport_vehicle or "").strip()
 	if not tv and not skip_default_transport_vehicle:
@@ -956,16 +1065,40 @@ def create_logistics_transfer_ticket(
 	if tv:
 		ticket_data["transport_vehicle"] = tv
 
+	# Follow-up save when both planned times are set (post-insert persistence for SE/AM paths).
+	explicit_schedule_planned = bool(
+		ticket_data.get("planned_pickup_on") and ticket_data.get("planned_drop_off_on")
+	)
+
 	ticket = frappe.get_doc(ticket_data)
 	ticket.insert(ignore_permissions=True)
 
-	# Default planned dates to creation when not provided
+	# Default planned dates to creation when not provided (insert does not always persist in-doc patches).
+	need_planned_save = False
 	if ticket_data.get("planned_pickup_on") is None:
 		ticket.planned_pickup_on = ticket.creation
+		need_planned_save = True
 	if ticket_data.get("planned_drop_off_on") is None:
 		ticket.planned_drop_off_on = ticket.creation
-	if ticket.planned_pickup_on or ticket.planned_drop_off_on:
-		ticket.save(ignore_permissions=True)
+		need_planned_save = True
+	# When planned pickup/drop are on the ticket, re-apply clamp and save (mirrors historical creation-default path).
+	if explicit_schedule_planned:
+		pu = get_datetime(ticket_data.get("planned_pickup_on"))
+		po = get_datetime(ticket_data.get("planned_drop_off_on"))
+		if pu and po:
+			pu2, po2 = clamp_planned_pickup_before_drop_str(pu, po)
+			if pu2 and po2:
+				ticket.planned_pickup_on = pu2
+				ticket.planned_drop_off_on = po2
+				need_planned_save = True
+	if need_planned_save and (ticket.planned_pickup_on or ticket.planned_drop_off_on):
+		try:
+			ticket.save(ignore_permissions=True)
+		except Exception as e:
+			frappe.log_error(
+				f"LTT {ticket.name}: post-insert save for planned times failed (ticket and SE/AM may still exist): {e!s}",
+				"Logistics Transfer Ticket",
+			)
 
 	return {
 		"ticket": ticket.name,

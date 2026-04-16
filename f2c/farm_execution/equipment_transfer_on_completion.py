@@ -129,7 +129,7 @@ def get_next_scheduled_activity_in_same_cluster(
 	"""
 	Return the next scheduled activity (Crop Plan Schedule or On Demand Activity) in the same cluster
 	that uses at least one of the given assets and has planned_start > after_time.
-	Returns None or {"field": "<field_name>", "ref_type": "Crop Plan Schedule"|"On Demand Activity", "ref_name": "..."}.
+	Returns None or a dict with field, ref_type, ref_name, and planned_start.
 	"""
 	if not cluster or not equipment_assets or not after_time:
 		return None
@@ -224,7 +224,12 @@ def get_next_scheduled_activity_in_same_cluster(
 		if not candidates:
 			return None
 		best = min(candidates, key=lambda x: (x["planned_start"] or ""))
-		return {"field": best["field"], "ref_type": best["ref_type"], "ref_name": best["ref_name"]}
+		return {
+			"field": best["field"],
+			"ref_type": best["ref_type"],
+			"ref_name": best["ref_name"],
+			"planned_start": best.get("planned_start"),
+		}
 
 	except Exception as e:
 		frappe.log_error(
@@ -349,6 +354,7 @@ def create_equipment_transfer_tickets_for_execution(execution_doc, on_end_of_day
 			return
 
 		field = execution_doc.field
+		next_act = None
 		from_warehouse = get_target_warehouse_for_field(field)
 		if not from_warehouse:
 			frappe.log_error(
@@ -387,7 +393,6 @@ def create_equipment_transfer_tickets_for_execution(execution_doc, on_end_of_day
 				after_time = now_datetime()
 
 			cluster = get_cluster_for_field(field)
-			next_act = None
 			if cluster:
 				next_act = get_next_scheduled_activity_in_same_cluster(
 					cluster,
@@ -456,13 +461,26 @@ def create_equipment_transfer_tickets_for_execution(execution_doc, on_end_of_day
 			except Exception:
 				pass
 
-		from f2c.inventory.logistics_transfer_ticket_api import create_logistics_transfer_ticket
+		from f2c.inventory.logistics_transfer_ticket_api import (
+			create_logistics_transfer_ticket,
+			execution_anchor_datetime_for_ltt,
+			planned_internal_ltt_kwargs_from_anchor,
+		)
+
+		if on_end_of_day:
+			anchor = execution_anchor_datetime_for_ltt(execution_doc, anchor_kind="activity_end")
+		elif next_act and next_act.get("planned_start"):
+			anchor = next_act.get("planned_start")
+		else:
+			anchor = execution_anchor_datetime_for_ltt(execution_doc, anchor_kind="activity_end")
+		planned_kwargs = planned_internal_ltt_kwargs_from_anchor(anchor, from_warehouse, to_warehouse)
 
 		result = create_logistics_transfer_ticket(
 			from_warehouse=from_warehouse,
 			to_warehouse=to_warehouse,
 			stock_items=None,
 			assets=[{"asset": a, "qty": 1} for a in assets],
+			**planned_kwargs,
 		)
 		if result and result.get("ticket"):
 			ticket_name = result.get("ticket")
@@ -539,13 +557,21 @@ def create_delivery_ticket_for_daily_returnable_equipment(execution_name: str, d
 					return  # already created for this day
 			except Exception:
 				pass
-		from f2c.inventory.logistics_transfer_ticket_api import create_logistics_transfer_ticket
+		from f2c.inventory.logistics_transfer_ticket_api import (
+			create_logistics_transfer_ticket,
+			execution_anchor_datetime_for_ltt,
+			planned_internal_ltt_kwargs_from_anchor,
+		)
+
+		anchor = execution_anchor_datetime_for_ltt(fte, anchor_kind="activity_start")
+		planned_kwargs = planned_internal_ltt_kwargs_from_anchor(anchor, from_warehouse, to_warehouse)
 		try:
 			result = create_logistics_transfer_ticket(
 				from_warehouse=from_warehouse,
 				to_warehouse=to_warehouse,
 				stock_items=None,
 				assets=[{"asset": a, "qty": 1} for a in assets],
+				**planned_kwargs,
 			)
 		except frappe.ValidationError as ve:
 			# Assets already at field (e.g. same day reopened or first day) — skip creating ticket

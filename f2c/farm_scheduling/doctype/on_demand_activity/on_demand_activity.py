@@ -15,6 +15,8 @@ SQ_METERS_TO_ACRES = 0.000247105
 
 class OnDemandActivity(Document):
 	def validate(self):
+		self._ltt_forward_planned_warn_shown = False
+		self._ltt_return_planned_warn_shown = False
 		self._validate_reason()
 		self._validate_activity_type()
 		
@@ -1041,8 +1043,54 @@ class OnDemandActivity(Document):
 			if tid_v:
 				update_ltt_planned_times_if_pending_pickup(tid_v, pt[0], pt[1])
 
+	def _warn_if_forward_ltts_will_use_creation_planned_times(self):
+		"""When schedule-based LTT times are on but Planned Start is missing, tickets still create using creation as planned anchor."""
+		if getattr(self, "_ltt_forward_planned_warn_shown", False):
+			return
+		from f2c.inventory.logistics_transfer_ticket_api import schedule_ltt_planned_times_enabled
+
+		if not schedule_ltt_planned_times_enabled():
+			return
+		if self.planned_start:
+			return
+		if self.status != "Scheduled" or not self.field:
+			return
+		if not (
+			set(self._collect_equipment_assets())
+			or self._collect_input_items()
+			or self._collect_hand_and_other_tool_assets()
+		):
+			return
+		frappe.msgprint(
+			"F2C Settings have schedule-based LTT planned times enabled, but this activity has no Planned Start yet. "
+			"Forward transfer tickets will use ticket creation time for planned pickup and drop-off until Planned Start is set; "
+			"save again after setting it to refresh open tickets that are still Pending Pickup.",
+			title="LTT planned times",
+			indicator="orange",
+		)
+		self._ltt_forward_planned_warn_shown = True
+
+	def _warn_if_return_ltts_will_use_creation_planned_times(self):
+		"""When schedule-based LTT times are on but Planned End is missing, return LTTs use creation as planned anchor."""
+		if getattr(self, "_ltt_return_planned_warn_shown", False):
+			return
+		from f2c.inventory.logistics_transfer_ticket_api import schedule_ltt_planned_times_enabled
+
+		if not schedule_ltt_planned_times_enabled():
+			return
+		if self.planned_end:
+			return
+		frappe.msgprint(
+			"Schedule-based LTT planned times are enabled, but Planned End is not set. "
+			"Return transfer tickets will use ticket creation time for planned pickup and drop-off until Planned End is set.",
+			title="LTT planned times",
+			indicator="orange",
+		)
+		self._ltt_return_planned_warn_shown = True
+
 	def _create_equipment_transfer_tickets(self):
 		"""Create forward LTTs: vehicle (inputs + hand/other tools) then machinery (per-unit)."""
+		self._warn_if_forward_ltts_will_use_creation_planned_times()
 		self._inputs_included_in_vehicle_tickets = False
 		self._inputs_included_in_equipment_tickets = False
 		self._create_vehicle_consumables_transfer_tickets()
@@ -1433,7 +1481,9 @@ class OnDemandActivity(Document):
 				"Input Transfer Ticket",
 			)
 			return
-		
+
+		self._warn_if_forward_ltts_will_use_creation_planned_times()
+
 		# Create transfer ticket for input items
 		from f2c.inventory.logistics_transfer_ticket_api import (
 			create_logistics_transfer_ticket,
@@ -1651,7 +1701,9 @@ class OnDemandActivity(Document):
 		except Exception as e:
 			frappe.log_error(f"Error checking location for cluster warehouse {cluster_warehouse}: {str(e)}", "Return Transfer Ticket")
 			return
-		
+
+		self._warn_if_return_ltts_will_use_creation_planned_times()
+
 		# Create return transfer ticket
 		from f2c.inventory.logistics_transfer_ticket_api import (
 			create_logistics_transfer_ticket,
