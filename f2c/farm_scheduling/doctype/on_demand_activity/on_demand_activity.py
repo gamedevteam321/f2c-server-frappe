@@ -1108,13 +1108,41 @@ class OnDemandActivity(Document):
 			return
 		target_warehouse = self._get_target_warehouse_for_field(self.field)
 		if not target_warehouse:
+			frappe.log_error(
+				title="On Demand Activity LTT",
+				message=f"Activity {self.name}: vehicle LTT skipped — no target warehouse for field {self.field}.",
+			)
 			return
 		from f2c.inventory.logistics_transfer_ticket_api import get_location_for_warehouse
 		try:
 			target_location_result = get_location_for_warehouse(target_warehouse)
 			if not target_location_result or not target_location_result.get("location"):
+				frappe.log_error(
+					title="On Demand Activity LTT",
+					message=(
+						f"Activity {self.name}: vehicle LTT skipped — field warehouse {target_warehouse} has no ERPNext Location "
+						"(run Geo Warehouses → Location sync)."
+					),
+				)
+				frappe.msgprint(
+					"Field warehouse has no mapped Location, so logistics transfer tickets cannot be created. "
+					"Run Location sync from Geo Warehouses. Details were written to Error Log (On Demand Activity LTT).",
+					indicator="orange",
+					title="Transfer ticket skipped",
+				)
 				return
-		except Exception:
+		except Exception as ex:
+			frappe.log_error(
+				title="On Demand Activity LTT",
+				message=(
+					f"Activity {self.name}: vehicle LTT skipped — get_location_for_warehouse failed for {target_warehouse}: {ex!s}"
+				),
+			)
+			frappe.msgprint(
+				"Could not resolve warehouse location for logistics. Check Error Log (On Demand Activity LTT).",
+				indicator="orange",
+				title="Transfer ticket skipped",
+			)
 			return
 
 		input_src = self._get_source_warehouse_for_inputs() if input_items else None
@@ -1180,8 +1208,10 @@ class OnDemandActivity(Document):
 					if stock_here:
 						inputs_included = True
 			except Exception as e:
-				error_str = str(e)[:60] if len(str(e)) > 60 else str(e)
-				frappe.log_error(f"Vehicle transfer ticket error for {self.name}: {error_str}", "Vehicle Transfer Ticket")
+				frappe.log_error(
+					title="Vehicle Transfer Ticket",
+					message=f"Vehicle transfer ticket error for {self.name}: {str(e)}\n{frappe.get_traceback()}",
+				)
 				errors.append(str(e))
 
 		self._inputs_included_in_vehicle_tickets = inputs_included
@@ -1201,13 +1231,40 @@ class OnDemandActivity(Document):
 			return
 		target_warehouse = self._get_target_warehouse_for_field(self.field)
 		if not target_warehouse:
+			frappe.log_error(
+				title="On Demand Activity LTT",
+				message=f"Activity {self.name}: machinery LTT skipped — no target warehouse for field {self.field}.",
+			)
 			return
 		from f2c.inventory.logistics_transfer_ticket_api import get_location_for_warehouse
 		try:
 			target_location_result = get_location_for_warehouse(target_warehouse)
 			if not target_location_result or not target_location_result.get("location"):
+				frappe.log_error(
+					title="On Demand Activity LTT",
+					message=(
+						f"Activity {self.name}: machinery LTT skipped — field warehouse {target_warehouse} has no ERPNext Location."
+					),
+				)
+				frappe.msgprint(
+					"Field warehouse has no mapped Location, so machinery transfer tickets cannot be created. "
+					"Run Location sync from Geo Warehouses. Details were written to Error Log (On Demand Activity LTT).",
+					indicator="orange",
+					title="Transfer ticket skipped",
+				)
 				return
-		except Exception:
+		except Exception as ex:
+			frappe.log_error(
+				title="On Demand Activity LTT",
+				message=(
+					f"Activity {self.name}: machinery LTT skipped — location lookup failed for {target_warehouse}: {ex!s}"
+				),
+			)
+			frappe.msgprint(
+				"Could not resolve warehouse location for machinery logistics. Check Error Log (On Demand Activity LTT).",
+				indicator="orange",
+				title="Transfer ticket skipped",
+			)
 			return
 
 		from f2c.inventory.logistics_transfer_ticket_api import (
@@ -1216,6 +1273,7 @@ class OnDemandActivity(Document):
 		)
 		created_tickets: list[str] = []
 		errors: list[str] = []
+		machinery_skips: list[str] = []
 
 		for asset_reqs, transport_machinery in unit_payloads:
 			primary = asset_reqs[0].get("asset") if asset_reqs else None
@@ -1223,12 +1281,15 @@ class OnDemandActivity(Document):
 				continue
 			from_warehouse = self._get_source_warehouse_for_equipment_asset(primary)
 			if not from_warehouse:
+				machinery_skips.append(f"{primary}: no source warehouse")
 				continue
 			asset_names = [r.get("asset") for r in asset_reqs if r.get("asset")]
 			if from_warehouse == target_warehouse:
+				machinery_skips.append(f"{primary}: already at field warehouse {target_warehouse}")
 				continue
 			dup_ticket = self._find_open_equipment_ltt_duplicate(from_warehouse, target_warehouse, asset_names)
 			if dup_ticket:
+				machinery_skips.append(f"{primary}: open ticket {dup_ticket}")
 				continue
 			planned_times = planned_pickup_drop_for_activity_start(
 				self.planned_start, from_warehouse, target_warehouse
@@ -1250,8 +1311,10 @@ class OnDemandActivity(Document):
 				if result and result.get("ticket"):
 					created_tickets.append(result.get("ticket"))
 			except Exception as e:
-				error_str = str(e)[:60] if len(str(e)) > 60 else str(e)
-				frappe.log_error(f"Machinery transfer ticket error for {self.name}: {error_str}", "Equipment Transfer Ticket")
+				frappe.log_error(
+					title="Equipment Transfer Ticket",
+					message=f"Machinery transfer ticket error for {self.name}: {str(e)}\n{frappe.get_traceback()}",
+				)
 				errors.append(str(e))
 
 		if created_tickets:
@@ -1264,14 +1327,14 @@ class OnDemandActivity(Document):
 				"Failed to create some machinery transfer tickets. Please check Error Log.",
 				indicator="red", title="Transfer Ticket Creation Failed",
 			)
-
-	# (deleted old monolithic _create_equipment_transfer_tickets — replaced by vehicle + machinery split above)
-		
-		if created_tickets:
-			ticket_type = "equipment and inputs" if inputs_included_in_ticket else "equipment"
-			frappe.msgprint(f"Created {len(created_tickets)} transfer ticket(s) for {ticket_type}: {', '.join(created_tickets)}", indicator="green", title="Transfer Tickets Created")
-		elif errors:
-			frappe.msgprint("Failed to create transfer tickets. Please check Error Log for details.", indicator="red", title="Transfer Ticket Creation Failed")
+		elif unit_payloads and machinery_skips:
+			frappe.log_error(
+				title="On Demand Activity LTT",
+				message=(
+					f"Activity {self.name}: no new machinery LTT. target_wh={target_warehouse}, "
+					f"planned_start={self.planned_start!s}. Skips: {' | '.join(machinery_skips)}"
+				),
+			)
 
 	def _collect_input_items(self) -> List[Dict[str, Any]]:
 		"""Helper to collect input items from inputs table.
