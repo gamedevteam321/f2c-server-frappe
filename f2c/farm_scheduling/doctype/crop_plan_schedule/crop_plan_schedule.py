@@ -820,13 +820,63 @@ class CropPlanSchedule(Document):
 		
 		return assets_by_warehouse
 
+	def _ltt_planned_window_overlaps_ticket(self, ticket_doc) -> bool:
+		"""True if this schedule's planned window overlaps the ticket's planned pickup/drop window.
+
+		Open LTTs are matched by from→to and assets alone; without a time check, one tractor
+		still Pending Pickup from an earlier day blocks creating a new LTT for a different date.
+		"""
+		ps = get_datetime(self.planned_start) if self.get("planned_start") else None
+		pe = get_datetime(self.planned_end) if self.get("planned_end") else None
+		if not ps and not pe:
+			return True
+
+		if ps and pe and ps > pe:
+			ps, pe = pe, ps
+		if ps and not pe:
+			pe = ps
+		elif pe and not ps:
+			ps = pe
+
+		tpu = get_datetime(ticket_doc.planned_pickup_on) if getattr(ticket_doc, "planned_pickup_on", None) else None
+		tpo = get_datetime(ticket_doc.planned_drop_off_on) if getattr(ticket_doc, "planned_drop_off_on", None) else None
+		if not tpu and not tpo:
+			t_anchor = get_datetime(ticket_doc.creation)
+			tpu = tpo = t_anchor
+
+		if tpu and tpo and tpu > tpo:
+			tpu, tpo = tpo, tpu
+		if tpu and not tpo:
+			tpo = tpu
+		elif tpo and not tpu:
+			tpu = tpo
+
+		return ps <= tpo and pe >= tpu
+
+	def _ltt_open_ticket_matches_schedule_duplicate(self, ticket_doc, schedule_ref: str | None) -> bool:
+		"""Duplicate only for the same schedule row (schedule_ref) plus same route/assets.
+
+		Legacy tickets without schedule_ref still dedupe when planned windows overlap (backward compatible).
+		"""
+		ref = (schedule_ref or "").strip()
+		t_ref = (getattr(ticket_doc, "schedule_ref", None) or "").strip()
+		if ref:
+			if t_ref == ref:
+				return True
+			if not t_ref and self._ltt_planned_window_overlaps_ticket(ticket_doc):
+				return True
+			return False
+		return self._ltt_planned_window_overlaps_ticket(ticket_doc)
+
 	def _find_open_equipment_ltt_duplicate(
-		self, from_warehouse: str, to_warehouse: str, asset_list: list[str]
+		self, from_warehouse: str, to_warehouse: str, asset_list: list[str], schedule_ref: str | None = None
 	) -> str | None:
 		"""Return name of an open LTT with same from→to where ticket already covers this leg's assets.
 
 		Uses subset match: scheduled assets may be a subset of ticket rows because
 		create_logistics_transfer_ticket appends co-moving implement assets (superset on LTT).
+		When schedule_ref is set (Crop Plan Schedule / On Demand Activity name), only the same row
+		counts as duplicate—different activities or dates keep separate LTTs.
 		"""
 		asset_set = {a for a in (asset_list or []) if a}
 		if not asset_set:
@@ -847,14 +897,16 @@ class CropPlanSchedule(Document):
 				if not ticket_doc.asset_items or len(ticket_doc.asset_items) == 0:
 					continue
 				ticket_assets = {ai.asset for ai in ticket_doc.asset_items if ai.asset}
-				if asset_set <= ticket_assets:
+				if asset_set <= ticket_assets and self._ltt_open_ticket_matches_schedule_duplicate(
+					ticket_doc, schedule_ref
+				):
 					return ticket_name
 			except Exception:
 				continue
 		return None
 
 	def _find_open_input_only_ltt_duplicate(
-		self, from_warehouse: str, to_warehouse: str, input_items: list[dict]
+		self, from_warehouse: str, to_warehouse: str, input_items: list[dict], schedule_ref: str | None = None
 	) -> str | None:
 		"""Return name of an open input-only LTT with same from→to and identical stock lines."""
 		input_items_set = {
@@ -884,14 +936,21 @@ class CropPlanSchedule(Document):
 				ticket_items = {
 					(str(si.item_code).strip(), flt(si.qty)) for si in ticket_doc.stock_items if si.item_code
 				}
-				if ticket_items == input_items_set:
+				if ticket_items == input_items_set and self._ltt_open_ticket_matches_schedule_duplicate(
+					ticket_doc, schedule_ref
+				):
 					return ticket_name
 			except Exception:
 				continue
 		return None
 
 	def _find_open_vehicle_consumables_ltt_duplicate(
-		self, from_warehouse: str, to_warehouse: str, tool_asset_list: list[str], stock_items: list[dict] | None,
+		self,
+		from_warehouse: str,
+		to_warehouse: str,
+		tool_asset_list: list[str],
+		stock_items: list[dict] | None,
+		schedule_ref: str | None = None,
 	) -> str | None:
 		"""Open vehicle/consumables LTT: same stock lines and tool assets are subset of ticket."""
 		stock_set = {
@@ -915,6 +974,8 @@ class CropPlanSchedule(Document):
 					if not (tool_set <= t_assets):
 						continue
 				elif t_assets:
+					continue
+				if not self._ltt_open_ticket_matches_schedule_duplicate(ticket_doc, schedule_ref):
 					continue
 				return ticket_name
 			except Exception:
@@ -998,7 +1059,9 @@ class CropPlanSchedule(Document):
 			if not from_warehouse or from_warehouse == target_warehouse:
 				continue
 			asset_names = [r.get("asset") for r in asset_reqs if r.get("asset")]
-			tid = self._find_open_equipment_ltt_duplicate(from_warehouse, target_warehouse, asset_names)
+			tid = self._find_open_equipment_ltt_duplicate(
+				from_warehouse, target_warehouse, asset_names, self.name
+			)
 			if not tid:
 				continue
 			pt = planned_pickup_drop_for_activity_start(self.planned_start, from_warehouse, target_warehouse)
@@ -1018,7 +1081,7 @@ class CropPlanSchedule(Document):
 			if not stocks and not tools:
 				continue
 			dup_v = self._find_open_vehicle_consumables_ltt_duplicate(
-				from_warehouse, target_warehouse, tools, stocks
+				from_warehouse, target_warehouse, tools, stocks, self.name
 			)
 			if dup_v:
 				pt = planned_pickup_drop_for_activity_start(
@@ -1051,14 +1114,14 @@ class CropPlanSchedule(Document):
 				continue
 			asset_names = [r.get("asset") for r in asset_reqs if r.get("asset")]
 			tid_m = self._find_open_equipment_ltt_duplicate(
-				field_warehouse, cluster_warehouse, asset_names
+				field_warehouse, cluster_warehouse, asset_names, self.name
 			)
 			if tid_m:
 				update_ltt_planned_times_if_pending_pickup(tid_m, pt[0], pt[1])
 		hand_other = self._collect_hand_and_other_tool_assets()
 		if hand_other:
 			tid_v = self._find_open_equipment_ltt_duplicate(
-				field_warehouse, cluster_warehouse, hand_other
+				field_warehouse, cluster_warehouse, hand_other, self.name
 			)
 			if tid_v:
 				update_ltt_planned_times_if_pending_pickup(tid_v, pt[0], pt[1])
@@ -1189,7 +1252,7 @@ class CropPlanSchedule(Document):
 				continue
 
 			dup = self._find_open_vehicle_consumables_ltt_duplicate(
-				from_warehouse, target_warehouse, tools_here, stock_here
+				from_warehouse, target_warehouse, tools_here, stock_here, self.name
 			)
 			if dup:
 				# Ticket already exists — update its planned times if setting is on and planned_start is set.
@@ -1228,6 +1291,7 @@ class CropPlanSchedule(Document):
 					assets=tools_here or None,
 					transport_vehicle=tv or None,
 					skip_default_transport_vehicle=True,
+					schedule_ref=self.name,
 					**planned_kwargs,
 				)
 				if result and result.get("ticket"):
@@ -1322,7 +1386,9 @@ class CropPlanSchedule(Document):
 			if from_warehouse == target_warehouse:
 				machinery_skips.append(f"{primary}: already at field warehouse {target_warehouse}")
 				continue
-			dup_ticket = self._find_open_equipment_ltt_duplicate(from_warehouse, target_warehouse, asset_names)
+			dup_ticket = self._find_open_equipment_ltt_duplicate(
+				from_warehouse, target_warehouse, asset_names, self.name
+			)
 			if dup_ticket:
 				# Ticket already exists — update its planned times if setting is on and planned_start is set.
 				try:
@@ -1359,6 +1425,7 @@ class CropPlanSchedule(Document):
 					assets=asset_reqs,
 					transport_vehicle=transport_machinery,
 					skip_default_transport_vehicle=True,
+					schedule_ref=self.name,
 					**planned_kwargs,
 				)
 				if result and result.get("ticket"):
@@ -1627,7 +1694,9 @@ class CropPlanSchedule(Document):
 			frappe.log_error(f"Shortfall check/MR for schedule {self.name}: {str(e)}", "Input Transfer Ticket")
 		
 		# Skip if an open input-only ticket already exists for same warehouses and stock lines
-		dup_in = self._find_open_input_only_ltt_duplicate(source_warehouse, target_warehouse, input_items)
+		dup_in = self._find_open_input_only_ltt_duplicate(
+			source_warehouse, target_warehouse, input_items, self.name
+		)
 		if dup_in:
 			frappe.log_error(
 				f"Duplicate input transfer ticket already exists for schedule {self.name}: {dup_in} (same items and warehouses), skipping",
@@ -1657,6 +1726,7 @@ class CropPlanSchedule(Document):
 				stock_items=input_items,
 				assets=None,
 				transport_vehicle=getattr(self, "transport_vehicle", None),
+				schedule_ref=self.name,
 				**planned_kwargs,
 			)
 			if result and result.get("ticket"):
@@ -1882,7 +1952,7 @@ class CropPlanSchedule(Document):
 					continue
 				asset_names = [r.get("asset") for r in asset_reqs if r.get("asset")]
 				dup_m = self._find_open_equipment_ltt_duplicate(
-					field_warehouse, cluster_warehouse, asset_names
+					field_warehouse, cluster_warehouse, asset_names, self.name
 				)
 				if dup_m:
 					continue
@@ -1893,6 +1963,7 @@ class CropPlanSchedule(Document):
 					assets=asset_reqs,
 					transport_vehicle=transport_machinery,
 					skip_default_transport_vehicle=True,
+					schedule_ref=self.name,
 					**planned_kwargs,
 				)
 				if result_m and result_m.get("ticket"):
@@ -1906,6 +1977,7 @@ class CropPlanSchedule(Document):
 					assets=[{"asset": asset, "qty": 1} for asset in hand_other_assets],
 					transport_vehicle=(getattr(self, "transport_vehicle", None) or "").strip() or None,
 					skip_default_transport_vehicle=True,
+					schedule_ref=self.name,
 					**planned_kwargs,
 				)
 				if result_v and result_v.get("ticket"):

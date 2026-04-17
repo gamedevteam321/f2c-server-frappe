@@ -692,6 +692,7 @@ def create_logistics_transfer_ticket(
 	sales_invoice: str | None = None,
 	transport_vehicle: str | None = None,
 	skip_default_transport_vehicle: bool = False,
+	schedule_ref: str | None = None,
 ):
 	"""
 	Create ONE Logistics Transfer Ticket.
@@ -1064,6 +1065,10 @@ def create_logistics_transfer_ticket(
 			tv = (_default_transport_vehicle_from_assets(assets) or "").strip()
 	if tv:
 		ticket_data["transport_vehicle"] = tv
+
+	sr = (schedule_ref or "").strip()
+	if sr:
+		ticket_data["schedule_ref"] = sr
 
 	# Follow-up save when both planned times are set (post-insert persistence for SE/AM paths).
 	explicit_schedule_planned = bool(

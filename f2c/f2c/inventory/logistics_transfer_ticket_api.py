@@ -1,12 +1,23 @@
 import json
+import math
+from datetime import timedelta
+
 import frappe
 from frappe import _
-from frappe.utils import cint, flt, now_datetime
+from frappe.utils import cint, flt, get_datetime, get_datetime_str, now_datetime
 
 from f2c.farm_report.doctype.farm_report_ticket.farm_report_ticket import create_report_and_mark_reported
 
 # Include both Draft (0) and Submitted (1) Assets in inventory views; exclude Cancelled (2)
 ASSET_DOCSTATUS_NOT_CANCELLED = [0, 1]
+
+
+def _f2c_enforce_logistics_location() -> bool:
+	"""When F2C Settings disables enforcement, relax client/server gates (e.g. receive before Delivered)."""
+	if not frappe.db.exists("DocType", "F2C Settings"):
+		return True
+	v = frappe.db.get_value("F2C Settings", "F2C Settings", "enforce_logistics_location_check")
+	return cint(v) == 1
 
 
 def _normalize_photo_urls(value):
@@ -165,6 +176,264 @@ def get_location_for_geo_area(geo_area: str):
 	return {"geo_area": geo_area, "location": loc, "location_name": location_name}
 
 
+def _warehouse_lat_lng(warehouse: str | None) -> tuple[float, float] | None:
+	"""Return (lat, lng) from Location linked to warehouse, or None if missing."""
+	if not warehouse:
+		return None
+	try:
+		location_name = get_location_for_warehouse(warehouse).get("location")
+		if not location_name:
+			return None
+		location_doc = frappe.get_doc("Location", location_name)
+		lat, lon = location_doc.latitude, location_doc.longitude
+		if lat and lon:
+			return (float(flt(lat)), float(flt(lon)))
+	except Exception:
+		return None
+	return None
+
+
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+	"""Great-circle distance in km between two WGS84 points."""
+	r = 6371.0
+	p1, p2 = math.radians(lat1), math.radians(lat2)
+	dlat = math.radians(lat2 - lat1)
+	dlon = math.radians(lon2 - lon1)
+	a = math.sin(dlat / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlon / 2) ** 2
+	c = 2 * math.atan2(math.sqrt(a), math.sqrt(max(0.0, 1.0 - a)))
+	return r * c
+
+
+def _get_f2c_ltt_timing_settings() -> dict:
+	"""Read LTT timing fields from F2C Settings with safe defaults."""
+	defaults = {
+		"ltt_schedule_planned_times_enabled": 1,
+		"ltt_dropoff_buffer_minutes": 10,
+		"ltt_travel_avg_speed_kph": 35.0,
+		"ltt_travel_road_factor": 1.25,
+		"ltt_travel_min_minutes": 5,
+		"ltt_travel_max_minutes": 480,
+		"ltt_travel_fallback_minutes": 60,
+	}
+	if not frappe.db.exists("DocType", "F2C Settings"):
+		return defaults
+	if not frappe.db.exists("F2C Settings", "F2C Settings"):
+		return defaults
+	# Read from DB (not get_cached_doc) so toggling LTT timing on F2C Settings applies on the next request without stale cache.
+	row = frappe.db.get_value(
+		"F2C Settings",
+		"F2C Settings",
+		[
+			"ltt_schedule_planned_times_enabled",
+			"ltt_dropoff_buffer_minutes",
+			"ltt_travel_avg_speed_kph",
+			"ltt_travel_road_factor",
+			"ltt_travel_min_minutes",
+			"ltt_travel_max_minutes",
+			"ltt_travel_fallback_minutes",
+		],
+		as_dict=True,
+	)
+	if not row:
+		return defaults
+	out = dict(defaults)
+	# NULL after migrate / never saved: cint(None)==0 would wrongly disable the feature (DocType default is 1).
+	_ltt_times_flag = row.get("ltt_schedule_planned_times_enabled")
+	if _ltt_times_flag is None:
+		out["ltt_schedule_planned_times_enabled"] = defaults["ltt_schedule_planned_times_enabled"]
+	else:
+		out["ltt_schedule_planned_times_enabled"] = cint(_ltt_times_flag)
+	out["ltt_dropoff_buffer_minutes"] = cint(row.get("ltt_dropoff_buffer_minutes")) or 10
+	speed = flt(row.get("ltt_travel_avg_speed_kph"))
+	out["ltt_travel_avg_speed_kph"] = float(speed) if speed > 0 else 35.0
+	factor = flt(row.get("ltt_travel_road_factor"))
+	out["ltt_travel_road_factor"] = float(factor) if factor > 0 else 1.25
+	tmin = cint(row.get("ltt_travel_min_minutes")) or 5
+	tmax = cint(row.get("ltt_travel_max_minutes")) or 480
+	if tmax < tmin:
+		tmax = tmin
+	out["ltt_travel_min_minutes"] = tmin
+	out["ltt_travel_max_minutes"] = tmax
+	out["ltt_travel_fallback_minutes"] = cint(row.get("ltt_travel_fallback_minutes")) or 60
+	return out
+
+
+def estimate_internal_ltt_travel_minutes(from_warehouse: str | None, to_warehouse: str | None) -> int:
+	"""
+	Estimated travel minutes between two warehouses from Location coordinates,
+	or fallback minutes when either side has no usable lat/lng.
+	"""
+	settings = _get_f2c_ltt_timing_settings()
+	fallback = int(settings["ltt_travel_fallback_minutes"])
+	tmin = int(settings["ltt_travel_min_minutes"])
+	tmax = int(settings["ltt_travel_max_minutes"])
+	a = _warehouse_lat_lng(from_warehouse)
+	b = _warehouse_lat_lng(to_warehouse)
+	if not a or not b:
+		return fallback
+	km = _haversine_km(a[0], a[1], b[0], b[1]) * float(settings["ltt_travel_road_factor"])
+	speed = float(settings["ltt_travel_avg_speed_kph"])
+	if speed <= 0:
+		speed = 35.0
+	minutes = int(round((km / speed) * 60.0))
+	return max(tmin, min(tmax, minutes))
+
+
+def _min_lead_minutes_before_planned_drop() -> int:
+	"""Planned pickup must be at least this many minutes before planned drop-off."""
+	return 60
+
+
+def clamp_planned_pickup_before_drop_str(
+	pickup_in,
+	drop_in,
+	*,
+	min_lead_minutes: int | None = None,
+) -> tuple[str | None, str | None]:
+	"""
+	Ensure planned_pickup_on is strictly before planned_drop_off_on by at least min_lead_minutes
+	(default 60). Fixes cases where pickup was defaulted to ticket creation after a scheduled drop.
+	"""
+	if min_lead_minutes is None:
+		min_lead_minutes = _min_lead_minutes_before_planned_drop()
+	if not drop_in:
+		pu = get_datetime(pickup_in) if pickup_in else None
+		return (get_datetime_str(pu) if pu else None, None)
+	po = get_datetime(drop_in)
+	if not po:
+		pu = get_datetime(pickup_in) if pickup_in else None
+		di = get_datetime(drop_in)
+		return (get_datetime_str(pu) if pu else None, get_datetime_str(di) if di else None)
+	lim = po - timedelta(minutes=min_lead_minutes)
+	pu = get_datetime(pickup_in) if pickup_in else None
+	if not pu or pu >= po:
+		pu = lim
+	elif pu > lim:
+		pu = lim
+	return get_datetime_str(pu), get_datetime_str(po)
+
+
+def planned_pickup_drop_for_activity_start(
+	activity_start,
+	from_warehouse: str | None,
+	to_warehouse: str | None,
+) -> tuple[str, str] | None:
+	"""
+	Compute (planned_pickup_on, planned_drop_off_on) for internal LTTs tied to a scheduled activity.
+	planned_drop_off_on equals the anchor (e.g. Crop Plan Schedule planned_start, or planned_end for returns).
+	If the anchor is missing or not parseable, uses current server time so LTT still gets explicit planned times.
+	planned_pickup_on is anchor minus estimated travel minus ltt_dropoff_buffer_minutes (pickup lead).
+	Returns None when the feature is off (caller should omit datetimes; create_logistics_transfer_ticket uses creation defaults).
+	Returns strings so callers can pass them directly to @whitelist functions.
+	"""
+	try:
+		settings = _get_f2c_ltt_timing_settings()
+		if not cint(settings.get("ltt_schedule_planned_times_enabled")):
+			return None
+		start = get_datetime(activity_start) if activity_start else None
+		if not start:
+			start = now_datetime()
+		lead_m = int(settings["ltt_dropoff_buffer_minutes"])
+		drop = start
+		travel_m = estimate_internal_ltt_travel_minutes(from_warehouse, to_warehouse)
+		pickup = start - timedelta(minutes=travel_m + lead_m)
+		if pickup > drop:
+			pickup = drop
+		return clamp_planned_pickup_before_drop_str(pickup, drop)
+	except Exception as e:
+		frappe.log_error(
+			f"planned_pickup_drop_for_activity_start failed\n"
+			f"activity_start={activity_start!r}\n"
+			f"from_warehouse={from_warehouse!r}\n"
+			f"to_warehouse={to_warehouse!r}\n\n"
+			f"{e!s}\n\n"
+			f"{frappe.get_traceback()}",
+			"LTT planned_pickup_drop_for_activity_start",
+		)
+		raise
+
+
+def schedule_ltt_planned_times_enabled() -> bool:
+	"""True when F2C Settings says schedule/on-demand should set LTT planned pickup/drop."""
+	return bool(cint(_get_f2c_ltt_timing_settings().get("ltt_schedule_planned_times_enabled")))
+
+
+def planned_internal_ltt_kwargs_from_anchor(
+	activity_anchor,
+	from_warehouse: str | None,
+	to_warehouse: str | None,
+) -> dict:
+	"""Build planned_pickup_on / planned_drop_off_on kwargs for create_logistics_transfer_ticket (empty if disabled or no anchor)."""
+	pt = planned_pickup_drop_for_activity_start(activity_anchor, from_warehouse, to_warehouse)
+	if not pt:
+		return {}
+	return {"planned_pickup_on": pt[0], "planned_drop_off_on": pt[1]}
+
+
+def execution_anchor_datetime_for_ltt(execution_doc, *, anchor_kind: str):
+	"""
+	Datetime anchor from linked Crop Plan Schedule / On Demand Activity for execution-scoped internal LTTs.
+	anchor_kind:
+	  - activity_start: planned_start on the link, else actual_start on the execution.
+	  - activity_end: planned_end on the link, else actual_end, else actual_start.
+	"""
+	if anchor_kind not in ("activity_start", "activity_end"):
+		anchor_kind = "activity_start"
+	schedule_ref = (getattr(execution_doc, "schedule_ref", None) or "").strip()
+	oda_ref = (getattr(execution_doc, "on_demand_activity_ref", None) or "").strip()
+	if anchor_kind == "activity_start":
+		for doctype, ref, col in (
+			("Crop Plan Schedule", schedule_ref, "planned_start"),
+			("On Demand Activity", oda_ref, "planned_start"),
+		):
+			if not ref:
+				continue
+			v = frappe.db.get_value(doctype, ref, col)
+			if v:
+				return v
+		return getattr(execution_doc, "actual_start", None)
+	for doctype, ref, col in (
+		("Crop Plan Schedule", schedule_ref, "planned_end"),
+		("On Demand Activity", oda_ref, "planned_end"),
+	):
+		if not ref:
+			continue
+		v = frappe.db.get_value(doctype, ref, col)
+		if v:
+			return v
+	return getattr(execution_doc, "actual_end", None) or getattr(execution_doc, "actual_start", None)
+
+
+def update_ltt_planned_times_if_pending_pickup(
+	ticket_name: str | None,
+	planned_pickup_on,
+	planned_drop_off_on,
+) -> bool:
+	"""
+	Update planned pickup/drop on an LTT that is still Pending Pickup (not dispatched).
+	Returns True if the document was saved with new times.
+	"""
+	if not ticket_name or planned_pickup_on is None or planned_drop_off_on is None:
+		return False
+	try:
+		doc = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
+	except Exception:
+		return False
+	if (doc.status or "").strip() != "Pending Pickup":
+		return False
+	pu = get_datetime(planned_pickup_on)
+	po = get_datetime(planned_drop_off_on)
+	if not pu or not po:
+		return False
+	pu_s, po_s = clamp_planned_pickup_before_drop_str(pu, po)
+	if not pu_s or not po_s:
+		return False
+	doc.planned_pickup_on = pu_s
+	doc.planned_drop_off_on = po_s
+	doc.save(ignore_permissions=True)
+	return True
+
+
 @frappe.whitelist()
 def get_warehouses_for_geo_area(geo_area: str, strict_geo_area: int = 0):
 	if not geo_area:
@@ -235,8 +504,17 @@ def get_warehouses_for_geo_area(geo_area: str, strict_geo_area: int = 0):
 	return {"geo_area": geo_area, "warehouses": combined}
 
 
+def _get_default_company():
+	"""Return first company for tracking-only tickets when both ends are Other."""
+	companies = frappe.get_all("Company", pluck="name", limit_page_length=1)
+	return companies[0] if companies else None
+
+
 def _implement_asset_for_tractor_transfer(tractor_asset: str, paired_implement: str | None) -> str | None:
-	"""Asset name linked to the implement that should move with this tractor."""
+	"""
+	Asset name linked to the implement that should move with this tractor.
+	Uses Implement doc name from paired_implement when provided; else Machinery.current_implement.
+	"""
 	if not tractor_asset:
 		return None
 	pi = (paired_implement or "").strip()
@@ -285,44 +563,230 @@ def expected_asset_names_for_machinery_unit(
 	return [r["asset"] for r in reqs if r.get("asset")]
 
 
+def _sync_equipment_location_from_asset(asset_name: str) -> None:
+	"""Copy Asset.location onto the linked Machinery / Implement / Hand Tool / Other Tool doc."""
+	if not asset_name:
+		return
+	loc = frappe.db.get_value("Asset", asset_name, "location")
+	if not loc:
+		return
+	for doctype in ("Machinery", "Implement", "Hand Tool", "Other Tool"):
+		name = frappe.db.get_value(doctype, {"asset": asset_name}, "name")
+		if name:
+			frappe.db.set_value(doctype, name, "location", loc, update_modified=False)
+			return
+
+
+def _sync_equipment_locations_after_asset_movement(ticket) -> None:
+	"""After Asset Movement submit/cancel, refresh equipment doc locations from Asset."""
+	seen: set[str] = set()
+	for row in getattr(ticket, "asset_items", None) or []:
+		an = row.get("asset")
+		if not an or an in seen:
+			continue
+		seen.add(an)
+		_sync_equipment_location_from_asset(an)
+
+
+def _reapply_tractor_implement_links_after_transfer(ticket) -> None:
+	"""
+	Ensure Machinery.current_implement and Implement.attached_to_machinery stay consistent
+	for ticket rows that record a paired implement (runs Machinery save → existing sync hooks).
+	"""
+	for row in getattr(ticket, "asset_items", None) or []:
+		pi = (getattr(row, "paired_implement", None) or "").strip()
+		if not pi or not frappe.db.exists("Implement", pi):
+			continue
+		asset = row.get("asset")
+		if not asset:
+			continue
+		mach_name = frappe.db.get_value("Machinery", {"asset": asset}, "name")
+		if not mach_name:
+			continue
+		m = frappe.get_doc("Machinery", mach_name)
+		if (m.machinery_type or "") != "Tractor":
+			continue
+		impl_owner = frappe.db.get_value("Implement", pi, "attached_to_machinery") or None
+		if (m.current_implement or "") == pi and impl_owner == mach_name:
+			continue
+		m.current_implement = pi
+		m.save(ignore_permissions=True)
+
+
+# Machinery types that may legally be both moved asset and transport_vehicle on the same LTT.
+SELF_PROPELLED_MACHINERY_TYPES = frozenset(
+	{
+		"Tractor",
+		"Harvester",
+		"Combine Harvester",
+		"Thresher",
+		"Earthmoving",
+		"Baler",
+		"Tiller",
+	}
+)
+
+
+def self_transport_machinery_name_for_asset(asset_name: str | None) -> str | None:
+	"""Machinery `name` for self-propelled equipment linked to this Asset (excludes type Vehicle)."""
+	if not asset_name:
+		return None
+	types = list(SELF_PROPELLED_MACHINERY_TYPES)
+	names = frappe.get_all(
+		"Machinery",
+		filters={"asset": asset_name, "machinery_type": ["in", types]},
+		pluck="name",
+		order_by="modified desc",
+		limit_page_length=1,
+	)
+	return names[0] if names else None
+
+
+def is_valid_transport_vehicle_machinery_type(machinery_type: str | None) -> bool:
+	"""Pickup Vehicle or self-propelled machinery may be LTT transport_vehicle."""
+	t = (machinery_type or "").strip()
+	if not t:
+		return False
+	if t == "Vehicle":
+		return True
+	return t in SELF_PROPELLED_MACHINERY_TYPES
+
+
+def _default_transport_vehicle_from_assets(assets: list | None) -> str | None:
+	"""
+	Use moved self-propelled machinery as Transport vehicle when no vehicle was passed.
+	Skips implements and other assets with no matching self-propelled Machinery row.
+	"""
+	if not assets:
+		return None
+	for a in assets:
+		an = a if isinstance(a, str) else (a.get("asset") if isinstance(a, dict) else None)
+		if not an:
+			continue
+		mname = self_transport_machinery_name_for_asset(an)
+		if mname:
+			return mname
+	return None
+
+
 @frappe.whitelist()
 def create_logistics_transfer_ticket(
-	from_warehouse: str,
-	to_warehouse: str,
+	from_warehouse: str | None = None,
+	to_warehouse: str | None = None,
 	stock_items: list[dict] | None = None,
 	assets: list | None = None,
+	transfer_type: str = "Internal",
+	from_location_type: str = "Warehouse",
+	to_location_type: str = "Warehouse",
+	from_address: str | None = None,
+	from_latitude: float | None = None,
+	from_longitude: float | None = None,
+	to_address: str | None = None,
+	to_latitude: float | None = None,
+	to_longitude: float | None = None,
+	planned_pickup_on: str | None = None,
+	planned_drop_off_on: str | None = None,
+	purchase_order: str | None = None,
+	purchase_invoice: str | None = None,
+	sales_order: str | None = None,
+	sales_invoice: str | None = None,
 	transport_vehicle: str | None = None,
-	**kwargs,
+	skip_default_transport_vehicle: bool = False,
+	schedule_ref: str | None = None,
 ):
 	"""
-	Create ONE Logistics Transfer Ticket that links:
-	- draft Stock Entry (Material Transfer) with multiple lines
-	- draft Asset Movement (Transfer) with multiple assets
+	Create ONE Logistics Transfer Ticket.
+	When both From and To are Warehouse: creates draft Stock Entry and optionally Asset Movement.
+	When either end is Other (external location): no Stock Entry/Asset Movement (tracking-only).
 	"""
-	if not from_warehouse or not to_warehouse:
-		frappe.throw(_("from_warehouse and to_warehouse are required"))
-	# Allow same warehouse for input-only (stock_items, no assets) so pickable/receivable entries are always created for approved inputs
 	stock_items = stock_items or []
 	assets = assets or []
-	if from_warehouse == to_warehouse and assets:
-		frappe.throw(_("From and To Warehouse cannot be same"))
-	if from_warehouse == to_warehouse and not stock_items:
-		frappe.throw(_("From and To Warehouse cannot be same"))
 
-	if not stock_items and not assets:
-		frappe.throw(_("Select at least one stock item or asset"))
+	if purchase_order and not frappe.db.exists("Purchase Order", purchase_order):
+		frappe.throw(_("Purchase Order {0} does not exist").format(purchase_order))
+	if purchase_invoice and not frappe.db.exists("Purchase Invoice", purchase_invoice):
+		frappe.throw(_("Purchase Invoice {0} does not exist").format(purchase_invoice))
+	if sales_order and not frappe.db.exists("Sales Order", sales_order):
+		frappe.throw(_("Sales Order {0} does not exist").format(sales_order))
+	if sales_invoice and not frappe.db.exists("Sales Invoice", sales_invoice):
+		frappe.throw(_("Sales Invoice {0} does not exist").format(sales_invoice))
+	if purchase_order and purchase_invoice:
+		frappe.throw(_("Set either Purchase Order or Purchase Invoice, not both."))
+	if sales_order and sales_invoice:
+		frappe.throw(_("Set either Sales Order or Sales Invoice, not both."))
+	if (sales_order or sales_invoice) and (purchase_order or purchase_invoice):
+		frappe.throw(
+			_("Cannot combine Sales Order or Sales Invoice with Purchase Order or Purchase Invoice.")
+		)
 
-	company = frappe.db.get_value("Warehouse", from_warehouse, "company")
-	if not company:
-		frappe.throw(_("From Warehouse has no Company"))
+	# Normalize location types
+	from_location_type = (from_location_type or "Warehouse").strip()
+	to_location_type = (to_location_type or "Warehouse").strip()
+	if from_location_type not in ("Warehouse", "Other"):
+		from_location_type = "Warehouse"
+	if to_location_type not in ("Warehouse", "Other"):
+		to_location_type = "Warehouse"
 
-	# Resolve from/to locations (best effort)
-	from_loc = get_location_for_warehouse(from_warehouse).get("location")
-	to_loc = get_location_for_warehouse(to_warehouse).get("location")
+	# Validation by location type
+	if from_location_type == "Warehouse":
+		if not from_warehouse:
+			frappe.throw(_("From Warehouse is required when From Location Type is Warehouse"))
+	else:
+		from_warehouse = None
+		if from_latitude is None and from_longitude is None:
+			frappe.throw(_("From Latitude and Longitude are required when From Location Type is Other"))
+		from_lat = flt(from_latitude)
+		from_lng = flt(from_longitude)
+		if from_lat == 0 and from_lng == 0:
+			frappe.throw(_("From Latitude and Longitude are required when From Location Type is Other"))
+
+	if to_location_type == "Warehouse":
+		if not to_warehouse:
+			frappe.throw(_("To Warehouse is required when To Location Type is Warehouse"))
+	else:
+		to_warehouse = None
+		if to_latitude is None and to_longitude is None:
+			frappe.throw(_("To Latitude and Longitude are required when To Location Type is Other"))
+		to_lat = flt(to_latitude)
+		to_lng = flt(to_longitude)
+		if to_lat == 0 and to_lng == 0:
+			frappe.throw(_("To Latitude and Longitude are required when To Location Type is Other"))
+
+	if from_location_type == "Warehouse" and to_location_type == "Warehouse":
+		if from_warehouse == to_warehouse and assets:
+			frappe.throw(_("From and To Warehouse cannot be same"))
+		if from_warehouse == to_warehouse and not stock_items:
+			frappe.throw(_("From and To Warehouse cannot be same"))
+		if not stock_items and not assets:
+			frappe.throw(_("Select at least one stock item or asset"))
+
+	# When either end is Other: tracking-only, no SE/AM
+	both_warehouse = from_location_type == "Warehouse" and to_location_type == "Warehouse"
+	if both_warehouse:
+		company = frappe.db.get_value("Warehouse", from_warehouse, "company")
+		if not company:
+			frappe.throw(_("From Warehouse has no Company"))
+		from_loc = get_location_for_warehouse(from_warehouse).get("location")
+		to_loc = get_location_for_warehouse(to_warehouse).get("location")
+	else:
+		company = None
+		if from_warehouse:
+			company = frappe.db.get_value("Warehouse", from_warehouse, "company")
+		if not company and to_warehouse:
+			company = frappe.db.get_value("Warehouse", to_warehouse, "company")
+		if not company:
+			company = _get_default_company()
+		if not company:
+			frappe.throw(_("Could not determine Company for transfer ticket"))
+		from_loc = get_location_for_warehouse(from_warehouse).get("location") if from_warehouse else None
+		to_loc = get_location_for_warehouse(to_warehouse).get("location") if to_warehouse else None
 
 	stock_entry_name = None
+	asset_movement_name = None
+	asset_item_rows_for_ticket: list[dict] = []
 	available_items_for_entry = []
-	if stock_items:
+
+	if both_warehouse and stock_items:
 		# Check availability for each item before creating Stock Entry
 		# All items (available or not) will still be included in ticket.stock_items below
 		for row in stock_items:
@@ -399,9 +863,7 @@ def create_logistics_transfer_ticket(
 			se.insert(ignore_permissions=True)
 			stock_entry_name = se.name
 
-	asset_movement_name = None
-	asset_item_rows_for_ticket: list[dict] = []
-	if assets:
+	if both_warehouse and assets:
 		# For asset transfers, destination Location must exist. If it doesn't, ERPNext will treat
 		# target_location as source_location and throw: "Source and Target Location cannot be same".
 		if not to_loc:
@@ -427,6 +889,8 @@ def create_logistics_transfer_ticket(
 						**({"paired_implement": pi} if pi else {}),
 					}
 				)
+
+		# Move implement assets together with tractors (same Asset Movement + destination Location).
 		requests = _append_co_moving_implement_assets(requests)
 
 		asset_rows = []
@@ -474,7 +938,11 @@ def create_logistics_transfer_ticket(
 					"target_location": to_loc,
 				}
 			)
-			asset_item_rows_for_ticket.append({"asset": move_asset.name, "qty": move_qty})
+			ticket_asset_row = {"asset": move_asset.name, "qty": move_qty}
+			req_pi = (req.get("paired_implement") or "").strip()
+			if req_pi and frappe.db.exists("Implement", req_pi):
+				ticket_asset_row["paired_implement"] = req_pi
+			asset_item_rows_for_ticket.append(ticket_asset_row)
 
 		if already_there and not asset_rows:
 			frappe.throw(
@@ -496,25 +964,146 @@ def create_logistics_transfer_ticket(
 			am.insert(ignore_permissions=True)
 			asset_movement_name = am.name
 
-	ticket_fields = {
+	# External transfer: accept assets for ticket.asset_items (no Asset Movement)
+	if not both_warehouse and assets:
+		ext_reqs: list[dict] = []
+		for a in assets:
+			if isinstance(a, str):
+				ext_reqs.append({"asset": a, "qty": 1})
+			elif isinstance(a, dict):
+				ext_pi = (a.get("paired_implement") or "").strip()
+				ext_reqs.append(
+					{
+						"asset": a.get("asset"),
+						"qty": max(1, flt(a.get("qty") or 1)),
+						**({"paired_implement": ext_pi} if ext_pi else {}),
+					}
+				)
+		for req in _append_co_moving_implement_assets(ext_reqs):
+			asset_name = req.get("asset")
+			qty = max(1, flt(req.get("qty") or 1))
+			if asset_name and qty > 0:
+				ext_row = {"asset": asset_name, "qty": qty}
+				req_pi = (req.get("paired_implement") or "").strip()
+				if req_pi and frappe.db.exists("Implement", req_pi):
+					ext_row["paired_implement"] = req_pi
+				asset_item_rows_for_ticket.append(ext_row)
+
+	asset_items_payload = []
+	for r in asset_item_rows_for_ticket:
+		if not r.get("asset"):
+			continue
+		row = {"asset": r.get("asset"), "qty": r.get("qty") or 1}
+		pi = (r.get("paired_implement") or "").strip()
+		if pi and frappe.db.exists("Implement", pi):
+			row["paired_implement"] = pi
+		asset_items_payload.append(row)
+
+	ticket_data = {
 		"doctype": "Logistics Transfer Ticket",
-		"from_warehouse": from_warehouse,
-		"to_warehouse": to_warehouse,
+		"from_warehouse": from_warehouse or None,
+		"to_warehouse": to_warehouse or None,
 		"from_location": from_loc,
 		"to_location": to_loc,
+		"transfer_type": transfer_type or "Internal",
+		"from_location_type": from_location_type,
+		"to_location_type": to_location_type,
 		"stock_entry": stock_entry_name,
 		"asset_movement": asset_movement_name,
 		"status": "Pending Pickup",
+		"pickup_phase": "Upcoming",
+		"drop_off_phase": None,
 		"stock_items": [
 			{"item_code": r.get("item_code"), "qty": flt(r.get("qty"))} for r in (stock_items or []) if r.get("item_code")
 		],
-		"asset_items": [{"asset": r.get("asset"), "qty": r.get("qty") or 1} for r in asset_item_rows_for_ticket if r.get("asset")],
+		"asset_items": asset_items_payload,
 	}
+	if purchase_order:
+		ticket_data["purchase_order"] = purchase_order
+	if purchase_invoice:
+		ticket_data["purchase_invoice"] = purchase_invoice
+	if sales_order:
+		ticket_data["sales_order"] = sales_order
+	if sales_invoice:
+		ticket_data["sales_invoice"] = sales_invoice
+	if from_location_type == "Other":
+		ticket_data["from_address"] = (from_address or "").strip() or None
+		ticket_data["from_latitude"] = flt(from_latitude)
+		ticket_data["from_longitude"] = flt(from_longitude)
+	if to_location_type == "Other":
+		ticket_data["to_address"] = (to_address or "").strip() or None
+		ticket_data["to_latitude"] = flt(to_latitude)
+		ticket_data["to_longitude"] = flt(to_longitude)
+
+	# Only set when parseable; store as string so Frappe's insert handles all versions uniformly.
+	if planned_pickup_on is not None:
+		_pu = get_datetime(planned_pickup_on)
+		if _pu:
+			ticket_data["planned_pickup_on"] = get_datetime_str(_pu)
+	if planned_drop_off_on is not None:
+		_po = get_datetime(planned_drop_off_on)
+		if _po:
+			ticket_data["planned_drop_off_on"] = get_datetime_str(_po)
+
+	# Pickup must be strictly before drop (min 60 min lead). Fixes drop from schedule + pickup defaulting to creation.
+	if ticket_data.get("planned_drop_off_on"):
+		_pu_c, _po_c = clamp_planned_pickup_before_drop_str(
+			ticket_data.get("planned_pickup_on"), ticket_data["planned_drop_off_on"]
+		)
+		if _pu_c:
+			ticket_data["planned_pickup_on"] = _pu_c
+		if _po_c:
+			ticket_data["planned_drop_off_on"] = _po_c
+
 	tv = (transport_vehicle or "").strip()
+	if not tv and not skip_default_transport_vehicle:
+		# Tickets that move stock (approved inputs) must use an explicit pickup Vehicle on the schedule.
+		# Do not fall back to the tractor — that blurs consumables vs machinery moves.
+		if stock_items:
+			tv = ""
+		else:
+			tv = (_default_transport_vehicle_from_assets(assets) or "").strip()
 	if tv:
-		ticket_fields["transport_vehicle"] = tv
-	ticket = frappe.get_doc(ticket_fields)
+		ticket_data["transport_vehicle"] = tv
+
+	sr = (schedule_ref or "").strip()
+	if sr:
+		ticket_data["schedule_ref"] = sr
+
+	# Follow-up save when both planned times are set (post-insert persistence for SE/AM paths).
+	explicit_schedule_planned = bool(
+		ticket_data.get("planned_pickup_on") and ticket_data.get("planned_drop_off_on")
+	)
+
+	ticket = frappe.get_doc(ticket_data)
 	ticket.insert(ignore_permissions=True)
+
+	# Default planned dates to creation when not provided (insert does not always persist in-doc patches).
+	need_planned_save = False
+	if ticket_data.get("planned_pickup_on") is None:
+		ticket.planned_pickup_on = ticket.creation
+		need_planned_save = True
+	if ticket_data.get("planned_drop_off_on") is None:
+		ticket.planned_drop_off_on = ticket.creation
+		need_planned_save = True
+	# When planned pickup/drop are on the ticket, re-apply clamp and save (mirrors historical creation-default path).
+	if explicit_schedule_planned:
+		pu = get_datetime(ticket_data.get("planned_pickup_on"))
+		po = get_datetime(ticket_data.get("planned_drop_off_on"))
+		if pu and po:
+			pu2, po2 = clamp_planned_pickup_before_drop_str(pu, po)
+			if pu2 and po2:
+				ticket.planned_pickup_on = pu2
+				ticket.planned_drop_off_on = po2
+				need_planned_save = True
+	if need_planned_save and (ticket.planned_pickup_on or ticket.planned_drop_off_on):
+		try:
+			ticket.save(ignore_permissions=True)
+		except Exception as e:
+			frappe.log_error(
+				f"LTT {ticket.name}: post-insert save for planned times failed (ticket and SE/AM may still exist): {e!s}",
+				"Logistics Transfer Ticket",
+			)
 
 	return {
 		"ticket": ticket.name,
@@ -526,13 +1115,18 @@ def create_logistics_transfer_ticket(
 
 @frappe.whitelist()
 def mark_dispatched(ticket_name: str, dispatch_photo_url=None):
-	"""dispatch_photo_url can be a single URL string, list of URLs, or JSON string of URLs."""
+	"""dispatch_photo_url can be a single URL string, list of URLs, or JSON string of URLs.
+	Allowed when pickup_phase is At Pickup Point or In Transit (backward compatible)."""
 	if not ticket_name:
 		frappe.throw(_("ticket_name is required"))
 	ticket = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
 	if ticket.status != "Pending Pickup":
 		frappe.throw(_("Only Pending Pickup tickets can be dispatched"))
+	phase = getattr(ticket, "pickup_phase", None) or ""
+	if phase not in ("At Pickup Point", "In Transit", "Not Started", "Upcoming"):
+		frappe.throw(_("Pickup phase must be At Pickup Point, In Transit, Not Started, or Upcoming to dispatch"))
 	ticket.status = "In Transit"
+	ticket.pickup_phase = "In Transit"
 	ticket.dispatched_on = now_datetime()
 	photo_json = _normalize_photo_urls(dispatch_photo_url)
 	if photo_json:
@@ -543,12 +1137,22 @@ def mark_dispatched(ticket_name: str, dispatch_photo_url=None):
 
 @frappe.whitelist()
 def mark_received(ticket_name: str, receive_photo_url=None):
-	"""receive_photo_url can be a single URL string, list of URLs, or JSON string of URLs."""
+	"""receive_photo_url can be a single URL string, list of URLs, or JSON string of URLs.
+	Allowed when status=In Transit and drop_off_phase is Delivered (new flow) or In Transit (legacy).
+	When F2C Settings disables location enforcement, At Drop Off Point is also allowed (receiver need not wait for driver Delivered)."""
 	if not ticket_name:
 		frappe.throw(_("ticket_name is required"))
 	ticket = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
 	if ticket.status != "In Transit":
 		frappe.throw(_("Only In Transit tickets can be marked Received"))
+	drop_phase = getattr(ticket, "drop_off_phase", None) or ""
+	allowed_phases = {"Delivered", "In Transit"}
+	if not _f2c_enforce_logistics_location():
+		allowed_phases.add("At Drop Off Point")
+	if drop_phase not in allowed_phases:
+		frappe.throw(
+			_("Drop off phase must be one of {0} to mark Received").format(", ".join(sorted(allowed_phases)))
+		)
 
 	if ticket.stock_entry:
 		se = frappe.get_doc("Stock Entry", ticket.stock_entry)
@@ -560,6 +1164,9 @@ def mark_received(ticket_name: str, receive_photo_url=None):
 		if am.docstatus == 0:
 			am.submit()
 
+	_sync_equipment_locations_after_asset_movement(ticket)
+	_reapply_tractor_implement_links_after_transfer(ticket)
+
 	new_status = _get_equipment_status_for_destination_warehouse(ticket.to_warehouse)
 	if new_status and getattr(ticket, "asset_items", None):
 		for row in ticket.asset_items:
@@ -567,6 +1174,8 @@ def mark_received(ticket_name: str, receive_photo_url=None):
 				_set_equipment_status_for_asset(row.asset, new_status)
 
 	ticket.status = "Received"
+	if drop_phase != "Delivered":
+		ticket.drop_off_phase = "Delivered"
 	ticket.received_on = now_datetime()
 	photo_json = _normalize_photo_urls(receive_photo_url)
 	if photo_json:
@@ -594,6 +1203,8 @@ def revert_received(ticket_name: str):
 		if am.docstatus == 1:
 			am.cancel()
 
+	_sync_equipment_locations_after_asset_movement(ticket)
+
 	new_status = _get_equipment_status_for_destination_warehouse(ticket.from_warehouse)
 	if new_status and getattr(ticket, "asset_items", None):
 		for row in ticket.asset_items:
@@ -601,10 +1212,119 @@ def revert_received(ticket_name: str):
 				_set_equipment_status_for_asset(row.asset, new_status)
 
 	ticket.status = "In Transit"
+	ticket.drop_off_phase = "In Transit"
 	ticket.received_on = None
 	ticket.receive_photo = None
 	ticket.save(ignore_permissions=True)
 	return {"ticket": ticket.name, "status": ticket.status}
+
+
+@frappe.whitelist()
+def start_pickup(ticket_name: str):
+	"""Set pickup phase to Not Started when user opens Start Pickup (e.g. driver accepted)."""
+	if not ticket_name:
+		frappe.throw(_("ticket_name is required"))
+	ticket = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
+	if ticket.status != "Pending Pickup":
+		frappe.throw(_("Only Pending Pickup tickets can start pickup"))
+	if getattr(ticket, "pickup_phase", None) != "Upcoming":
+		frappe.throw(_("Pickup already started or in progress"))
+	ticket.pickup_phase = "Not Started"
+	ticket.save(ignore_permissions=True)
+	return {"ticket": ticket.name, "pickup_phase": ticket.pickup_phase}
+
+
+@frappe.whitelist()
+def mark_en_route_to_pickup(ticket_name: str):
+	"""Driver left for pickup; set pickup phase to In Transit (status stays Pending Pickup)."""
+	if not ticket_name:
+		frappe.throw(_("ticket_name is required"))
+	ticket = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
+	if ticket.status != "Pending Pickup":
+		frappe.throw(_("Only Pending Pickup tickets can be marked en route to pickup"))
+	if getattr(ticket, "pickup_phase", None) != "Not Started":
+		frappe.throw(_("Pickup phase must be Not Started to mark en route to pickup"))
+	ticket.pickup_phase = "In Transit"
+	ticket.save(ignore_permissions=True)
+	return {"ticket": ticket.name, "pickup_phase": ticket.pickup_phase}
+
+
+@frappe.whitelist()
+def mark_reached_pickup_point(ticket_name: str):
+	"""Driver at pickup location; set pickup phase to At Pickup Point."""
+	if not ticket_name:
+		frappe.throw(_("ticket_name is required"))
+	ticket = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
+	if ticket.status != "Pending Pickup":
+		frappe.throw(_("Only Pending Pickup tickets can mark reached pickup point"))
+	if getattr(ticket, "pickup_phase", None) != "In Transit":
+		frappe.throw(_("Pickup phase must be In Transit to mark reached pickup point"))
+	ticket.pickup_phase = "At Pickup Point"
+	ticket.save(ignore_permissions=True)
+	return {"ticket": ticket.name, "pickup_phase": ticket.pickup_phase}
+
+
+@frappe.whitelist()
+def mark_picked_up(ticket_name: str):
+	"""Mark pickup complete; start drop-off phase (Not Started)."""
+	if not ticket_name:
+		frappe.throw(_("ticket_name is required"))
+	ticket = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
+	if getattr(ticket, "pickup_phase", None) != "In Transit":
+		frappe.throw(_("Pickup must be In Transit before marking Picked Up"))
+	if ticket.status != "In Transit":
+		frappe.throw(_("Ticket must be In Transit to mark Picked Up"))
+	ticket.pickup_phase = "Picked Up"
+	ticket.drop_off_phase = "Not Started"
+	ticket.save(ignore_permissions=True)
+	return {"ticket": ticket.name, "pickup_phase": ticket.pickup_phase, "drop_off_phase": ticket.drop_off_phase, "status": ticket.status}
+
+
+@frappe.whitelist()
+def start_drop_off(ticket_name: str):
+	"""Set drop-off phase to In Transit (driver en route to destination)."""
+	if not ticket_name:
+		frappe.throw(_("ticket_name is required"))
+	ticket = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
+	if getattr(ticket, "pickup_phase", None) != "Picked Up":
+		frappe.throw(_("Pickup must be Picked Up before starting drop off"))
+	if getattr(ticket, "drop_off_phase", None) != "Not Started":
+		frappe.throw(_("Drop off already started or in progress"))
+	ticket.drop_off_phase = "In Transit"
+	ticket.save(ignore_permissions=True)
+	return {"ticket": ticket.name, "drop_off_phase": ticket.drop_off_phase}
+
+
+@frappe.whitelist()
+def mark_reached_drop_off_point(ticket_name: str):
+	"""Driver at drop-off location; set drop-off phase to At Drop Off Point."""
+	if not ticket_name:
+		frappe.throw(_("ticket_name is required"))
+	ticket = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
+	if getattr(ticket, "pickup_phase", None) != "Picked Up":
+		frappe.throw(_("Pickup must be Picked Up before marking reached drop off point"))
+	if getattr(ticket, "drop_off_phase", None) != "In Transit":
+		frappe.throw(_("Drop off phase must be In Transit to mark reached drop off point"))
+	ticket.drop_off_phase = "At Drop Off Point"
+	ticket.save(ignore_permissions=True)
+	return {"ticket": ticket.name, "drop_off_phase": ticket.drop_off_phase}
+
+
+@frappe.whitelist()
+def mark_delivered(ticket_name: str, deliver_photo_url=None):
+	"""Driver hands over goods; set drop_off_phase to Delivered (no status change, no Stock Entry/Asset submit)."""
+	if not ticket_name:
+		frappe.throw(_("ticket_name is required"))
+	ticket = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
+	if ticket.status != "In Transit":
+		frappe.throw(_("Only In Transit tickets can be marked Delivered"))
+	if getattr(ticket, "drop_off_phase", None) != "At Drop Off Point":
+		frappe.throw(_("Drop off phase must be At Drop Off Point to mark Delivered"))
+	ticket.drop_off_phase = "Delivered"
+	ticket.delivered_on = now_datetime()
+	# Optional: store deliver_photo if doctype has the field (future)
+	ticket.save(ignore_permissions=True)
+	return {"ticket": ticket.name, "drop_off_phase": ticket.drop_off_phase}
 
 
 @frappe.whitelist()
@@ -643,6 +1363,280 @@ def resolve_reported(ticket_name: str, resolution_note: str = ""):
 	return {"ticket": ticket.name, "status": ticket.status}
 
 
+def _logistics_farm_report_resolve_phase(ltt) -> str | None:
+	"""
+	Return case key for enhanced logistics Farm Report resolve, or None for legacy (remark-only) resolve.
+	- case2_dropoff_in_transit: picked up, en route to drop off.
+	- case1_pickup_leg: active pickup leg (not case 2).
+	"""
+	pickup = (getattr(ltt, "pickup_phase", None) or "").strip()
+	drop = (getattr(ltt, "drop_off_phase", None) or "").strip()
+	status = (getattr(ltt, "status", None) or "").strip()
+	if pickup == "Picked Up" and drop == "In Transit":
+		return "case2_dropoff_in_transit"
+	if pickup in ("In Transit", "At Pickup Point"):
+		return "case1_pickup_leg"
+	if status == "In Transit" and pickup != "Picked Up":
+		return "case1_pickup_leg"
+	return None
+
+
+def _ltt_has_tractor_asset(ltt) -> bool:
+	"""True if any moved asset is self-propelled machinery (tractor, thresher, etc.)."""
+	for row in ltt.get("asset_items") or []:
+		an = (getattr(row, "asset", None) or "").strip()
+		if not an:
+			continue
+		if self_transport_machinery_name_for_asset(an):
+			return True
+	return False
+
+
+def _ltt_replacement_cargo_allowed(ltt) -> bool:
+	"""
+	Replacement LTT is only allowed when cargo is stock and/or Hand Tool / Other Tool assets only
+	(no Machinery, Implement, or unknown equipment on asset lines).
+	"""
+	has_stock_line = False
+	for row in ltt.get("stock_items") or []:
+		ic = (getattr(row, "item_code", None) or "").strip()
+		if ic and flt(getattr(row, "qty", None) or 0) > 0:
+			has_stock_line = True
+			break
+	assets = list(ltt.get("asset_items") or [])
+	if not has_stock_line and not assets:
+		return False
+	for row in assets:
+		an = (getattr(row, "asset", None) or "").strip()
+		if not an:
+			continue
+		if frappe.db.exists("Machinery", {"asset": an}):
+			return False
+		if frappe.db.exists("Implement", {"asset": an}):
+			return False
+		if frappe.db.exists("Hand Tool", {"asset": an}):
+			continue
+		if frappe.db.exists("Other Tool", {"asset": an}):
+			continue
+		return False
+	return True
+
+
+@frappe.whitelist()
+def get_logistics_farm_report_resolve_context(ltt_name: str | None = None):
+	"""Return phase and whether replacement (new LTT) is allowed for logistics farm-report resolve UI."""
+	name = (ltt_name or frappe.form_dict.get("ltt_name") or "").strip()
+	if not name:
+		frappe.throw(_("ltt_name is required"))
+	ltt = frappe.get_doc("Logistics Transfer Ticket", name)
+	phase = _logistics_farm_report_resolve_phase(ltt)
+	has_tractor = _ltt_has_tractor_asset(ltt)
+	cargo_ok = _ltt_replacement_cargo_allowed(ltt)
+	replacement_allowed = bool(phase and cargo_ok and not has_tractor)
+	return {
+		"phase": phase,
+		"has_tractor": has_tractor,
+		"cargo_replacement_eligible": cargo_ok,
+		"replacement_allowed": replacement_allowed,
+	}
+
+
+def _ltt_stock_items_payload(ltt) -> list[dict]:
+	out: list[dict] = []
+	for row in ltt.get("stock_items") or []:
+		ic = (getattr(row, "item_code", None) or "").strip()
+		if not ic:
+			continue
+		out.append({"item_code": ic, "qty": flt(getattr(row, "qty", None) or 0)})
+	return out
+
+
+def _ltt_assets_payload(ltt) -> list[dict]:
+	out: list[dict] = []
+	for row in ltt.get("asset_items") or []:
+		an = (getattr(row, "asset", None) or "").strip()
+		if not an:
+			continue
+		d: dict = {"asset": an, "qty": max(1, flt(getattr(row, "qty", None) or 1))}
+		pi = (getattr(row, "paired_implement", None) or "").strip()
+		if pi and frappe.db.exists("Implement", pi):
+			d["paired_implement"] = pi
+		out.append(d)
+	return out
+
+
+def _planned_dt_str(val):
+	if val is None:
+		return None
+	if hasattr(val, "strftime"):
+		return val.strftime("%Y-%m-%d %H:%M:%S")
+	s = str(val).strip()
+	return s or None
+
+
+@frappe.whitelist()
+def resolve_logistics_farm_report_ticket(
+	farm_report_ticket: str | None = None,
+	resolution_kind: str | None = None,
+	replacement_vehicle: str | None = None,
+	new_from_warehouse: str | None = None,
+	help_person_name: str | None = None,
+	help_person_contact: str | None = None,
+	resolve_remark: str | None = None,
+	resolve_image: str | None = None,
+):
+	"""
+	Resolve a Farm Report Ticket (Logistics module) with optional replacement LTT or help contact details.
+	Only for linked LTT phases that qualify (see _logistics_farm_report_resolve_phase); otherwise use standard client resolve.
+	"""
+	name = (farm_report_ticket or frappe.form_dict.get("farm_report_ticket") or "").strip()
+	kind = (resolution_kind or frappe.form_dict.get("resolution_kind") or "").strip().lower()
+	if not name:
+		frappe.throw(_("farm_report_ticket is required"))
+	if kind not in ("replacement", "help"):
+		frappe.throw(_("resolution_kind must be replacement or help"))
+
+	rpt = frappe.get_doc("Farm Report Ticket", name)
+	if (getattr(rpt, "report_module", None) or "").strip() != "Logistics":
+		frappe.throw(_("This action is only for Logistics farm report tickets"))
+	if (rpt.status or "").strip() == "Resolved":
+		frappe.throw(_("Farm Report Ticket is already resolved"))
+	ltt_name = (getattr(rpt, "logistics_transfer_ticket", None) or "").strip()
+	if not ltt_name:
+		frappe.throw(_("Farm Report Ticket has no linked Logistics Transfer Ticket"))
+
+	ltt = frappe.get_doc("Logistics Transfer Ticket", ltt_name)
+	phase = _logistics_farm_report_resolve_phase(ltt)
+	if not phase:
+		frappe.throw(
+			_("This logistics ticket is not in a pickup/dropoff phase that supports replacement/help resolve. Use standard resolve.")
+		)
+
+	resolve_remark = (resolve_remark or frappe.form_dict.get("resolve_remark") or "").strip() or None
+	resolve_image = (resolve_image or frappe.form_dict.get("resolve_image") or "").strip() or None
+	replacement_vehicle = (replacement_vehicle or frappe.form_dict.get("replacement_vehicle") or "").strip() or None
+	new_from_warehouse = (new_from_warehouse or frappe.form_dict.get("new_from_warehouse") or "").strip() or None
+	help_person_name = (help_person_name or frappe.form_dict.get("help_person_name") or "").strip() or None
+	help_person_contact = (help_person_contact or frappe.form_dict.get("help_person_contact") or "").strip() or None
+
+	new_ltt_name: str | None = None
+
+	if kind == "help":
+		if not help_person_name or not help_person_contact:
+			frappe.throw(_("Help person name and contact are required"))
+		lines = [f"Help: {help_person_name} ({help_person_contact})"]
+		if resolve_remark:
+			lines.append(resolve_remark)
+		rpt.resolve_remark = "\n".join(lines)
+		if resolve_image:
+			rpt.resolve_image = resolve_image
+		rpt.logistics_resolve_kind = "Help"
+		rpt.logistics_help_name = help_person_name
+		rpt.logistics_help_contact = help_person_contact
+		rpt.logistics_replacement_ltt = None
+		rpt.status = "Resolved"
+		rpt.save(ignore_permissions=True)
+		return {"farm_report_ticket": rpt.name, "status": rpt.status, "new_logistics_ticket": None}
+
+	# replacement
+	if not _ltt_replacement_cargo_allowed(ltt) or _ltt_has_tractor_asset(ltt):
+		frappe.throw(
+			_(
+				"Replacement is only available when the transfer has stock and/or hand tool or other tool assets only, with no tractor on the ticket. Use Send help or standard resolve."
+			)
+		)
+	if not replacement_vehicle or not frappe.db.exists("Machinery", replacement_vehicle):
+		frappe.throw(_("A valid replacement transport vehicle (Machinery) is required"))
+	current_transport = (getattr(ltt, "transport_vehicle", None) or "").strip()
+	if current_transport and replacement_vehicle == current_transport:
+		frappe.throw(_("Choose a different vehicle than the one already assigned to this transfer ticket."))
+
+	stock_items = _ltt_stock_items_payload(ltt)
+	assets = _ltt_assets_payload(ltt)
+	if not stock_items and not assets:
+		frappe.throw(_("Linked logistics ticket has no stock or asset lines to copy"))
+
+	from_location_type = (getattr(ltt, "from_location_type", None) or "Warehouse").strip() or "Warehouse"
+	to_location_type = (getattr(ltt, "to_location_type", None) or "Warehouse").strip() or "Warehouse"
+
+	from_wh = (getattr(ltt, "from_warehouse", None) or "").strip() or None
+	to_wh = (getattr(ltt, "to_warehouse", None) or "").strip() or None
+	from_address = getattr(ltt, "from_address", None)
+	from_latitude = getattr(ltt, "from_latitude", None)
+	from_longitude = getattr(ltt, "from_longitude", None)
+	to_address = getattr(ltt, "to_address", None)
+	to_latitude = getattr(ltt, "to_latitude", None)
+	to_longitude = getattr(ltt, "to_longitude", None)
+	if from_location_type == "Warehouse":
+		from_address = None
+		from_latitude = None
+		from_longitude = None
+	if to_location_type == "Warehouse":
+		to_address = None
+		to_latitude = None
+		to_longitude = None
+
+	if phase == "case2_dropoff_in_transit":
+		if from_location_type != "Warehouse":
+			frappe.throw(_("Replacement with a new pickup warehouse is only supported when the source From is a Warehouse"))
+		if not new_from_warehouse or not frappe.db.exists("Warehouse", new_from_warehouse):
+			frappe.throw(_("new_from_warehouse is required for this phase"))
+		from_wh = new_from_warehouse
+	elif phase == "case1_pickup_leg":
+		if new_from_warehouse:
+			frappe.throw(_("new_from_warehouse must not be set for pickup-leg replacement"))
+	else:
+		frappe.throw(_("Unsupported resolve phase"))
+
+	transfer_type = (getattr(ltt, "transfer_type", None) or "Internal").strip() or "Internal"
+
+	result = create_logistics_transfer_ticket(
+		from_warehouse=from_wh,
+		to_warehouse=to_wh,
+		stock_items=stock_items,
+		assets=assets,
+		transfer_type=transfer_type,
+		from_location_type=from_location_type,
+		to_location_type=to_location_type,
+		from_address=from_address,
+		from_latitude=from_latitude,
+		from_longitude=from_longitude,
+		to_address=to_address,
+		to_latitude=to_latitude,
+		to_longitude=to_longitude,
+		planned_pickup_on=_planned_dt_str(getattr(ltt, "planned_pickup_on", None)),
+		planned_drop_off_on=_planned_dt_str(getattr(ltt, "planned_drop_off_on", None)),
+		purchase_order=getattr(ltt, "purchase_order", None),
+		purchase_invoice=getattr(ltt, "purchase_invoice", None),
+		sales_order=getattr(ltt, "sales_order", None),
+		sales_invoice=getattr(ltt, "sales_invoice", None),
+		transport_vehicle=replacement_vehicle,
+	)
+	new_ltt_name = (result or {}).get("ticket")
+	if new_ltt_name:
+		new_doc = frappe.get_doc("Logistics Transfer Ticket", new_ltt_name)
+		if getattr(ltt, "farm_task_execution", None):
+			new_doc.farm_task_execution = ltt.farm_task_execution
+			new_doc.save(ignore_permissions=True)
+
+	rpt.logistics_resolve_kind = "Replacement"
+	rpt.logistics_replacement_ltt = new_ltt_name
+	rpt.logistics_help_name = None
+	rpt.logistics_help_contact = None
+	if resolve_remark:
+		rpt.resolve_remark = resolve_remark
+	if resolve_image:
+		rpt.resolve_image = resolve_image
+	rpt.status = "Resolved"
+	rpt.save(ignore_permissions=True)
+
+	return {
+		"farm_report_ticket": rpt.name,
+		"status": rpt.status,
+		"new_logistics_ticket": new_ltt_name,
+	}
+
+
 @frappe.whitelist()
 def mark_cancelled(ticket_name: str, reason: str = ""):
 	if not ticket_name:
@@ -669,6 +1663,187 @@ def _get_equipment_status_for_asset(asset_name: str) -> str | None:
 		if status:
 			return status
 	return None
+
+
+def _get_equipment_hero_image_for_asset(asset_name: str) -> str | None:
+	"""
+	Return hero_image from the equipment doc (Machinery, Implement, Hand Tool, Other Tool)
+	linked to this Asset, so warehouse inventory can show the same image as Equipment List.
+	"""
+	if not asset_name:
+		return None
+	for doctype in ("Machinery", "Implement", "Hand Tool", "Other Tool"):
+		hero = frappe.db.get_value(doctype, {"asset": asset_name}, "hero_image")
+		if hero:
+			return hero
+	return None
+
+
+def _get_equipment_doc_for_asset(asset_name: str) -> tuple[str, str] | None:
+	"""Return (doctype, name) of the equipment document linked to this Asset, or None."""
+	if not asset_name:
+		return None
+	for doctype in ("Machinery", "Implement", "Hand Tool", "Other Tool"):
+		name = frappe.db.get_value(doctype, {"asset": asset_name}, "name")
+		if name:
+			return (doctype, name)
+	return None
+
+
+def _enrich_equipment_display_names(assets: list[dict]) -> None:
+	"""
+	Set equipment_display_name from linked equipment docs (machinery_name, implement_name, tool_name).
+	Preferred over Asset.asset_name, which may mirror item description (e.g. Brand - Model - Type).
+	"""
+	names = [str(a.get("name") or "").strip() for a in assets if (a.get("name") or "").strip()]
+	if not names:
+		return
+	disp: dict[str, str] = {}
+	for doctype, field in (
+		("Machinery", "machinery_name"),
+		("Implement", "implement_name"),
+		("Hand Tool", "tool_name"),
+		("Other Tool", "tool_name"),
+	):
+		rows = frappe.get_all(
+			doctype,
+			filters=[["asset", "in", names]],
+			fields=["asset", field],
+			limit=len(names) + 10,
+			ignore_permissions=True,
+		)
+		for r in rows:
+			an = str(r.get("asset") or "").strip()
+			v = str(r.get(field) or "").strip()
+			if an and v and an not in disp:
+				disp[an] = v
+	for a in assets:
+		an = str(a.get("name") or "").strip()
+		if an and an in disp:
+			a["equipment_display_name"] = disp[an]
+
+
+@frappe.whitelist()
+def enrich_asset_rows_with_equipment_display_names(assets=None):
+	"""
+	For each row with Asset.name, set equipment_display_name from Machinery / Implement / Hand Tool / Other Tool
+	(same as warehouse inventory). Used when the client loads Asset via resource API without enrichment.
+	"""
+	import json
+
+	if assets is None:
+		return []
+	if isinstance(assets, str):
+		try:
+			assets = json.loads(assets)
+		except Exception:
+			return []
+	if not isinstance(assets, list) or not assets:
+		return []
+	rows = [dict(x) for x in assets if isinstance(x, dict) and str(x.get("name") or "").strip()]
+	if not rows:
+		return []
+	_enrich_equipment_display_names(rows)
+	return rows
+
+
+def _enrich_attachment_from_equipment(row: dict, equipment: tuple[str, str]) -> None:
+	"""Optional tractor↔implement labels for warehouse inventory UI."""
+	doctype, eqname = equipment
+	if doctype == "Machinery":
+		mtype = frappe.db.get_value("Machinery", eqname, "machinery_type")
+		if (mtype or "").strip() != "Tractor":
+			return
+		impl = frappe.db.get_value("Machinery", eqname, "current_implement")
+		if not impl:
+			return
+		row["attached_implement_id"] = impl
+		row["attached_implement_label"] = frappe.db.get_value("Implement", impl, "implement_name") or impl
+	elif doctype == "Implement":
+		mach = frappe.db.get_value("Implement", eqname, "attached_to_machinery")
+		if not mach:
+			return
+		row["attached_tractor_machinery_id"] = mach
+		row["attached_tractor_machinery_label"] = frappe.db.get_value("Machinery", mach, "machinery_name") or mach
+
+
+def _location_warehouse_level_from_location_name(location_name: str | None) -> str | None:
+	"""
+	farm | cluster | field from Location.location_name depth (Farm-Cluster-Field path).
+	"""
+	if not (location_name or "").strip():
+		return None
+	parts = [p.strip() for p in str(location_name).split("-") if p.strip()]
+	n = len(parts)
+	if n >= 3:
+		return "field"
+	if n == 2:
+		return "cluster"
+	if n == 1:
+		return "farm"
+	return None
+
+
+def _location_warehouse_level_for_warehouse_name(warehouse: str) -> str | None:
+	"""Resolve Warehouse -> Location -> path depth (same rule as asset rows)."""
+	if not warehouse:
+		return None
+	try:
+		res = get_location_for_warehouse(warehouse)
+	except Exception:
+		return None
+	loc = (res or {}).get("location")
+	if not loc:
+		return None
+	try:
+		location_name = frappe.db.get_value("Location", loc, "location_name")
+	except Exception:
+		location_name = None
+	return _location_warehouse_level_from_location_name(location_name)
+
+
+def _enrich_location_geo_labels(row: dict) -> None:
+	"""Set location_warehouse_level from Asset.location -> Location.location_name."""
+	loc = row.get("location")
+	if not loc:
+		return
+	try:
+		location_name = frappe.db.get_value("Location", loc, "location_name")
+	except Exception:
+		location_name = None
+	lvl = _location_warehouse_level_from_location_name(location_name)
+	if lvl:
+		row["location_warehouse_level"] = lvl
+
+
+@frappe.whitelist()
+def get_location_warehouse_levels_for_warehouses(warehouses=None):
+	"""
+	Map each Warehouse name to farm | cluster | field (or null if unmapped).
+	warehouses: JSON array string, e.g. '["WH-A","WH-B"]', or a list.
+	"""
+	import json
+
+	if warehouses is None:
+		names = []
+	elif isinstance(warehouses, str):
+		try:
+			names = json.loads(warehouses)
+		except Exception:
+			s = warehouses.strip()
+			names = [s] if s else []
+	else:
+		names = list(warehouses) if isinstance(warehouses, (list, tuple)) else []
+
+	out = {}
+	for wh in names:
+		if not wh:
+			continue
+		try:
+			out[wh] = _location_warehouse_level_for_warehouse_name(wh)
+		except Exception:
+			out[wh] = None
+	return out
 
 
 def _get_equipment_status_for_destination_warehouse(warehouse: str) -> str | None:
@@ -732,7 +1907,7 @@ def get_assets_for_warehouse(warehouse: str):
 	if location:
 		assets = frappe.get_all(
 			"Asset",
-			fields=["name", "asset_name", "item_code", "asset_category", "location", "status", "asset_quantity"],
+			fields=["name", "asset_name", "item_code", "asset_category", "location", "status", "asset_quantity", "image"],
 			filters=[["location", "=", location], ["docstatus", "in", ASSET_DOCSTATUS_NOT_CANCELLED]],
 			limit=1000,
 			ignore_permissions=True,
@@ -768,7 +1943,7 @@ def get_assets_for_warehouse(warehouse: str):
 			if matching_locations:
 				assets = frappe.get_all(
 					"Asset",
-					fields=["name", "asset_name", "item_code", "asset_category", "location", "status", "asset_quantity"],
+					fields=["name", "asset_name", "item_code", "asset_category", "location", "status", "asset_quantity", "image"],
 					filters=[["location", "in", matching_locations], ["docstatus", "in", ASSET_DOCSTATUS_NOT_CANCELLED]],
 					limit=1000,
 					ignore_permissions=True,
@@ -798,7 +1973,7 @@ def get_assets_for_warehouse(warehouse: str):
 			if matching_locations:
 				assets = frappe.get_all(
 					"Asset",
-					fields=["name", "asset_name", "item_code", "asset_category", "location", "status", "asset_quantity"],
+					fields=["name", "asset_name", "item_code", "asset_category", "location", "status", "asset_quantity", "image"],
 					filters=[["location", "in", matching_locations], ["docstatus", "in", ASSET_DOCSTATUS_NOT_CANCELLED]],
 					limit=1000,
 					ignore_permissions=True,
@@ -809,12 +1984,24 @@ def get_assets_for_warehouse(warehouse: str):
 	if geo_area:
 		area_type = frappe.db.get_value("Geo Fencing Area", geo_area, "geo_fencing_type")
 		location_is_field = (area_type == "Field")
-	# Enrich each asset with equipment status (Available, In Use, Maintenance, Retired) from source doc
+	_enrich_equipment_display_names(assets)
+	# Enrich each asset with equipment status, image, and equipment doc ref (for View modal)
 	for a in assets:
 		if location_is_field:
 			a["equipment_status"] = "In Use"
 		else:
 			a["equipment_status"] = _get_equipment_status_for_asset(a.get("name"))
+		# Use equipment hero_image when Asset has no image, so warehouse matches Equipment List
+		if not (a.get("image") or "").strip():
+			hero = _get_equipment_hero_image_for_asset(a.get("name"))
+			if hero:
+				a["image"] = hero
+		# Equipment doc (doctype, name) so warehouse can open Equipment View modal like Equipment List
+		equipment = _get_equipment_doc_for_asset(a.get("name"))
+		if equipment:
+			a["equipment_doctype"], a["equipment_name"] = equipment
+			_enrich_attachment_from_equipment(a, equipment)
+		_enrich_location_geo_labels(a)
 	
 	return {
 		"warehouse": warehouse,
@@ -834,7 +2021,7 @@ def get_all_assets():
 	"""
 	assets = frappe.get_all(
 		"Asset",
-		fields=["name", "asset_name", "item_code", "asset_category", "location", "status", "asset_quantity"],
+		fields=["name", "asset_name", "item_code", "asset_category", "location", "status", "asset_quantity", "image"],
 		filters=[["docstatus", "in", ASSET_DOCSTATUS_NOT_CANCELLED]],
 		limit=5000,
 		order_by="modified desc",
@@ -858,7 +2045,7 @@ def get_all_assets():
 		except Exception:
 			continue
 	# Use location as warehouse display when no warehouse mapping (for "all" view)
-	# Enrich with equipment status (Available, In Use, Maintenance, Retired) from source doc
+	# Enrich with equipment status and image (hero_image from equipment doc when Asset.image missing)
 	out = []
 	for a in assets:
 		row = dict(a)
@@ -867,7 +2054,17 @@ def get_all_assets():
 			row["equipment_status"] = "In Use"
 		else:
 			row["equipment_status"] = _get_equipment_status_for_asset(row.get("name"))
+		if not (row.get("image") or "").strip():
+			hero = _get_equipment_hero_image_for_asset(row.get("name"))
+			if hero:
+				row["image"] = hero
+		equipment = _get_equipment_doc_for_asset(row.get("name"))
+		if equipment:
+			row["equipment_doctype"], row["equipment_name"] = equipment
+			_enrich_attachment_from_equipment(row, equipment)
+		_enrich_location_geo_labels(row)
 		out.append(row)
+	_enrich_equipment_display_names(out)
 	return {"assets": out, "count": len(out)}
 
 

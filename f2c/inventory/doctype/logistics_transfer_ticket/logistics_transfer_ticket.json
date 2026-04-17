@@ -29,6 +29,7 @@
     "pickup_phase",
     "drop_off_phase",
     "farm_task_execution",
+    "schedule_ref",
     "transport_vehicle",
     "purchase_order",
     "purchase_invoice",
@@ -184,6 +185,12 @@
       "label": "Farm Task Execution",
       "options": "Farm Task Execution",
       "in_list_view": 1
+    },
+    {
+      "fieldname": "schedule_ref",
+      "fieldtype": "Data",
+      "label": "Schedule Ref",
+      "description": "Crop Plan Schedule or On Demand Activity name when this ticket was created from farm scheduling (used to avoid cross-activity duplicate LTT detection)."
     },
     {
       "fieldname": "transport_vehicle",
