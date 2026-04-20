@@ -68,31 +68,10 @@ def assert_cluster_for_tractor_implement_link_change(
 	new_implement_doc: str | None,
 ) -> None:
 	"""
-	Raise if tractor/implement attachment is being changed when any involved equipment
-	is not physically at cluster level. Skip when skip_cluster_attachment_validation flag is set.
+	Location restriction removed — attach/detach is now allowed at any level (field, cluster, farm).
+	The 'in use' guard is enforced separately in implement_attach_api.
 	"""
-	if frappe.flags.get("skip_cluster_attachment_validation"):
-		return
-	if (old_implement_doc or "") == (new_implement_doc or ""):
-		return
-
-	def _need_cluster(label: str, doctype: str, docname: str) -> None:
-		lvl = location_level_for_equipment_doc(doctype, docname)
-		if lvl is None:
-			return
-		if lvl != "cluster":
-			frappe.throw(
-				_(
-					"{0} must be at a cluster location to attach or detach implements. "
-					"Move equipment to the cluster (logistics transfer) first."
-				).format(label)
-			)
-
-	_need_cluster(_("Tractor"), "Machinery", tractor_machinery_name)
-	if old_implement_doc:
-		_need_cluster(_("Current implement"), "Implement", old_implement_doc)
-	if new_implement_doc and new_implement_doc != old_implement_doc:
-		_need_cluster(_("Implement"), "Implement", new_implement_doc)
+	return
 
 
 def assert_cluster_for_implement_side_link_change(
@@ -100,25 +79,5 @@ def assert_cluster_for_implement_side_link_change(
 	old_tractor_machinery: str | None,
 	new_tractor_machinery: str | None,
 ) -> None:
-	if frappe.flags.get("skip_cluster_attachment_validation"):
-		return
-	if (old_tractor_machinery or "") == (new_tractor_machinery or ""):
-		return
-
-	def _need_cluster(label: str, doctype: str, docname: str) -> None:
-		lvl = location_level_for_equipment_doc(doctype, docname)
-		if lvl is None:
-			return
-		if lvl != "cluster":
-			frappe.throw(
-				_(
-					"{0} must be at a cluster location to attach or detach implements. "
-					"Move equipment to the cluster (logistics transfer) first."
-				).format(label)
-			)
-
-	_need_cluster(_("Implement"), "Implement", implement_doc_name)
-	if old_tractor_machinery:
-		_need_cluster(_("Tractor"), "Machinery", old_tractor_machinery)
-	if new_tractor_machinery and new_tractor_machinery != old_tractor_machinery:
-		_need_cluster(_("Tractor"), "Machinery", new_tractor_machinery)
+	"""Location restriction removed — see assert_cluster_for_tractor_implement_link_change."""
+	return
