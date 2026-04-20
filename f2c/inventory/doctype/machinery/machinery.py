@@ -19,6 +19,15 @@ class Machinery(Document):
 		self._validate_implement_attachment()
 
 	def _validate_implement_attachment(self):
+		prev = self.get_doc_before_save()
+		old_impl = (prev.current_implement if prev else None) or None
+		new_impl = (getattr(self, "current_implement", None) or None) or None
+
+		if (self.machinery_type or "").strip() == "Tractor" and self.name:
+			from f2c.inventory.equipment_location_level import assert_cluster_for_tractor_implement_link_change
+
+			assert_cluster_for_tractor_implement_link_change(self.name, old_impl, new_impl)
+
 		current_implement = getattr(self, "current_implement", None)
 		if not current_implement:
 			return

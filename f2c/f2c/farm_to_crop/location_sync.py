@@ -391,6 +391,25 @@ def _get_location_docname_by_location_name(location_name_str: str):
 	return result[0][0] if result else None
 
 
+def _geo_warehouse_level_from_location_name(location_name: str | None) -> str | None:
+	"""farm | cluster | field from Location.location_name depth (Farm-Cluster-Field path).
+
+	Same rule as f2c.inventory.logistics_transfer_ticket_api._location_warehouse_level_from_location_name
+	(kept here to avoid import cycles with logistics_transfer_ticket_api).
+	"""
+	if not (location_name or "").strip():
+		return None
+	parts = [p.strip() for p in str(location_name).split("-") if p.strip()]
+	n = len(parts)
+	if n >= 3:
+		return "field"
+	if n == 2:
+		return "cluster"
+	if n == 1:
+		return "farm"
+	return None
+
+
 @frappe.whitelist()
 def get_enabled_warehouse_locations():
 	"""
@@ -436,6 +455,13 @@ def get_enabled_warehouse_locations():
 		docnames.append(docname)
 
 	docnames.sort(key=lambda n: (n or "").lower())
-	return [{"name": n} for n in docnames]
+	out = []
+	for n in docnames:
+		ln = frappe.db.get_value("Location", n, "location_name")
+		ln = (ln or "").strip() or None
+		lvl = _geo_warehouse_level_from_location_name(ln)
+		row = {"name": n, "location_name": ln, "level": lvl}
+		out.append(row)
+	return out
 
 

@@ -17,6 +17,14 @@ class Implement(Document):
 		self._validate_tractor_attachment()
 
 	def _validate_tractor_attachment(self):
+		prev = self.get_doc_before_save()
+		old_tractor = (prev.attached_to_machinery if prev else None) or None
+		new_tractor = getattr(self, "attached_to_machinery", None) or None
+
+		from f2c.inventory.equipment_location_level import assert_cluster_for_implement_side_link_change
+
+		assert_cluster_for_implement_side_link_change(self.name, old_tractor, new_tractor)
+
 		tractor = getattr(self, "attached_to_machinery", None)
 		if not tractor:
 			return

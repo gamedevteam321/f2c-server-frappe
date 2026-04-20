@@ -417,7 +417,9 @@ class CropPlanSchedule(Document):
 		"""One LTT per machinery row; standalone implements; promoted hand/other machinery.
 		Co-moved implements are not duplicated."""
 		from f2c.inventory.logistics_transfer_ticket_api import expand_machinery_transfer_asset_requests
+		from f2c.inventory.tractor_implement_ltt_plan import implement_asset_ids_paired_to_tractors_on_schedule
 
+		paired_impl_assets = implement_asset_ids_paired_to_tractors_on_schedule(self)
 		covered: set[str] = set()
 		units: list[tuple[list[dict], str | None]] = []
 
@@ -435,7 +437,7 @@ class CropPlanSchedule(Document):
 		for m in self.get("machinery") or []:
 			add_unit(m.asset)
 		for imp in self.get("implements") or []:
-			if imp.asset and imp.asset not in covered:
+			if imp.asset and imp.asset not in covered and imp.asset not in paired_impl_assets:
 				add_unit(imp.asset)
 		for ht in self.get("hand_tools") or []:
 			if ht.asset and self._is_field_machinery_equipment_asset(ht.asset) and ht.asset not in covered:
@@ -1361,10 +1363,19 @@ class CropPlanSchedule(Document):
 		from f2c.inventory.logistics_transfer_ticket_api import (
 			create_logistics_transfer_ticket,
 			planned_pickup_drop_for_activity_start,
+			planned_pickup_drop_for_round_trip_leg1_immediate,
+			planned_pickup_drop_for_round_trip_leg2_from_schedule,
 		)
+		from f2c.inventory.tractor_implement_ltt_plan import (
+			implement_asset_ids_paired_to_tractors_on_schedule,
+			plan_field_tractor_implement_round_trip,
+		)
+
 		created_tickets: list[str] = []
 		errors: list[str] = []
 		machinery_skips: list[str] = []
+		cluster_wh = self._get_cluster_warehouse_for_field(self.field)
+		skip_standalone_impl_assets: set[str] = set(implement_asset_ids_paired_to_tractors_on_schedule(self))
 
 		frappe.log_error(
 			title="Crop Plan Schedule LTT Trace",
@@ -1378,10 +1389,100 @@ class CropPlanSchedule(Document):
 			primary = asset_reqs[0].get("asset") if asset_reqs else None
 			if not primary:
 				continue
+			if primary in skip_standalone_impl_assets:
+				continue
 			from_warehouse = self._get_source_warehouse_for_equipment_asset(primary)
 			if not from_warehouse:
 				machinery_skips.append(f"{primary}: no source warehouse")
 				continue
+
+			rt = plan_field_tractor_implement_round_trip(self, primary) if cluster_wh else None
+			if rt:
+				if rt.standalone_implement_asset_to_skip:
+					skip_standalone_impl_assets.add(rt.standalone_implement_asset_to_skip)
+				tv = rt.transport_vehicle or transport_machinery
+				leg1_names = [r.get("asset") for r in rt.leg1_assets if r.get("asset")]
+				leg2_names = [r.get("asset") for r in rt.leg2_assets if r.get("asset")]
+				# If Asset→warehouse is cluster but the job is field-based swap, still create leg1 from field WH
+				# so receivers see two tickets (field→cluster, cluster→field); avoid cluster→cluster only.
+				leg1_from = target_warehouse if from_warehouse == cluster_wh else from_warehouse
+				if leg1_from != cluster_wh:
+					dup1 = self._find_open_equipment_ltt_duplicate(
+						leg1_from, cluster_wh, leg1_names, self.name
+					)
+					if dup1:
+						machinery_skips.append(f"{primary}: round-trip leg1 open ticket {dup1}")
+					else:
+						try:
+							pt1 = planned_pickup_drop_for_round_trip_leg1_immediate(leg1_from, cluster_wh)
+							kw1: dict = {}
+							if pt1:
+								kw1["planned_pickup_on"] = pt1[0]
+								kw1["planned_drop_off_on"] = pt1[1]
+							kw1.setdefault("planned_drop_off_on", self._ltt_forward_planned_drop_off_anchor_str())
+							r1 = create_logistics_transfer_ticket(
+								from_warehouse=leg1_from,
+								to_warehouse=cluster_wh,
+								stock_items=None,
+								assets=rt.leg1_assets,
+								transport_vehicle=tv,
+								skip_default_transport_vehicle=True,
+								schedule_ref=self.name,
+								**kw1,
+							)
+							if r1 and r1.get("ticket"):
+								created_tickets.append(r1.get("ticket"))
+						except Exception as e:
+							frappe.log_error(
+								title="Equipment Transfer Ticket",
+								message=f"Machinery round-trip leg1 error for {self.name}: {str(e)}\n{frappe.get_traceback()}",
+							)
+							errors.append(str(e))
+				dup2 = self._find_open_equipment_ltt_duplicate(
+					cluster_wh, target_warehouse, leg2_names, self.name
+				)
+				if dup2:
+					try:
+						from f2c.inventory.logistics_transfer_ticket_api import update_ltt_planned_times_if_pending_pickup
+
+						pt_u = planned_pickup_drop_for_round_trip_leg2_from_schedule(
+							self.planned_start, cluster_wh, target_warehouse
+						)
+						if pt_u:
+							update_ltt_planned_times_if_pending_pickup(dup2, pt_u[0], pt_u[1])
+					except Exception:
+						pass
+					machinery_skips.append(f"{primary}: round-trip leg2 open ticket {dup2}")
+				else:
+					try:
+						pt2 = planned_pickup_drop_for_round_trip_leg2_from_schedule(
+							self.planned_start, cluster_wh, target_warehouse
+						)
+						kw2: dict = {}
+						if pt2:
+							kw2["planned_pickup_on"] = pt2[0]
+							kw2["planned_drop_off_on"] = pt2[1]
+						kw2.setdefault("planned_drop_off_on", self._ltt_forward_planned_drop_off_anchor_str())
+						r2 = create_logistics_transfer_ticket(
+							from_warehouse=cluster_wh,
+							to_warehouse=target_warehouse,
+							stock_items=None,
+							assets=rt.leg2_assets,
+							transport_vehicle=tv,
+							skip_default_transport_vehicle=True,
+							schedule_ref=self.name,
+							**kw2,
+						)
+						if r2 and r2.get("ticket"):
+							created_tickets.append(r2.get("ticket"))
+					except Exception as e:
+						frappe.log_error(
+							title="Equipment Transfer Ticket",
+							message=f"Machinery round-trip leg2 error for {self.name}: {str(e)}\n{frappe.get_traceback()}",
+						)
+						errors.append(str(e))
+				continue
+
 			asset_names = [r.get("asset") for r in asset_reqs if r.get("asset")]
 			if from_warehouse == target_warehouse:
 				machinery_skips.append(f"{primary}: already at field warehouse {target_warehouse}")

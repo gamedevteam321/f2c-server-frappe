@@ -7,6 +7,9 @@ from frappe import _
 from frappe.utils import cint, flt, get_datetime, get_datetime_str, now_datetime
 
 from f2c.farm_report.doctype.farm_report_ticket.farm_report_ticket import create_report_and_mark_reported
+from f2c.inventory.equipment_location_level import (
+	location_warehouse_level_from_location_name as _location_warehouse_level_from_location_name,
+)
 
 # Include both Draft (0) and Submitted (1) Assets in inventory views; exclude Cancelled (2)
 ASSET_DOCSTATUS_NOT_CANCELLED = [0, 1]
@@ -313,6 +316,29 @@ def clamp_planned_pickup_before_drop_str(
 	return get_datetime_str(pu), get_datetime_str(po)
 
 
+def _planned_pickup_drop_from_activity_anchor(
+	activity_start,
+	from_warehouse: str | None,
+	to_warehouse: str | None,
+) -> tuple[str | None, str | None]:
+	"""
+	Core timing for schedule-linked legs: drop = anchor, pickup = anchor - travel - buffer (clamped).
+	Does not consult ltt_schedule_planned_times_enabled (used for tractor↔implement round-trip leg 2
+	and for callers that already gated on that flag).
+	"""
+	settings = _get_f2c_ltt_timing_settings()
+	start = get_datetime(activity_start) if activity_start else None
+	if not start:
+		start = now_datetime()
+	lead_m = int(settings["ltt_dropoff_buffer_minutes"])
+	drop = start
+	travel_m = estimate_internal_ltt_travel_minutes(from_warehouse, to_warehouse)
+	pickup = start - timedelta(minutes=travel_m + lead_m)
+	if pickup > drop:
+		pickup = drop
+	return clamp_planned_pickup_before_drop_str(pickup, drop)
+
+
 def planned_pickup_drop_for_activity_start(
 	activity_start,
 	from_warehouse: str | None,
@@ -330,16 +356,7 @@ def planned_pickup_drop_for_activity_start(
 		settings = _get_f2c_ltt_timing_settings()
 		if not cint(settings.get("ltt_schedule_planned_times_enabled")):
 			return None
-		start = get_datetime(activity_start) if activity_start else None
-		if not start:
-			start = now_datetime()
-		lead_m = int(settings["ltt_dropoff_buffer_minutes"])
-		drop = start
-		travel_m = estimate_internal_ltt_travel_minutes(from_warehouse, to_warehouse)
-		pickup = start - timedelta(minutes=travel_m + lead_m)
-		if pickup > drop:
-			pickup = drop
-		return clamp_planned_pickup_before_drop_str(pickup, drop)
+		return _planned_pickup_drop_from_activity_anchor(activity_start, from_warehouse, to_warehouse)
 	except Exception as e:
 		frappe.log_error(
 			f"planned_pickup_drop_for_activity_start failed\n"
@@ -349,6 +366,64 @@ def planned_pickup_drop_for_activity_start(
 			f"{e!s}\n\n"
 			f"{frappe.get_traceback()}",
 			"LTT planned_pickup_drop_for_activity_start",
+		)
+		raise
+
+
+def planned_pickup_drop_for_round_trip_leg2_from_schedule(
+	activity_start,
+	from_warehouse: str | None,
+	to_warehouse: str | None,
+) -> tuple[str | None, str | None]:
+	"""
+	Leg 2 of field↔cluster implement round-trip: same anchor math as :func:`planned_pickup_drop_for_activity_start`
+	but **always** applied so leg 2 uses activity time even when ``ltt_schedule_planned_times_enabled`` is off.
+	"""
+	try:
+		return _planned_pickup_drop_from_activity_anchor(activity_start, from_warehouse, to_warehouse)
+	except Exception as e:
+		frappe.log_error(
+			f"planned_pickup_drop_for_round_trip_leg2_from_schedule failed\n"
+			f"activity_start={activity_start!r}\n"
+			f"from_warehouse={from_warehouse!r}\n"
+			f"to_warehouse={to_warehouse!r}\n\n"
+			f"{e!s}\n\n"
+			f"{frappe.get_traceback()}",
+			"LTT planned_pickup_drop_round_trip_leg2_from_schedule",
+		)
+		raise
+
+
+def planned_pickup_drop_for_round_trip_leg1_immediate(
+	from_warehouse: str | None,
+	to_warehouse: str | None,
+) -> tuple[str, str] | None:
+	"""
+	Planned times for round-trip **leg 1** (tractor + current implement → cluster): anchor to **now**
+	so dispatch/receivable can treat this as the urgent return leg. Leg 2 stays on activity schedule.
+
+	Always computed (ignores ``ltt_schedule_planned_times_enabled``) so the two-leg flow works regardless of that toggle.
+	"""
+	try:
+		settings = _get_f2c_ltt_timing_settings()
+		now = now_datetime()
+		lead_m = int(settings["ltt_dropoff_buffer_minutes"])
+		travel_m = estimate_internal_ltt_travel_minutes(from_warehouse, to_warehouse)
+		pickup = now
+		min_sep = _min_lead_minutes_before_planned_drop()
+		drop_after = travel_m + max(lead_m, 1)
+		if drop_after <= min_sep:
+			drop_after = min_sep + 1
+		drop = pickup + timedelta(minutes=drop_after)
+		return clamp_planned_pickup_before_drop_str(pickup, drop)
+	except Exception as e:
+		frappe.log_error(
+			f"planned_pickup_drop_for_round_trip_leg1_immediate failed\n"
+			f"from_warehouse={from_warehouse!r}\n"
+			f"to_warehouse={to_warehouse!r}\n\n"
+			f"{e!s}\n\n"
+			f"{frappe.get_traceback()}",
+			"LTT planned_pickup_drop_round_trip_leg1_immediate",
 		)
 		raise
 
@@ -593,24 +668,28 @@ def _reapply_tractor_implement_links_after_transfer(ticket) -> None:
 	Ensure Machinery.current_implement and Implement.attached_to_machinery stay consistent
 	for ticket rows that record a paired implement (runs Machinery save → existing sync hooks).
 	"""
-	for row in getattr(ticket, "asset_items", None) or []:
-		pi = (getattr(row, "paired_implement", None) or "").strip()
-		if not pi or not frappe.db.exists("Implement", pi):
-			continue
-		asset = row.get("asset")
-		if not asset:
-			continue
-		mach_name = frappe.db.get_value("Machinery", {"asset": asset}, "name")
-		if not mach_name:
-			continue
-		m = frappe.get_doc("Machinery", mach_name)
-		if (m.machinery_type or "") != "Tractor":
-			continue
-		impl_owner = frappe.db.get_value("Implement", pi, "attached_to_machinery") or None
-		if (m.current_implement or "") == pi and impl_owner == mach_name:
-			continue
-		m.current_implement = pi
-		m.save(ignore_permissions=True)
+	frappe.flags.skip_cluster_attachment_validation = True
+	try:
+		for row in getattr(ticket, "asset_items", None) or []:
+			pi = (getattr(row, "paired_implement", None) or "").strip()
+			if not pi or not frappe.db.exists("Implement", pi):
+				continue
+			asset = row.get("asset")
+			if not asset:
+				continue
+			mach_name = frappe.db.get_value("Machinery", {"asset": asset}, "name")
+			if not mach_name:
+				continue
+			m = frappe.get_doc("Machinery", mach_name)
+			if (m.machinery_type or "") != "Tractor":
+				continue
+			impl_owner = frappe.db.get_value("Implement", pi, "attached_to_machinery") or None
+			if (m.current_implement or "") == pi and impl_owner == mach_name:
+				continue
+			m.current_implement = pi
+			m.save(ignore_permissions=True)
+	finally:
+		frappe.flags.skip_cluster_attachment_validation = False
 
 
 # Machinery types that may legally be both moved asset and transport_vehicle on the same LTT.
@@ -1432,7 +1511,14 @@ def get_logistics_farm_report_resolve_context(ltt_name: str | None = None):
 	phase = _logistics_farm_report_resolve_phase(ltt)
 	has_tractor = _ltt_has_tractor_asset(ltt)
 	cargo_ok = _ltt_replacement_cargo_allowed(ltt)
-	replacement_allowed = bool(phase and cargo_ok and not has_tractor)
+	# Replacement: light cargo (no tractor) in either phase, or tractor/self-propelled only on pickup leg (case1).
+	replacement_allowed = bool(
+		phase
+		and (
+			(cargo_ok and not has_tractor)
+			or (phase == "case1_pickup_leg" and has_tractor)
+		)
+	)
 	return {
 		"phase": phase,
 		"has_tractor": has_tractor,
@@ -1539,10 +1625,17 @@ def resolve_logistics_farm_report_ticket(
 		return {"farm_report_ticket": rpt.name, "status": rpt.status, "new_logistics_ticket": None}
 
 	# replacement
-	if not _ltt_replacement_cargo_allowed(ltt) or _ltt_has_tractor_asset(ltt):
+	has_tractor = _ltt_has_tractor_asset(ltt)
+	if phase == "case2_dropoff_in_transit" and has_tractor:
 		frappe.throw(
 			_(
-				"Replacement is only available when the transfer has stock and/or hand tool or other tool assets only, with no tractor on the ticket. Use Send help or standard resolve."
+				"Vehicle replacement is not available on the drop-off leg when this transfer includes a tractor or self-propelled machinery. Use Send help or standard resolve."
+			)
+		)
+	if not _ltt_replacement_cargo_allowed(ltt) and not (phase == "case1_pickup_leg" and has_tractor):
+		frappe.throw(
+			_(
+				"Replacement is only available when the transfer has stock and/or hand tool or other tool assets only, with no tractor on the ticket except on the pickup leg. Use Send help or standard resolve."
 			)
 		)
 	if not replacement_vehicle or not frappe.db.exists("Machinery", replacement_vehicle):
@@ -1765,23 +1858,6 @@ def _enrich_attachment_from_equipment(row: dict, equipment: tuple[str, str]) -> 
 			return
 		row["attached_tractor_machinery_id"] = mach
 		row["attached_tractor_machinery_label"] = frappe.db.get_value("Machinery", mach, "machinery_name") or mach
-
-
-def _location_warehouse_level_from_location_name(location_name: str | None) -> str | None:
-	"""
-	farm | cluster | field from Location.location_name depth (Farm-Cluster-Field path).
-	"""
-	if not (location_name or "").strip():
-		return None
-	parts = [p.strip() for p in str(location_name).split("-") if p.strip()]
-	n = len(parts)
-	if n >= 3:
-		return "field"
-	if n == 2:
-		return "cluster"
-	if n == 1:
-		return "farm"
-	return None
 
 
 def _location_warehouse_level_for_warehouse_name(warehouse: str) -> str | None:
@@ -2154,5 +2230,19 @@ def get_asset_availability(asset: str, warehouse: str):
 			return "Not Available"
 	except Exception:
 		return "Not Available"
+
+
+@frappe.whitelist()
+def get_equipment_location_geo_level(doctype: str | None = None, name: str | None = None):
+	"""Return farm | cluster | field | null for Machinery / Implement equipment doc (for UI gates)."""
+	doctype = (doctype or "").strip()
+	name = (name or "").strip()
+	if not doctype or not name:
+		frappe.throw(_("doctype and name are required"))
+	if doctype not in ("Machinery", "Implement", "Hand Tool", "Other Tool"):
+		frappe.throw(_("Unsupported doctype"))
+	from f2c.inventory.equipment_location_level import location_level_for_equipment_doc
+
+	return {"level": location_level_for_equipment_doc(doctype, name)}
 
 

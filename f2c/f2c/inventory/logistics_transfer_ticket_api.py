@@ -1432,7 +1432,14 @@ def get_logistics_farm_report_resolve_context(ltt_name: str | None = None):
 	phase = _logistics_farm_report_resolve_phase(ltt)
 	has_tractor = _ltt_has_tractor_asset(ltt)
 	cargo_ok = _ltt_replacement_cargo_allowed(ltt)
-	replacement_allowed = bool(phase and cargo_ok and not has_tractor)
+	# Replacement: light cargo (no tractor) in either phase, or tractor/self-propelled only on pickup leg (case1).
+	replacement_allowed = bool(
+		phase
+		and (
+			(cargo_ok and not has_tractor)
+			or (phase == "case1_pickup_leg" and has_tractor)
+		)
+	)
 	return {
 		"phase": phase,
 		"has_tractor": has_tractor,
@@ -1539,10 +1546,17 @@ def resolve_logistics_farm_report_ticket(
 		return {"farm_report_ticket": rpt.name, "status": rpt.status, "new_logistics_ticket": None}
 
 	# replacement
-	if not _ltt_replacement_cargo_allowed(ltt) or _ltt_has_tractor_asset(ltt):
+	has_tractor = _ltt_has_tractor_asset(ltt)
+	if phase == "case2_dropoff_in_transit" and has_tractor:
 		frappe.throw(
 			_(
-				"Replacement is only available when the transfer has stock and/or hand tool or other tool assets only, with no tractor on the ticket. Use Send help or standard resolve."
+				"Vehicle replacement is not available on the drop-off leg when this transfer includes a tractor or self-propelled machinery. Use Send help or standard resolve."
+			)
+		)
+	if not _ltt_replacement_cargo_allowed(ltt) and not (phase == "case1_pickup_leg" and has_tractor):
+		frappe.throw(
+			_(
+				"Replacement is only available when the transfer has stock and/or hand tool or other tool assets only, with no tractor on the ticket except on the pickup leg. Use Send help or standard resolve."
 			)
 		)
 	if not replacement_vehicle or not frappe.db.exists("Machinery", replacement_vehicle):
