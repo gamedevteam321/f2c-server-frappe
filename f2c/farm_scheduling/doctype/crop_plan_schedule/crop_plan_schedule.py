@@ -1367,6 +1367,7 @@ class CropPlanSchedule(Document):
 			planned_pickup_drop_for_round_trip_leg2_from_schedule,
 		)
 		from f2c.inventory.tractor_implement_ltt_plan import (
+			_resolve_required_implement_for_tractor_asset,
 			implement_asset_ids_paired_to_tractors_on_schedule,
 			plan_field_tractor_implement_round_trip,
 		)
@@ -1485,7 +1486,29 @@ class CropPlanSchedule(Document):
 
 			asset_names = [r.get("asset") for r in asset_reqs if r.get("asset")]
 			if from_warehouse == target_warehouse:
-				machinery_skips.append(f"{primary}: already at field warehouse {target_warehouse}")
+				# Tractor is already at the field. Check whether an implement swap was needed.
+				# If yes and rt is None, the round-trip planning failed (cluster_wh missing or
+				# cluster_wh == target_wh). Surface an error so it is not silently dropped.
+				mach_for_swap = frappe.db.get_value(
+					"Machinery", {"asset": primary}, "current_implement", as_dict=False
+				)
+				cur_impl_for_swap = mach_for_swap or None
+				req_impl_for_swap, _ = _resolve_required_implement_for_tractor_asset(self, primary)
+				if req_impl_for_swap and cur_impl_for_swap != req_impl_for_swap:
+					msg = (
+						f"Schedule {self.name}: tractor {primary} is at field warehouse {target_warehouse} "
+						f"and needs implement swap ({cur_impl_for_swap} → {req_impl_for_swap}) "
+						f"but round-trip log planning failed. "
+						f"cluster_wh={cluster_wh!r}, target_wh={target_warehouse!r}. "
+						"Ensure cluster warehouse is configured for this field and differs from the field warehouse."
+					)
+					frappe.log_error(title="Implement Swap Round-Trip Failed", message=msg)
+					errors.append(
+						f"{primary}: implement swap needed ({cur_impl_for_swap} → {req_impl_for_swap}) "
+						"but round-trip could not be planned — check cluster warehouse config"
+					)
+				else:
+					machinery_skips.append(f"{primary}: already at field warehouse {target_warehouse}")
 				continue
 			dup_ticket = self._find_open_equipment_ltt_duplicate(
 				from_warehouse, target_warehouse, asset_names, self.name
@@ -1543,9 +1566,9 @@ class CropPlanSchedule(Document):
 				f"Created {len(created_tickets)} machinery transfer ticket(s): {', '.join(created_tickets)}",
 				indicator="green", title="Transfer Tickets Created",
 			)
-		elif errors:
+		if errors:
 			frappe.msgprint(
-				"Failed to create some machinery transfer tickets. Please check Error Log.",
+				f"Failed to create {len(errors)} machinery transfer ticket(s). Please check Error Log for details.",
 				indicator="red", title="Transfer Ticket Creation Failed",
 			)
 		elif unit_payloads and machinery_skips:

@@ -1057,6 +1057,14 @@ def create_logistics_transfer_ticket(
 			asset_doc = frappe.get_doc("Asset", asset_name)
 			if asset_doc.location and asset_doc.location == to_loc:
 				already_there.append(asset_doc.name)
+				# Skip from Asset Movement (no physical move needed) but still record
+				# in ticket asset_items so the ticket reflects the full context and
+				# duplicate detection (subset check) works correctly.
+				ticket_asset_row_at = {"asset": asset_doc.name, "qty": req_qty}
+				req_pi_at = (req.get("paired_implement") or "").strip()
+				if req_pi_at and frappe.db.exists("Implement", req_pi_at):
+					ticket_asset_row_at["paired_implement"] = req_pi_at
+				asset_item_rows_for_ticket.append(ticket_asset_row_at)
 				continue
 			asset_qty = flt(getattr(asset_doc, "asset_quantity", 1) or 1)
 
