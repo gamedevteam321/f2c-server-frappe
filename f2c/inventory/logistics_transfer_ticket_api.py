@@ -663,10 +663,68 @@ def _sync_equipment_locations_after_asset_movement(ticket) -> None:
 		_sync_equipment_location_from_asset(an)
 
 
+def _cluster_path_key_for_machinery(machinery_name: str) -> str | None:
+	"""Farm–Cluster identity from Asset → Location.location_name (first two path segments)."""
+	asset = frappe.db.get_value("Machinery", machinery_name, "asset")
+	if not asset:
+		return None
+	loc = frappe.db.get_value("Asset", asset, "location")
+	if not loc:
+		return None
+	location_name = frappe.db.get_value("Location", loc, "location_name") or ""
+	parts = [p.strip() for p in str(location_name).split("-") if p.strip()]
+	if len(parts) >= 2:
+		return f"{parts[0]}-{parts[1]}"
+	return parts[0] if parts else None
+
+
+def _tractors_in_same_cluster(machinery_a: str, machinery_b: str) -> bool:
+	"""True when both tractors resolve to the same Farm–Cluster location key."""
+	ka = _cluster_path_key_for_machinery(machinery_a)
+	kb = _cluster_path_key_for_machinery(machinery_b)
+	if not ka or not kb:
+		return False
+	return ka == kb
+
+
+def _detach_implement_from_prior_tractor(implement_name: str, old_machinery_name: str) -> None:
+	"""
+	Clear Machinery.current_implement and Implement.attached_to_machinery before reassigning
+	to another tractor (DB-only; skips Implement/Machinery validate that would block the swap).
+	"""
+	now = now_datetime()
+	cur_on_old = frappe.db.get_value("Machinery", old_machinery_name, "current_implement")
+	if cur_on_old == implement_name:
+		frappe.db.set_value(
+			"Machinery",
+			old_machinery_name,
+			{
+				"current_implement": None,
+				"attachment_status": "None",
+				"attachment_updated_on": now,
+			},
+			update_modified=False,
+		)
+	frappe.db.set_value(
+		"Implement",
+		implement_name,
+		{
+			"attached_to_machinery": None,
+			"attachment_status": "Detached",
+			"attachment_updated_on": now,
+		},
+		update_modified=False,
+	)
+
+
 def _reapply_tractor_implement_links_after_transfer(ticket) -> None:
 	"""
 	Ensure Machinery.current_implement and Implement.attached_to_machinery stay consistent
 	for ticket rows that record a paired implement (runs Machinery save → existing sync hooks).
+
+	When the implement is still linked to another tractor, detach it from that tractor first
+	only if both tractors share the same cluster (Farm–Cluster path). Otherwise skip re-linking
+	for this row so cross-cluster swaps stay explicit / manual.
 	"""
 	frappe.flags.skip_cluster_attachment_validation = True
 	try:
@@ -684,8 +742,22 @@ def _reapply_tractor_implement_links_after_transfer(ticket) -> None:
 			if (m.machinery_type or "") != "Tractor":
 				continue
 			impl_owner = frappe.db.get_value("Implement", pi, "attached_to_machinery") or None
-			if (m.current_implement or "") == pi and impl_owner == mach_name:
+			prior_mach = impl_owner
+			if not prior_mach:
+				prior_mach = frappe.db.get_value("Machinery", {"current_implement": pi}, "name")
+			if (m.current_implement or "") == pi and (impl_owner or prior_mach) == mach_name:
 				continue
+			if prior_mach and prior_mach != mach_name:
+				if not _tractors_in_same_cluster(prior_mach, mach_name):
+					frappe.logger().info(
+						"[LTT] Skip paired implement reassignment %s → %s: tractors %s and %s not in same cluster",
+						pi,
+						mach_name,
+						prior_mach,
+						mach_name,
+					)
+					continue
+				_detach_implement_from_prior_tractor(pi, prior_mach)
 			m.current_implement = pi
 			m.save(ignore_permissions=True)
 	finally:
@@ -1211,6 +1283,8 @@ def mark_dispatched(ticket_name: str, dispatch_photo_url=None):
 	if photo_json:
 		ticket.dispatch_photo = photo_json
 	ticket.save(ignore_permissions=True)
+	ticket.reload()
+	_reapply_tractor_implement_links_after_transfer(ticket)
 	return {"ticket": ticket.name, "status": ticket.status}
 
 
