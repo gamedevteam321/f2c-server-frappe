@@ -337,6 +337,12 @@ def create_equipment_transfer_tickets_for_execution(execution_doc, on_end_of_day
 				if getattr(row, "asset", None)
 				and (getattr(row, "return_type", None) or "").strip() in ("Returnable", "End Activity Returnable")
 			]
+		from f2c.inventory.tractor_implement_ltt_plan import (
+			implement_asset_ids_paired_but_unattached_from_machinery_child_rows,
+		)
+
+		skip_impl = implement_asset_ids_paired_but_unattached_from_machinery_child_rows(list(equipment_rows))
+		assets = [a for a in assets if a not in skip_impl]
 		if not assets or not getattr(execution_doc, "field", None):
 			return
 

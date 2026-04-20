@@ -5,15 +5,19 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import frappe
-from frappe.exceptions import ValidationError
 from frappe.tests.utils import FrappeTestCase
 
 from f2c.inventory.equipment_location_level import (
 	assert_cluster_for_tractor_implement_link_change,
 	location_warehouse_level_from_location_name,
 )
-from f2c.inventory.logistics_transfer_ticket_api import planned_pickup_drop_for_round_trip_leg1_immediate
+from f2c.inventory.logistics_transfer_ticket_api import (
+	_location_docnames_under_path_prefix,
+	planned_pickup_drop_for_round_trip_leg1_immediate,
+)
 from f2c.inventory.tractor_implement_ltt_plan import (
+	implement_asset_ids_paired_but_unattached,
+	implement_asset_ids_paired_but_unattached_from_machinery_child_rows,
 	implement_asset_ids_paired_to_tractors_on_schedule,
 	implement_doc_names_paired_to_tractors_on_schedule,
 	plan_field_tractor_implement_round_trip,
@@ -135,6 +139,99 @@ class TestPairedImplementAssetIds(FrappeTestCase):
 		self.assertEqual(implement_asset_ids_paired_to_tractors_on_schedule(doc), {"AS-R"})
 
 
+class TestPairedButUnattachedImplementAssets(FrappeTestCase):
+	def test_from_rows_empty(self):
+		self.assertEqual(implement_asset_ids_paired_but_unattached_from_machinery_child_rows([]), set())
+		self.assertEqual(
+			implement_asset_ids_paired_but_unattached_from_machinery_child_rows(
+				[SimpleNamespace(asset="TA", paired_implement="")]
+			),
+			set(),
+		)
+
+	@patch("frappe.db.exists", return_value=False)
+	def test_from_rows_skips_when_implement_doc_missing(self, _mock_exists):
+		rows = [SimpleNamespace(asset="TA", paired_implement="IMP-X")]
+		self.assertEqual(implement_asset_ids_paired_but_unattached_from_machinery_child_rows(rows), set())
+
+	@patch("frappe.db.exists", return_value=True)
+	@patch("frappe.db.get_value")
+	def test_from_rows_skips_non_tractor(self, mock_gv, _mock_exists):
+		def gv(doctype, arg2, arg3=None, *args, **kwargs):
+			if doctype == "Machinery" and isinstance(arg2, dict) and arg2.get("asset") == "HARV-A":
+				if arg3 == "machinery_type":
+					return "Combine"
+			return None
+
+		mock_gv.side_effect = gv
+		rows = [SimpleNamespace(asset="HARV-A", paired_implement="IMP-1")]
+		self.assertEqual(implement_asset_ids_paired_but_unattached_from_machinery_child_rows(rows), set())
+
+	@patch("frappe.db.exists", return_value=True)
+	@patch("frappe.db.get_value")
+	def test_from_rows_empty_when_fully_attached(self, mock_gv, _mock_exists):
+		def gv(doctype, arg2, arg3=None, *args, **kwargs):
+			if doctype == "Machinery" and isinstance(arg2, dict) and arg2.get("asset") == "TR-A":
+				if arg3 == "machinery_type":
+					return "Tractor"
+				if arg3 == "name":
+					return "M-TR-1"
+			if doctype == "Machinery" and arg2 == "M-TR-1" and arg3 == "current_implement":
+				return "IMP-PAIR"
+			if doctype == "Implement" and arg2 == "IMP-PAIR" and arg3 == "attached_to_machinery":
+				return "M-TR-1"
+			return None
+
+		mock_gv.side_effect = gv
+		rows = [SimpleNamespace(asset="TR-A", paired_implement="IMP-PAIR")]
+		self.assertEqual(implement_asset_ids_paired_but_unattached_from_machinery_child_rows(rows), set())
+
+	@patch("frappe.db.exists", return_value=True)
+	@patch("frappe.db.get_value")
+	def test_from_rows_collects_asset_when_paired_but_unattached(self, mock_gv, _mock_exists):
+		def gv(doctype, arg2, arg3=None, *args, **kwargs):
+			if doctype == "Machinery" and isinstance(arg2, dict) and arg2.get("asset") == "TR-A":
+				if arg3 == "machinery_type":
+					return "Tractor"
+				if arg3 == "name":
+					return "M-TR-1"
+			if doctype == "Machinery" and arg2 == "M-TR-1" and arg3 == "current_implement":
+				return None
+			if doctype == "Implement" and arg2 == "IMP-REQ" and arg3 == "attached_to_machinery":
+				return None
+			if doctype == "Implement" and arg2 == "IMP-REQ" and arg3 == "asset":
+				return "AS-IMP"
+			return None
+
+		mock_gv.side_effect = gv
+		rows = [SimpleNamespace(asset="TR-A", paired_implement="IMP-REQ")]
+		self.assertEqual(
+			implement_asset_ids_paired_but_unattached_from_machinery_child_rows(rows),
+			{"AS-IMP"},
+		)
+
+	@patch("frappe.db.exists", return_value=True)
+	@patch("frappe.db.get_value")
+	def test_schedule_delegate_uses_machinery_child_table(self, mock_gv, _mock_exists):
+		def gv(doctype, arg2, arg3=None, *args, **kwargs):
+			if doctype == "Machinery" and isinstance(arg2, dict) and arg2.get("asset") == "TR-B":
+				if arg3 == "machinery_type":
+					return "Tractor"
+				if arg3 == "name":
+					return "M-TR-2"
+			if doctype == "Machinery" and arg2 == "M-TR-2" and arg3 == "current_implement":
+				return "IMP-OTHER"
+			if doctype == "Implement" and arg2 == "IMP-REQ" and arg3 == "attached_to_machinery":
+				return "M-TR-2"
+			if doctype == "Implement" and arg2 == "IMP-REQ" and arg3 == "asset":
+				return "AS-IMP2"
+			return None
+
+		mock_gv.side_effect = gv
+		doc = SimpleNamespace(machinery=[SimpleNamespace(asset="TR-B", paired_implement="IMP-REQ")])
+		self.assertEqual(implement_asset_ids_paired_but_unattached(doc), {"AS-IMP2"})
+
+
 class TestEquipmentLocationLevel(FrappeTestCase):
 	def test_location_name_depth(self):
 		self.assertEqual(location_warehouse_level_from_location_name("FarmA-ClusterB"), "cluster")
@@ -151,7 +248,9 @@ class TestEquipmentLocationLevel(FrappeTestCase):
 		mock_lvl.assert_not_called()
 
 	@patch("f2c.inventory.equipment_location_level.location_level_for_equipment_doc")
-	def test_cluster_assert_raises_when_tractor_at_field(self, mock_lvl):
+	def test_cluster_assert_allows_tractor_at_field(self, mock_lvl):
+		"""Attach/detach is allowed at farm/cluster/field; assert_cluster_* is a no-op."""
+
 		def _lvl(doctype, name):
 			if doctype == "Machinery" and name == "TR-1":
 				return "field"
@@ -160,8 +259,22 @@ class TestEquipmentLocationLevel(FrappeTestCase):
 			return "cluster"
 
 		mock_lvl.side_effect = _lvl
-		with self.assertRaises(ValidationError):
-			assert_cluster_for_tractor_implement_link_change("TR-1", "OLD", "NEW")
+		assert_cluster_for_tractor_implement_link_change("TR-1", "OLD", "NEW")
+
+
+class TestLocationSubtreeForWarehouseAssets(FrappeTestCase):
+	@patch("frappe.db.sql")
+	def test_location_docnames_under_path_prefix_sql(self, mock_sql):
+		mock_sql.return_value = [("LOC-ROOT",), ("LOC-CHILD",)]
+		out = _location_docnames_under_path_prefix("FarmX-ClusterY")
+		self.assertEqual(out, ["LOC-ROOT", "LOC-CHILD"])
+		mock_sql.assert_called_once()
+		call_args = mock_sql.call_args[0]
+		self.assertEqual(call_args[1], ("FarmX-ClusterY", "FarmX-ClusterY-%"))
+
+	def test_location_docnames_under_path_prefix_empty(self):
+		self.assertEqual(_location_docnames_under_path_prefix(""), [])
+		self.assertEqual(_location_docnames_under_path_prefix("   "), [])
 
 
 class TestTractorImplementRoundTripPlan(FrappeTestCase):

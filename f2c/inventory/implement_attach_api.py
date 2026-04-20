@@ -1,13 +1,22 @@
 # -*- coding: utf-8 -*-
-"""API endpoints for attaching and detaching implements to/from tractors at any location level."""
+"""API endpoints for attaching and detaching implements to/from tractors at any location level.
+
+When `_ENFORCE_IMPLEMENT_ATTACH_ACTIVE_ACTIVITY_GUARD` is False (current default), attach/detach
+and picker APIs do not block on Crop Plan Schedule / On Demand Activity (Scheduled/Reported).
+Set the flag to True to restore CPS/ODA blocking.
+"""
 
 from __future__ import annotations
 
 import frappe
 from frappe import _
 
-# Statuses that mean equipment is actively in use and cannot be re-linked
+# Statuses that mean equipment is actively in use and cannot be re-linked (used only when guard is on)
 _ACTIVE_STATUSES = ("Scheduled", "Reported")
+
+# Temporary: allow attach/detach and modal pickers even when equipment is on CPS/ODA in Scheduled/Reported.
+# Schedules may drift from actual field linkage; set True to block again.
+_ENFORCE_IMPLEMENT_ATTACH_ACTIVE_ACTIVITY_GUARD = False
 
 
 def _is_equipment_in_active_activity(
@@ -16,9 +25,12 @@ def _is_equipment_in_active_activity(
 ) -> dict:
 	"""
 	Returns {"in_use": bool, "reason": str | None}.
-	Checks both Crop Plan Schedule and On Demand Activity child tables.
-	Active = status in ("Scheduled", "Reported").
+	When `_ENFORCE_IMPLEMENT_ATTACH_ACTIVE_ACTIVITY_GUARD` is True, checks Crop Plan Schedule and
+	On Demand Activity child tables; active = status in ("Scheduled", "Reported").
 	"""
+	if not _ENFORCE_IMPLEMENT_ATTACH_ACTIVE_ACTIVITY_GUARD:
+		return {"in_use": False, "reason": None}
+
 	asset = None
 
 	if machinery_name:
@@ -86,6 +98,39 @@ def _is_equipment_in_active_activity(
 	return {"in_use": False, "reason": None}
 
 
+def _locations_equivalent(loc_a: str | None, loc_b: str | None) -> bool:
+	"""Same Location docname or same location_name (case-insensitive)."""
+	if not loc_a or not loc_b:
+		return False
+	if loc_a == loc_b:
+		return True
+	na = (frappe.db.get_value("Location", loc_a, "location_name") or "").strip().lower()
+	nb = (frappe.db.get_value("Location", loc_b, "location_name") or "").strip().lower()
+	return bool(na and na == nb)
+
+
+def _machinery_implement_location_compatible(machinery_name: str, impl_row: dict) -> bool:
+	"""Only implements at the same Location as the tractor (field vs field, cluster vs cluster, etc.)."""
+	mach_loc = frappe.db.get_value("Machinery", machinery_name, "location")
+	if not mach_loc:
+		return True
+	impl_loc = impl_row.get("location")
+	if not impl_loc:
+		return False
+	return _locations_equivalent(mach_loc, impl_loc)
+
+
+def _tractor_row_matches_implement_location(implement_name: str, tractor_row: dict) -> bool:
+	"""Only tractors at the same Location as the implement when the implement has a Location set."""
+	impl_loc = frappe.db.get_value("Implement", implement_name, "location")
+	if not impl_loc:
+		return True
+	mach_loc = tractor_row.get("location")
+	if not mach_loc:
+		return False
+	return _locations_equivalent(mach_loc, impl_loc)
+
+
 @frappe.whitelist()
 def get_available_tractors(implement_name: str | None = None) -> list[dict]:
 	"""
@@ -93,8 +138,11 @@ def get_available_tractors(implement_name: str | None = None) -> list[dict]:
 	A tractor is available when:
 	  - machinery_type == "Tractor"
 	  - Has no current_implement OR its current_implement == implement_name (already attached)
-	  - Not in an active activity
+	  - When `_ENFORCE_IMPLEMENT_ATTACH_ACTIVE_ACTIVITY_GUARD` is True: not on active CPS/ODA
+	  - Same Location as the implement when the implement has a Location set
 	"""
+	if not implement_name:
+		return []
 	tractors = frappe.get_all(
 		"Machinery",
 		filters={"machinery_type": "Tractor"},
@@ -107,6 +155,8 @@ def get_available_tractors(implement_name: str | None = None) -> list[dict]:
 		cur = t.get("current_implement") or None
 		# Skip tractors that already have a different implement attached
 		if cur and cur != implement_name:
+			continue
+		if not _tractor_row_matches_implement_location(implement_name, t):
 			continue
 		# Skip tractors in active activity
 		check = _is_equipment_in_active_activity(machinery_name=t["name"])
@@ -129,8 +179,11 @@ def get_available_implements(machinery_name: str | None = None) -> list[dict]:
 	Return Implements available for attachment to a tractor.
 	An implement is available when:
 	  - Has no attached_to_machinery OR its attached_to_machinery == machinery_name
-	  - Not in an active activity
+	  - When `_ENFORCE_IMPLEMENT_ATTACH_ACTIVE_ACTIVITY_GUARD` is True: not on active CPS/ODA
+	  - Same Location as the tractor (when the tractor has a Location set)
 	"""
+	if not machinery_name:
+		return []
 	implements = frappe.get_all(
 		"Implement",
 		fields=["name", "implement_name", "implement_type", "attached_to_machinery", "asset", "location"],
@@ -142,6 +195,8 @@ def get_available_implements(machinery_name: str | None = None) -> list[dict]:
 		cur_tractor = impl.get("attached_to_machinery") or None
 		# Skip implements already attached to a different tractor
 		if cur_tractor and cur_tractor != machinery_name:
+			continue
+		if not _machinery_implement_location_compatible(machinery_name, impl):
 			continue
 		# Skip implements in active activity
 		check = _is_equipment_in_active_activity(implement_name=impl["name"])
@@ -161,7 +216,8 @@ def get_available_implements(machinery_name: str | None = None) -> list[dict]:
 def attach_implement(implement_name: str, machinery_name: str) -> dict:
 	"""
 	Attach implement_name to machinery_name.
-	Validates machinery is a Tractor, neither is in active activity, and tractor has no other implement.
+	Validates machinery is a Tractor, optional CPS/ODA guard when
+	`_ENFORCE_IMPLEMENT_ATTACH_ACTIVE_ACTIVITY_GUARD` is True, and tractor has no other implement.
 	The existing _sync_tractor_attachment on_update hook keeps both sides in sync automatically.
 	"""
 	# Validate tractor type
@@ -172,6 +228,12 @@ def attach_implement(implement_name: str, machinery_name: str) -> dict:
 	# Validate implement exists
 	if not frappe.db.exists("Implement", implement_name):
 		frappe.throw(_("Implement {0} does not exist.").format(implement_name))
+
+	impl_loc_row = {"location": frappe.db.get_value("Implement", implement_name, "location")}
+	if not _machinery_implement_location_compatible(machinery_name, impl_loc_row):
+		frappe.throw(
+			_("Implement and tractor must be at the same location (warehouse) to attach.")
+		)
 
 	# In-use checks
 	for check_kwargs in [
@@ -205,6 +267,7 @@ def attach_implement(implement_name: str, machinery_name: str) -> dict:
 def detach_implement(implement_name: str | None = None, machinery_name: str | None = None) -> dict:
 	"""
 	Detach an implement from its tractor. Either side can be passed.
+	Optional CPS/ODA guard when `_ENFORCE_IMPLEMENT_ATTACH_ACTIVE_ACTIVITY_GUARD` is True.
 	The existing _sync_tractor_attachment on_update hook clears the Implement side automatically.
 	"""
 	# Resolve the full pair

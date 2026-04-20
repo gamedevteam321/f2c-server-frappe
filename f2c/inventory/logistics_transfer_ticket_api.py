@@ -15,6 +15,21 @@ from f2c.inventory.equipment_location_level import (
 ASSET_DOCSTATUS_NOT_CANCELLED = [0, 1]
 
 
+def _location_docnames_under_path_prefix(canonical_location_name: str) -> list[str]:
+	"""Location.name rows whose location_name equals the path or is a descendant (Farm → Farm-Cluster-Field)."""
+	path = (canonical_location_name or "").strip()
+	if not path:
+		return []
+	rows = frappe.db.sql(
+		"""
+		SELECT name FROM `tabLocation`
+		WHERE location_name = %s OR location_name LIKE %s
+		""",
+		(path, f"{path}-%"),
+	)
+	return [r[0] for r in rows] if rows else []
+
+
 def _f2c_enforce_logistics_location() -> bool:
 	"""When F2C Settings disables enforcement, relax client/server gates (e.g. receive before Delivered)."""
 	if not frappe.db.exists("DocType", "F2C Settings"):
@@ -43,6 +58,42 @@ def _normalize_photo_urls(value):
 			pass
 		return json.dumps([val])
 	return None
+
+
+def _dispatch_photo_field_to_url_list(raw) -> list[str]:
+	"""Parse Logistics Transfer Ticket.dispatch_photo (JSON list or single URL) into URL strings."""
+	if raw is None:
+		return []
+	if isinstance(raw, list):
+		return [str(u).strip() for u in raw if str(u).strip()]
+	s = str(raw).strip()
+	if not s:
+		return []
+	try:
+		parsed = json.loads(s)
+		if isinstance(parsed, list):
+			return [str(u).strip() for u in parsed if u and str(u).strip()]
+	except (json.JSONDecodeError, TypeError):
+		pass
+	return [s]
+
+
+def _merge_replacement_dispatch_photo_on_doc(new_doc, original_ltt, handoff_dispatch_image: str | None) -> bool:
+	"""Copy parent dispatch_photo onto the replacement ticket, plus optional extra URL from resolve."""
+	seen: set[str] = set()
+	urls: list[str] = []
+	for u in _dispatch_photo_field_to_url_list(getattr(original_ltt, "dispatch_photo", None)):
+		if u and u not in seen:
+			seen.add(u)
+			urls.append(u)
+	extra = (handoff_dispatch_image or "").strip()
+	if extra and extra not in seen:
+		urls.append(extra)
+	merged = _normalize_photo_urls(urls)
+	if merged:
+		new_doc.dispatch_photo = merged
+		return True
+	return False
 
 
 def _geo_area_path_names(geo_area_name: str) -> list[str]:
@@ -844,11 +895,15 @@ def create_logistics_transfer_ticket(
 	transport_vehicle: str | None = None,
 	skip_default_transport_vehicle: bool = False,
 	schedule_ref: str | None = None,
+	material_transfer_source_warehouse: str | None = None,
 ):
 	"""
 	Create ONE Logistics Transfer Ticket.
 	When both From and To are Warehouse: creates draft Stock Entry and optionally Asset Movement.
-	When either end is Other (external location): no Stock Entry/Asset Movement (tracking-only).
+	When either end is Other (external location): no Stock Entry/Asset Movement (tracking-only),
+	except if ``material_transfer_source_warehouse`` is set with From=Other and To=Warehouse: then a
+	draft Material Transfer Stock Entry is still created from that warehouse to ``to_warehouse`` (GPS
+	pickup on the ticket; stock issues from the real warehouse).
 	"""
 	stock_items = stock_items or []
 	assets = assets or []
@@ -911,8 +966,29 @@ def create_logistics_transfer_ticket(
 		if not stock_items and not assets:
 			frappe.throw(_("Select at least one stock item or asset"))
 
-	# When either end is Other: tracking-only, no SE/AM
+	# When either end is Other: tracking-only, no SE/AM (unless optional stock source warehouse below)
 	both_warehouse = from_location_type == "Warehouse" and to_location_type == "Warehouse"
+	mt_sw = (material_transfer_source_warehouse or frappe.form_dict.get("material_transfer_source_warehouse") or "").strip() or None
+
+	stock_entry_source_warehouse: str | None = None
+	stock_entry_target_warehouse: str | None = None
+	if both_warehouse and from_warehouse and to_warehouse:
+		stock_entry_source_warehouse = from_warehouse
+		stock_entry_target_warehouse = to_warehouse
+	elif (
+		from_location_type == "Other"
+		and to_location_type == "Warehouse"
+		and to_warehouse
+		and mt_sw
+		and stock_items
+	):
+		if mt_sw == (to_warehouse or "").strip():
+			frappe.throw(_("Material transfer source warehouse must differ from the destination warehouse."))
+		if not frappe.db.exists("Warehouse", mt_sw):
+			frappe.throw(_("Material transfer source warehouse {0} does not exist").format(mt_sw))
+		stock_entry_source_warehouse = mt_sw
+		stock_entry_target_warehouse = to_warehouse
+
 	if both_warehouse:
 		company = frappe.db.get_value("Warehouse", from_warehouse, "company")
 		if not company:
@@ -937,7 +1013,7 @@ def create_logistics_transfer_ticket(
 	asset_item_rows_for_ticket: list[dict] = []
 	available_items_for_entry = []
 
-	if both_warehouse and stock_items:
+	if stock_entry_source_warehouse and stock_entry_target_warehouse and stock_items:
 		# Check availability for each item before creating Stock Entry
 		# All items (available or not) will still be included in ticket.stock_items below
 		for row in stock_items:
@@ -955,7 +1031,7 @@ def create_logistics_transfer_ticket(
 				is_stock_item = frappe.db.get_value("Item", item_code, "is_stock_item")
 				
 				if is_stock_item:
-					available_qty = get_stock_balance(item_code, from_warehouse)
+					available_qty = get_stock_balance(item_code, stock_entry_source_warehouse)
 					allow_negative = is_negative_stock_allowed(item_code=item_code)
 					
 					# Include in Stock Entry if:
@@ -966,8 +1042,8 @@ def create_logistics_transfer_ticket(
 							"doctype": "Stock Entry Detail",
 							"item_code": item_code,
 							"qty": min(qty, available_qty) if available_qty > 0 else qty,
-							"s_warehouse": from_warehouse,
-							"t_warehouse": to_warehouse,
+							"s_warehouse": stock_entry_source_warehouse,
+							"t_warehouse": stock_entry_target_warehouse,
 						})
 					# If item not available and negative stock not allowed, skip Stock Entry
 					# but item will still be in ticket.stock_items below
@@ -977,35 +1053,38 @@ def create_logistics_transfer_ticket(
 						"doctype": "Stock Entry Detail",
 						"item_code": item_code,
 						"qty": qty,
-						"s_warehouse": from_warehouse,
-						"t_warehouse": to_warehouse,
+						"s_warehouse": stock_entry_source_warehouse,
+						"t_warehouse": stock_entry_target_warehouse,
 					})
 			except Exception as e:
 				# If stock check fails, log error but continue
 				# Include item anyway - let Stock Entry validation handle it
 				frappe.log_error(
-					f"Error checking stock for item {item_code} in warehouse {from_warehouse}: {str(e)}",
+					f"Error checking stock for item {item_code} in warehouse {stock_entry_source_warehouse}: {str(e)}",
 					"Stock Check"
 				)
 				available_items_for_entry.append({
 					"doctype": "Stock Entry Detail",
 					"item_code": item_code,
 					"qty": qty,
-					"s_warehouse": from_warehouse,
-					"t_warehouse": to_warehouse,
+					"s_warehouse": stock_entry_source_warehouse,
+					"t_warehouse": stock_entry_target_warehouse,
 				})
 		
 		# Only create Stock Entry if there are available items and from != to (same-warehouse transfer is invalid in ERPNext)
 		# Note: All items (available or not) are still included in ticket.stock_items below
-		if available_items_for_entry and from_warehouse != to_warehouse:
+		if available_items_for_entry and stock_entry_source_warehouse != stock_entry_target_warehouse:
+			se_company = frappe.db.get_value("Warehouse", stock_entry_source_warehouse, "company") or company
+			if not se_company:
+				frappe.throw(_("Source warehouse for stock entry has no Company"))
 			se = frappe.get_doc(
 				{
 					"doctype": "Stock Entry",
-					"company": company,
+					"company": se_company,
 					"purpose": "Material Transfer",
 					"stock_entry_type": "Material Transfer",
-					"from_warehouse": from_warehouse,
-					"to_warehouse": to_warehouse,
+					"from_warehouse": stock_entry_source_warehouse,
+					"to_warehouse": stock_entry_target_warehouse,
 					"posting_date": now_datetime().date(),
 					"posting_time": now_datetime().time().replace(microsecond=0).isoformat(),
 					"items": available_items_for_entry,
@@ -1593,12 +1672,15 @@ def get_logistics_farm_report_resolve_context(ltt_name: str | None = None):
 	phase = _logistics_farm_report_resolve_phase(ltt)
 	has_tractor = _ltt_has_tractor_asset(ltt)
 	cargo_ok = _ltt_replacement_cargo_allowed(ltt)
-	# Replacement: light cargo (no tractor) in either phase, or tractor/self-propelled only on pickup leg (case1).
+	# Replacement: light cargo (no tractor) in either phase, or tractor/self-propelled on pickup or drop-off leg.
 	replacement_allowed = bool(
 		phase
 		and (
 			(cargo_ok and not has_tractor)
-			or (phase == "case1_pickup_leg" and has_tractor)
+			or (
+				has_tractor
+				and phase in ("case1_pickup_leg", "case2_dropoff_in_transit")
+			)
 		)
 	)
 	return {
@@ -1652,6 +1734,10 @@ def resolve_logistics_farm_report_ticket(
 	help_person_contact: str | None = None,
 	resolve_remark: str | None = None,
 	resolve_image: str | None = None,
+	handoff_latitude: str | None = None,
+	handoff_longitude: str | None = None,
+	handoff_address: str | None = None,
+	handoff_dispatch_image: str | None = None,
 ):
 	"""
 	Resolve a Farm Report Ticket (Logistics module) with optional replacement LTT or help contact details.
@@ -1686,6 +1772,10 @@ def resolve_logistics_farm_report_ticket(
 	new_from_warehouse = (new_from_warehouse or frappe.form_dict.get("new_from_warehouse") or "").strip() or None
 	help_person_name = (help_person_name or frappe.form_dict.get("help_person_name") or "").strip() or None
 	help_person_contact = (help_person_contact or frappe.form_dict.get("help_person_contact") or "").strip() or None
+	handoff_latitude = (handoff_latitude or frappe.form_dict.get("handoff_latitude") or "").strip() or None
+	handoff_longitude = (handoff_longitude or frappe.form_dict.get("handoff_longitude") or "").strip() or None
+	handoff_address = (handoff_address or frappe.form_dict.get("handoff_address") or "").strip() or None
+	handoff_dispatch_image = (handoff_dispatch_image or frappe.form_dict.get("handoff_dispatch_image") or "").strip() or None
 
 	new_ltt_name: str | None = None
 
@@ -1708,23 +1798,31 @@ def resolve_logistics_farm_report_ticket(
 
 	# replacement
 	has_tractor = _ltt_has_tractor_asset(ltt)
-	if phase == "case2_dropoff_in_transit" and has_tractor:
+	if not _ltt_replacement_cargo_allowed(ltt) and not (
+		has_tractor and phase in ("case1_pickup_leg", "case2_dropoff_in_transit")
+	):
 		frappe.throw(
 			_(
-				"Vehicle replacement is not available on the drop-off leg when this transfer includes a tractor or self-propelled machinery. Use Send help or standard resolve."
-			)
-		)
-	if not _ltt_replacement_cargo_allowed(ltt) and not (phase == "case1_pickup_leg" and has_tractor):
-		frappe.throw(
-			_(
-				"Replacement is only available when the transfer has stock and/or hand tool or other tool assets only, with no tractor on the ticket except on the pickup leg. Use Send help or standard resolve."
+				"Replacement is only available when the transfer has stock and/or hand tool or other tool assets only, with no tractor on the ticket except on the pickup or drop-off leg. Use Send help or standard resolve."
 			)
 		)
 	if not replacement_vehicle or not frappe.db.exists("Machinery", replacement_vehicle):
-		frappe.throw(_("A valid replacement transport vehicle (Machinery) is required"))
+		frappe.throw(
+			_("A valid replacement transport tractor (Machinery) is required")
+			if has_tractor
+			else _("A valid replacement transport vehicle (Machinery) is required")
+		)
+	if has_tractor:
+		repl_type = (frappe.db.get_value("Machinery", replacement_vehicle, "machinery_type") or "").strip()
+		if repl_type != "Tractor":
+			frappe.throw(_("For tractor transfers, replacement machinery must be of type Tractor."))
 	current_transport = (getattr(ltt, "transport_vehicle", None) or "").strip()
 	if current_transport and replacement_vehicle == current_transport:
-		frappe.throw(_("Choose a different vehicle than the one already assigned to this transfer ticket."))
+		frappe.throw(
+			_("Choose a different tractor than the one already assigned to this transfer ticket.")
+			if has_tractor
+			else _("Choose a different vehicle than the one already assigned to this transfer ticket.")
+		)
 
 	stock_items = _ltt_stock_items_payload(ltt)
 	assets = _ltt_assets_payload(ltt)
@@ -1753,10 +1851,13 @@ def resolve_logistics_farm_report_ticket(
 
 	if phase == "case2_dropoff_in_transit":
 		if from_location_type != "Warehouse":
-			frappe.throw(_("Replacement with a new pickup warehouse is only supported when the source From is a Warehouse"))
-		if not new_from_warehouse or not frappe.db.exists("Warehouse", new_from_warehouse):
-			frappe.throw(_("new_from_warehouse is required for this phase"))
-		from_wh = new_from_warehouse
+			frappe.throw(_("Drop-off leg replacement is only supported when the source From is a Warehouse"))
+		if not from_wh:
+			frappe.throw(_("Original ticket has no pickup warehouse; cannot create replacement transfer."))
+		# Same pickup warehouse as the original ticket (replacement transport only).
+		nfw = (new_from_warehouse or "").strip()
+		if nfw and nfw != (from_wh or "").strip():
+			frappe.throw(_("new_from_warehouse is not used; replacement uses the same pickup warehouse as the original ticket."))
 	elif phase == "case1_pickup_leg":
 		if new_from_warehouse:
 			frappe.throw(_("new_from_warehouse must not be set for pickup-leg replacement"))
@@ -1765,33 +1866,85 @@ def resolve_logistics_farm_report_ticket(
 
 	transfer_type = (getattr(ltt, "transfer_type", None) or "Internal").strip() or "Internal"
 
-	result = create_logistics_transfer_ticket(
-		from_warehouse=from_wh,
-		to_warehouse=to_wh,
-		stock_items=stock_items,
-		assets=assets,
-		transfer_type=transfer_type,
-		from_location_type=from_location_type,
-		to_location_type=to_location_type,
-		from_address=from_address,
-		from_latitude=from_latitude,
-		from_longitude=from_longitude,
-		to_address=to_address,
-		to_latitude=to_latitude,
-		to_longitude=to_longitude,
-		planned_pickup_on=_planned_dt_str(getattr(ltt, "planned_pickup_on", None)),
-		planned_drop_off_on=_planned_dt_str(getattr(ltt, "planned_drop_off_on", None)),
-		purchase_order=getattr(ltt, "purchase_order", None),
-		purchase_invoice=getattr(ltt, "purchase_invoice", None),
-		sales_order=getattr(ltt, "sales_order", None),
-		sales_invoice=getattr(ltt, "sales_invoice", None),
-		transport_vehicle=replacement_vehicle,
+	# Vehicle drop-off replacement: optional map handoff becomes the new ticket's pickup (Other + GPS),
+	# not the original cluster warehouse. Omit handoff to keep the same pickup warehouse as the parent.
+	use_handoff_gps_pickup = (
+		phase == "case2_dropoff_in_transit"
+		and not has_tractor
+		and (handoff_latitude or "").strip()
+		and (handoff_longitude or "").strip()
 	)
+	handoff_pick_lat = None
+	handoff_pick_lng = None
+	handoff_pick_addr = None
+	if use_handoff_gps_pickup:
+		_lat_s = (handoff_latitude or "").strip()
+		_lng_s = (handoff_longitude or "").strip()
+		_addr_s = (handoff_address or "").strip()
+		if not _lat_s or not _lng_s:
+			frappe.throw(_("Handoff latitude and longitude are both required when entering reported vehicle location."))
+		handoff_pick_lat = flt(_lat_s)
+		handoff_pick_lng = flt(_lng_s)
+		if handoff_pick_lat < -90 or handoff_pick_lat > 90 or handoff_pick_lng < -180 or handoff_pick_lng > 180:
+			frappe.throw(_("Handoff latitude and longitude must be within valid ranges."))
+		handoff_pick_addr = _addr_s[:500] if _addr_s else None
+
+	if use_handoff_gps_pickup:
+		result = create_logistics_transfer_ticket(
+			from_warehouse=None,
+			to_warehouse=to_wh,
+			stock_items=stock_items,
+			assets=assets,
+			transfer_type=transfer_type,
+			from_location_type="Other",
+			to_location_type=to_location_type,
+			from_address=handoff_pick_addr,
+			from_latitude=handoff_pick_lat,
+			from_longitude=handoff_pick_lng,
+			to_address=to_address,
+			to_latitude=to_latitude,
+			to_longitude=to_longitude,
+			planned_pickup_on=_planned_dt_str(getattr(ltt, "planned_pickup_on", None)),
+			planned_drop_off_on=_planned_dt_str(getattr(ltt, "planned_drop_off_on", None)),
+			purchase_order=getattr(ltt, "purchase_order", None),
+			purchase_invoice=getattr(ltt, "purchase_invoice", None),
+			sales_order=getattr(ltt, "sales_order", None),
+			sales_invoice=getattr(ltt, "sales_invoice", None),
+			transport_vehicle=replacement_vehicle,
+			material_transfer_source_warehouse=from_wh,
+		)
+	else:
+		result = create_logistics_transfer_ticket(
+			from_warehouse=from_wh,
+			to_warehouse=to_wh,
+			stock_items=stock_items,
+			assets=assets,
+			transfer_type=transfer_type,
+			from_location_type=from_location_type,
+			to_location_type=to_location_type,
+			from_address=from_address,
+			from_latitude=from_latitude,
+			from_longitude=from_longitude,
+			to_address=to_address,
+			to_latitude=to_latitude,
+			to_longitude=to_longitude,
+			planned_pickup_on=_planned_dt_str(getattr(ltt, "planned_pickup_on", None)),
+			planned_drop_off_on=_planned_dt_str(getattr(ltt, "planned_drop_off_on", None)),
+			purchase_order=getattr(ltt, "purchase_order", None),
+			purchase_invoice=getattr(ltt, "purchase_invoice", None),
+			sales_order=getattr(ltt, "sales_order", None),
+			sales_invoice=getattr(ltt, "sales_invoice", None),
+			transport_vehicle=replacement_vehicle,
+		)
 	new_ltt_name = (result or {}).get("ticket")
 	if new_ltt_name:
 		new_doc = frappe.get_doc("Logistics Transfer Ticket", new_ltt_name)
 		if getattr(ltt, "farm_task_execution", None):
 			new_doc.farm_task_execution = ltt.farm_task_execution
+		patched = False
+		if phase == "case2_dropoff_in_transit" and not has_tractor:
+			patched = _merge_replacement_dispatch_photo_on_doc(new_doc, ltt, handoff_dispatch_image)
+		if getattr(ltt, "farm_task_execution", None) or patched:
 			new_doc.save(ignore_permissions=True)
 
 	rpt.logistics_resolve_kind = "Replacement"
@@ -2054,23 +2207,58 @@ def get_assets_for_warehouse(warehouse: str):
 	def _norm(s: str) -> str:
 		return "".join(ch for ch in str(s or "").lower() if ch.isalnum())
 	
-	# Method 1: Try normal location-based lookup
+	# Method 1: Location subtree under canonical path (Farm / Field warehouses include child Location nodes)
 	location_result = get_location_for_warehouse(warehouse)
 	location = location_result.get("location") if location_result else None
 	geo_area = location_result.get("geo_area") if location_result else None
-	
-	assets = []
-	
-	# If we have a location, use it directly
+
+	canonical_path = None
 	if location:
-		assets = frappe.get_all(
+		canonical_path = frappe.db.get_value("Location", location, "location_name")
+	if not (canonical_path or "").strip() and geo_area:
+		canonical_path = _build_location_name_for_geo_area(geo_area)
+
+	location_scope: list[str] = []
+	if (canonical_path or "").strip():
+		location_scope = _location_docnames_under_path_prefix(canonical_path)
+	if location and location not in location_scope:
+		location_scope = list(location_scope) + [location]
+
+	assets: list[dict] = []
+	seen_names: set[str] = set()
+
+	def _add_asset_rows(rows: list[dict]) -> None:
+		for row in rows:
+			n = row.get("name")
+			if not n or n in seen_names:
+				continue
+			seen_names.add(n)
+			assets.append(row)
+
+	if location_scope:
+		chunk_size = 300
+		for i in range(0, len(location_scope), chunk_size):
+			chunk = location_scope[i : i + chunk_size]
+			batch = frappe.get_all(
+				"Asset",
+				fields=["name", "asset_name", "item_code", "asset_category", "location", "status", "asset_quantity", "image"],
+				filters=[["location", "in", chunk], ["docstatus", "in", ASSET_DOCSTATUS_NOT_CANCELLED]],
+				limit=1000,
+				ignore_permissions=True,
+			)
+			_add_asset_rows(batch)
+
+	# Exact node only if subtree query missed (e.g. path mismatch) but warehouse has a resolved Location
+	if not assets and location:
+		batch = frappe.get_all(
 			"Asset",
 			fields=["name", "asset_name", "item_code", "asset_category", "location", "status", "asset_quantity", "image"],
 			filters=[["location", "=", location], ["docstatus", "in", ASSET_DOCSTATUS_NOT_CANCELLED]],
 			limit=1000,
 			ignore_permissions=True,
 		)
-	
+		_add_asset_rows(batch)
+
 	# Method 2: Fallback - try to find assets by location name pattern matching
 	if not assets and geo_area:
 		# Get location name that should exist for this geo area
@@ -2082,7 +2270,7 @@ def get_assets_for_warehouse(warehouse: str):
 				fields=["name", "location_name"],
 				limit=1000
 			)
-			
+
 			# Find locations whose names contain parts of the expected location name
 			norm_expected = _norm(expected_location_name)
 			matching_locations = []
@@ -2097,21 +2285,22 @@ def get_assets_for_warehouse(warehouse: str):
 					# If at least one part matches, consider it a match
 					if any(_norm(ep) in norm_loc or _norm(lp) in norm_expected for ep in expected_parts for lp in loc_parts):
 						matching_locations.append(loc["name"])
-			
+
 			if matching_locations:
-				assets = frappe.get_all(
+				batch = frappe.get_all(
 					"Asset",
 					fields=["name", "asset_name", "item_code", "asset_category", "location", "status", "asset_quantity", "image"],
 					filters=[["location", "in", matching_locations], ["docstatus", "in", ASSET_DOCSTATUS_NOT_CANCELLED]],
 					limit=1000,
 					ignore_permissions=True,
 				)
-	
+				_add_asset_rows(batch)
+
 	# Method 3: Last resort - try matching by warehouse name in location names
 	if not assets:
 		wh_name = frappe.db.get_value("Warehouse", warehouse, "warehouse_name") or ""
 		norm_wh = _norm(wh_name) or _norm(warehouse)
-		
+
 		if norm_wh:
 			# Find locations whose names might contain the warehouse name
 			all_locations = frappe.get_all(
@@ -2119,7 +2308,7 @@ def get_assets_for_warehouse(warehouse: str):
 				fields=["name", "location_name"],
 				limit=1000
 			)
-			
+
 			matching_locations = []
 			for loc in all_locations:
 				loc_name = loc.get("location_name") or ""
@@ -2127,15 +2316,16 @@ def get_assets_for_warehouse(warehouse: str):
 				# Check if location name contains warehouse name or vice versa
 				if norm_wh in norm_loc or norm_loc in norm_wh:
 					matching_locations.append(loc["name"])
-			
+
 			if matching_locations:
-				assets = frappe.get_all(
+				batch = frappe.get_all(
 					"Asset",
 					fields=["name", "asset_name", "item_code", "asset_category", "location", "status", "asset_quantity", "image"],
 					filters=[["location", "in", matching_locations], ["docstatus", "in", ASSET_DOCSTATUS_NOT_CANCELLED]],
 					limit=1000,
 					ignore_permissions=True,
 				)
+				_add_asset_rows(batch)
 	
 	# When equipment location is a Field-type warehouse, show status as In Use
 	location_is_field = False
@@ -2160,14 +2350,25 @@ def get_assets_for_warehouse(warehouse: str):
 			a["equipment_doctype"], a["equipment_name"] = equipment
 			_enrich_attachment_from_equipment(a, equipment)
 		_enrich_location_geo_labels(a)
-	
+
+	# Every returned asset location is in scope so clients never over-filter fallback rows
+	location_scope_response = list(dict.fromkeys(location_scope))
+	for a in assets:
+		lid = a.get("location")
+		if lid:
+			location_scope_response.append(lid)
+	location_scope_response = list(dict.fromkeys(location_scope_response))
+
+	has_location_mapping = bool(location or geo_area or len(assets) > 0)
+
 	return {
 		"warehouse": warehouse,
 		"location": location,
 		"geo_area": geo_area,
 		"assets": assets,
 		"count": len(assets),
-		"has_location_mapping": bool(location)
+		"has_location_mapping": has_location_mapping,
+		"location_scope": location_scope_response,
 	}
 
 

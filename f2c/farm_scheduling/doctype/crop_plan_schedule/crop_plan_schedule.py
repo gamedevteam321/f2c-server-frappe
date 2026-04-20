@@ -417,9 +417,13 @@ class CropPlanSchedule(Document):
 		"""One LTT per machinery row; standalone implements; promoted hand/other machinery.
 		Co-moved implements are not duplicated."""
 		from f2c.inventory.logistics_transfer_ticket_api import expand_machinery_transfer_asset_requests
-		from f2c.inventory.tractor_implement_ltt_plan import implement_asset_ids_paired_to_tractors_on_schedule
+		from f2c.inventory.tractor_implement_ltt_plan import (
+			implement_asset_ids_paired_but_unattached,
+			implement_asset_ids_paired_to_tractors_on_schedule,
+		)
 
 		paired_impl_assets = implement_asset_ids_paired_to_tractors_on_schedule(self)
+		unattached_paired_impl_assets = implement_asset_ids_paired_but_unattached(self)
 		covered: set[str] = set()
 		units: list[tuple[list[dict], str | None]] = []
 
@@ -437,7 +441,12 @@ class CropPlanSchedule(Document):
 		for m in self.get("machinery") or []:
 			add_unit(m.asset)
 		for imp in self.get("implements") or []:
-			if imp.asset and imp.asset not in covered and imp.asset not in paired_impl_assets:
+			if (
+				imp.asset
+				and imp.asset not in covered
+				and imp.asset not in paired_impl_assets
+				and imp.asset not in unattached_paired_impl_assets
+			):
 				add_unit(imp.asset)
 		for ht in self.get("hand_tools") or []:
 			if ht.asset and self._is_field_machinery_equipment_asset(ht.asset) and ht.asset not in covered:

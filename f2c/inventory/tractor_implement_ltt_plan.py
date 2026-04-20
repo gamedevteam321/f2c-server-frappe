@@ -90,6 +90,47 @@ def implement_asset_ids_paired_to_tractors_on_schedule(schedule_doc: Any) -> set
 	return out
 
 
+def implement_asset_ids_paired_but_unattached_from_machinery_child_rows(machinery_rows: list[Any]) -> set[str]:
+	"""
+	Implement Asset names on rows with paired_implement (Tractor rows only) where DB attachment
+	is not in sync (return LTT / execution: omit standalone implement move).
+
+	Rows may be Crop Plan Schedule Machinery, On Demand Activity Machinery, or Farm Task
+	Execution Equipment (same asset + paired_implement shape).
+	"""
+	out: set[str] = set()
+	for row in machinery_rows or []:
+		tractor_asset = getattr(row, "asset", None) or (row.get("asset") if isinstance(row, dict) else None)
+		pi = getattr(row, "paired_implement", None) or (row.get("paired_implement") if isinstance(row, dict) else None)
+		pi = (pi or "").strip()
+		if not tractor_asset or not pi or not frappe.db.exists("Implement", pi):
+			continue
+		mt = frappe.db.get_value("Machinery", {"asset": tractor_asset}, "machinery_type")
+		if (mt or "").strip() != "Tractor":
+			continue
+		mach_name = frappe.db.get_value("Machinery", {"asset": tractor_asset}, "name")
+		if not mach_name:
+			continue
+		cur = frappe.db.get_value("Machinery", mach_name, "current_implement") or None
+		attached_to = frappe.db.get_value("Implement", pi, "attached_to_machinery") or None
+		if cur == pi and attached_to == mach_name:
+			continue
+		impl_asset = frappe.db.get_value("Implement", pi, "asset")
+		if impl_asset:
+			out.add(impl_asset)
+	return out
+
+
+def implement_asset_ids_paired_but_unattached(schedule_doc: Any) -> set[str]:
+	"""
+	Implement Asset names listed as paired_implement on a schedule/activity machinery row but
+	not physically linked (return LTT: omit standalone row; leave implement in field).
+
+	Does not affect round-trip planning helpers that pass required implement before attach.
+	"""
+	return implement_asset_ids_paired_but_unattached_from_machinery_child_rows(_machinery_child_rows(schedule_doc))
+
+
 def _resolve_required_implement_for_tractor_asset(
 	schedule_doc: Any, tractor_asset: str
 ) -> tuple[str | None, str | None]:
