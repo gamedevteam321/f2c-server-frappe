@@ -157,7 +157,7 @@
  "index_web_pages_for_search": 1,
  "is_tree": 1,
  "links": [],
- "modified": "2026-04-21 12:48:25.945527",
+ "modified": "2026-04-21 15:23:55.371973",
  "modified_by": "Administrator",
  "module": "Farm to Crop",
  "name": "Farm Activity",
@@ -193,6 +193,12 @@
    "read": 1,
    "report": 1,
    "role": "Field Supervisor"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Cluster Supervisor"
   }
  ],
  "row_format": "Dynamic",

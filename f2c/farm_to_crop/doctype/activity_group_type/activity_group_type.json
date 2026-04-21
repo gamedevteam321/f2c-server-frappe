@@ -36,7 +36,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-04-21 12:48:26.138332",
+ "modified": "2026-04-21 15:23:55.510135",
  "modified_by": "Administrator",
  "module": "Farm to Crop",
  "name": "Activity Group Type",
@@ -71,6 +71,12 @@
    "read": 1,
    "report": 1,
    "role": "Field Supervisor"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Cluster Supervisor"
   }
  ],
  "row_format": "Dynamic",

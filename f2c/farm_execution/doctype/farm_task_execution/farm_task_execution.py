@@ -53,17 +53,20 @@ class FarmTaskExecution(Document):
 			field_supervisor_data_scope_active,
 			get_user_scope_area_roots,
 			get_user_scope_expanded_area_names,
+			supervisor_geo_scope_active,
 		)
 
-		if not field_supervisor_data_scope_active():
+		if not supervisor_geo_scope_active():
 			return
 		if not get_user_scope_area_roots():
 			frappe.throw(
-				"Field Supervisor must have at least one assigned Geo Fencing scope area on the User record."
+				"You must have at least one assigned Geo Fencing scope area on the User record."
 			)
 		allowed = get_user_scope_expanded_area_names()
 		if (self.field or "").strip() and self.field not in allowed:
 			frappe.throw("This execution is outside your assigned scope.")
+		if not field_supervisor_data_scope_active():
+			return
 		before = getattr(self, "_doc_before_save", None)
 		old_s = ((before.status if before else None) or "").strip() if before else ""
 		new_s = (self.status or "").strip()

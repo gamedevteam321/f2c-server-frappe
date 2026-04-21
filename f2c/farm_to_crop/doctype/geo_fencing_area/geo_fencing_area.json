@@ -258,7 +258,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-04-21 12:48:25.726015",
+ "modified": "2026-04-21 15:23:55.113584",
  "modified_by": "Administrator",
  "module": "Farm to Crop",
  "name": "Geo Fencing Area",
@@ -294,6 +294,12 @@
    "read": 1,
    "report": 1,
    "role": "Field Supervisor"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Cluster Supervisor"
   }
  ],
  "row_format": "Dynamic",

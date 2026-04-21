@@ -142,7 +142,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-04-21 12:48:24.815964",
+ "modified": "2026-04-21 15:23:53.109880",
  "modified_by": "Administrator",
  "module": "Farm Worker",
  "name": "Farm Worker Details",
@@ -179,6 +179,15 @@
    "read": 1,
    "report": 1,
    "role": "Field Supervisor",
+   "write": 1
+  },
+  {
+   "create": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Cluster Supervisor",
    "write": 1
   }
  ],

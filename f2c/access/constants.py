@@ -1,6 +1,8 @@
 FIELD_SUPERVISOR_ROLE = "Field Supervisor"
+CLUSTER_SUPERVISOR_ROLE = "Cluster Supervisor"
 # Geo Fencing Type master: geo_fencing_type_name for areas that may be assigned as FS scope roots on User.
 FIELD_LEVEL_GFA_TYPE_NAME = "Field"
+CLUSTER_LEVEL_GFA_TYPE_NAME = "Cluster"
 # Desk roles that may assign or edit User F2C scope for Field Supervisors (Administrator bypasses via FULL_ACCESS_USERS).
 ROLES_ALLOWED_TO_EDIT_USER_F2C_SCOPE = frozenset({"System Manager"})
 USER_ASSIGNED_FIELD_FIELDNAME = "f2c_assigned_field"

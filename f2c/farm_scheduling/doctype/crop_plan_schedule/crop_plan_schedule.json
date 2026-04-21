@@ -376,7 +376,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-04-21 12:48:25.151658",
+ "modified": "2026-04-21 15:23:53.449903",
  "modified_by": "Administrator",
  "module": "Farm Scheduling",
  "name": "Crop Plan Schedule",
@@ -411,6 +411,13 @@
    "read": 1,
    "report": 1,
    "role": "Field Supervisor"
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Cluster Supervisor"
   }
  ],
  "row_format": "Dynamic",

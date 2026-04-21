@@ -9,6 +9,7 @@
  ],
  "fields": [
   {
+   "description": "One scope root per row. Field Supervisor users: choose Field-level areas only. Cluster Supervisor users: choose Cluster-level areas only. Use Add Row on the User form to assign multiple roots.",
    "fieldname": "area",
    "fieldtype": "Link",
    "in_list_view": 1,

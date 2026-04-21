@@ -14,8 +14,8 @@ from f2c.access.field_scope import (
 	assert_field_supervisor_ltt_dropoff,
 	assert_field_supervisor_ltt_pickup,
 	assert_field_supervisor_ltt_read,
-	field_supervisor_data_scope_active,
 	get_user_scope_expanded_area_names,
+	supervisor_geo_scope_active,
 )
 
 # Include both Draft (0) and Submitted (1) Assets in inventory views; exclude Cancelled (2)
@@ -23,7 +23,7 @@ ASSET_DOCSTATUS_NOT_CANCELLED = [0, 1]
 
 
 def _field_supervisor_ltt_gate(ticket_doc, *, pickup: bool = False, dropoff: bool = False, any_leg: bool = False) -> None:
-	"""Enforce Field Supervisor scope on External LTT mutations (Internal is out of role)."""
+	"""Enforce Field / Cluster supervisor geo scope on LTT (Field: External only; Cluster: Internal + External)."""
 	if any_leg:
 		assert_field_supervisor_ltt_read(ticket_doc)
 		return
@@ -665,7 +665,7 @@ def get_field_supervisor_inventory_warehouse_rows():
 	Ledger warehouses for Field Supervisor inventory UIs (dropdown), across expanded scope Geo areas.
 	Ignores Warehouse DocPerm for the final read; names are derived only from scoped Geo Fencing Areas.
 	"""
-	if not field_supervisor_data_scope_active():
+	if not supervisor_geo_scope_active():
 		return []
 	areas = get_user_scope_expanded_area_names()
 	if not areas:
@@ -2370,16 +2370,28 @@ def _set_equipment_status_for_asset(asset_name: str, status: str) -> None:
 
 
 @frappe.whitelist()
-def get_assets_for_warehouse(warehouse: str):
+def get_assets_for_warehouse(warehouse: str, location_match: str | None = None):
 	"""
 	Get assets for a warehouse using location mapping, with fallback methods.
-	
+
+	location_match:
+	- ``subtree`` (default): include assets at the mapped Location and any descendant
+	  Location nodes (same path prefix). Used by scheduling / field pickers that need
+	  equipment anywhere under a warehouse's geo tree.
+	- ``exact``: only assets whose Asset.location equals the primary Location resolved
+	  for this warehouse (no descendant nodes). Use for warehouse inventory when a
+	  specific ledger is selected so field / sibling ledgers do not leak in.
+
 	Returns assets even if location mapping isn't perfect, using pattern matching
-	on location names that might be related to the warehouse or geo area.
+	on location names that might be related to the warehouse or geo area (subtree mode only).
 	Each asset includes equipment_status (Available, In Use, Maintenance, Retired) when available.
 	"""
 	if not warehouse:
 		frappe.throw(_("warehouse is required"))
+
+	match_mode = (location_match or "subtree").strip().lower()
+	# If caller asks for exact match but this warehouse has no mapped Location, fall back to subtree behavior.
+	is_exact_requested = match_mode == "exact"
 	
 	def _norm(s: str) -> str:
 		return "".join(ch for ch in str(s or "").lower() if ch.isalnum())
@@ -2395,11 +2407,18 @@ def get_assets_for_warehouse(warehouse: str):
 	if not (canonical_path or "").strip() and geo_area:
 		canonical_path = _build_location_name_for_geo_area(geo_area)
 
+	is_exact = is_exact_requested and bool(location)
+
 	location_scope: list[str] = []
-	if (canonical_path or "").strip():
-		location_scope = _location_docnames_under_path_prefix(canonical_path)
-	if location and location not in location_scope:
-		location_scope = list(location_scope) + [location]
+	# Exact mode: only the warehouse's own Location row — no descendant Location nodes
+	# (avoids showing field / sibling-ledger assets when a parent stock warehouse is selected).
+	if is_exact:
+		location_scope = [location]
+	else:
+		if (canonical_path or "").strip():
+			location_scope = _location_docnames_under_path_prefix(canonical_path)
+		if location and location not in location_scope:
+			location_scope = list(location_scope) + [location]
 
 	assets: list[dict] = []
 	seen_names: set[str] = set()
@@ -2436,8 +2455,8 @@ def get_assets_for_warehouse(warehouse: str):
 		)
 		_add_asset_rows(batch)
 
-	# Method 2: Fallback - try to find assets by location name pattern matching
-	if not assets and geo_area:
+	# Method 2: Fallback - try to find assets by location name pattern matching (subtree only)
+	if not is_exact and not assets and geo_area:
 		# Get location name that should exist for this geo area
 		expected_location_name = _build_location_name_for_geo_area(geo_area)
 		if expected_location_name:
@@ -2473,8 +2492,8 @@ def get_assets_for_warehouse(warehouse: str):
 				)
 				_add_asset_rows(batch)
 
-	# Method 3: Last resort - try matching by warehouse name in location names
-	if not assets:
+	# Method 3: Last resort - try matching by warehouse name in location names (subtree only)
+	if not is_exact and not assets:
 		wh_name = frappe.db.get_value("Warehouse", warehouse, "warehouse_name") or ""
 		norm_wh = _norm(wh_name) or _norm(warehouse)
 

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Field Supervisor: Geo Fencing scope (farms / clusters / fields) and derived warehouse access."""
+"""Field and Cluster supervisor: Geo Fencing scope (farms / clusters / fields) and derived warehouse access."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from typing import Any
 import frappe
 
 from f2c.access.constants import (
+	CLUSTER_SUPERVISOR_ROLE,
 	FIELD_SUPERVISOR_ROLE,
 	FULL_ACCESS_USERS,
 	USER_ASSIGNED_FIELD_FIELDNAME,
@@ -31,9 +32,26 @@ def user_has_field_supervisor_role(user: str | None = None) -> bool:
 	return FIELD_SUPERVISOR_ROLE in frappe.get_roles(user)
 
 
+def user_has_cluster_supervisor_role(user: str | None = None) -> bool:
+	user = user or frappe.session.user
+	if not user or user == "Guest":
+		return False
+	return CLUSTER_SUPERVISOR_ROLE in frappe.get_roles(user)
+
+
 def field_supervisor_data_scope_active(user: str | None = None) -> bool:
 	"""True when FS role applies for scoping (not full-access users)."""
 	return user_has_field_supervisor_role(user) and not user_bypasses_field_supervisor_restrictions(user)
+
+
+def cluster_supervisor_data_scope_active(user: str | None = None) -> bool:
+	"""True when Cluster Supervisor role applies for geo scoping (not full-access users)."""
+	return user_has_cluster_supervisor_role(user) and not user_bypasses_field_supervisor_restrictions(user)
+
+
+def supervisor_geo_scope_active(user: str | None = None) -> bool:
+	"""Geo + warehouse scoping for LTT, inventory, permission_query (Field or Cluster supervisor)."""
+	return field_supervisor_data_scope_active(user) or cluster_supervisor_data_scope_active(user)
 
 
 def _legacy_assigned_field_link(user: str) -> str | None:
@@ -67,21 +85,15 @@ def _scope_area_rows_from_db(user: str) -> list[str]:
 
 
 def get_user_scope_area_roots(user: str | None = None) -> tuple[str, ...]:
-	"""Geo Fencing Area roots from User.f2c_scope_areas plus optional legacy User.f2c_assigned_field."""
+	"""Geo Fencing Area roots: F2C Scope Areas rows when the table has any; otherwise legacy f2c_assigned_field only."""
 	user = (user or frappe.session.user or "").strip()
 	if not user or user == "Guest":
 		return ()
-	ordered: list[str] = []
-	seen: set[str] = set()
-	for a in _scope_area_rows_from_db(user):
-		if a not in seen:
-			seen.add(a)
-			ordered.append(a)
+	from_child = _scope_area_rows_from_db(user)
+	if from_child:
+		return tuple(from_child)
 	legacy = _legacy_assigned_field_link(user)
-	if legacy and legacy not in seen:
-		seen.add(legacy)
-		ordered.append(legacy)
-	return tuple(ordered)
+	return (legacy,) if legacy else ()
 
 
 def get_assigned_field(user: str | None = None) -> str | None:
@@ -200,7 +212,7 @@ def ltt_external_any_leg_for_supervisor(doc: Any, allowed_areas: frozenset[str],
 	)
 
 
-def _fs_scope_areas_and_warehouses() -> tuple[frozenset[str], frozenset[str]]:
+def _scoped_supervisor_areas_and_warehouses() -> tuple[frozenset[str], frozenset[str]]:
 	roots = get_user_scope_area_roots()
 	if not roots:
 		return (frozenset(), frozenset())
@@ -210,49 +222,74 @@ def _fs_scope_areas_and_warehouses() -> tuple[frozenset[str], frozenset[str]]:
 
 
 def assert_field_supervisor_ltt_pickup(doc: Any) -> None:
-	if not field_supervisor_data_scope_active():
+	if not supervisor_geo_scope_active():
 		return
-	areas, wh = _fs_scope_areas_and_warehouses()
+	areas, wh = _scoped_supervisor_areas_and_warehouses()
 	if not get_user_scope_area_roots():
 		frappe.throw(
-			"Field Supervisor must have at least one scope area "
+			"You must have at least one assigned scope area "
 			f"(User.{USER_SCOPE_AREAS_FIELDNAME} or legacy {USER_ASSIGNED_FIELD_FIELDNAME!r})."
 		)
-	if getattr(doc, "transfer_type", None) != "External":
-		frappe.throw("Field Supervisor can only act on External logistics tickets.")
-	if not ltt_external_pickup_action_allowed(doc, areas, wh):
-		frappe.throw("You are not allowed to perform pickup actions for this ticket.")
+	if field_supervisor_data_scope_active() and not cluster_supervisor_data_scope_active():
+		if getattr(doc, "transfer_type", None) != "External":
+			frappe.throw("You can only act on External logistics tickets.")
+		if not ltt_external_pickup_action_allowed(doc, areas, wh):
+			frappe.throw("You are not allowed to perform pickup actions for this ticket.")
+		return
+	if cluster_supervisor_data_scope_active():
+		tt = ((getattr(doc, "transfer_type", None) or "Internal") or "Internal").strip()
+		if tt == "Internal":
+			ok = ltt_external_dropoff_action_allowed(doc, areas, wh)
+		else:
+			ok = ltt_external_pickup_action_allowed(doc, areas, wh)
+		if not ok:
+			frappe.throw("You are not allowed to perform pickup actions for this ticket.")
 
 
 def assert_field_supervisor_ltt_dropoff(doc: Any) -> None:
-	if not field_supervisor_data_scope_active():
+	if not supervisor_geo_scope_active():
 		return
-	areas, wh = _fs_scope_areas_and_warehouses()
+	areas, wh = _scoped_supervisor_areas_and_warehouses()
 	if not get_user_scope_area_roots():
 		frappe.throw(
-			"Field Supervisor must have at least one scope area "
+			"You must have at least one assigned scope area "
 			f"(User.{USER_SCOPE_AREAS_FIELDNAME} or legacy {USER_ASSIGNED_FIELD_FIELDNAME!r})."
 		)
-	if getattr(doc, "transfer_type", None) != "External":
-		frappe.throw("Field Supervisor can only act on External logistics tickets.")
-	if not ltt_external_dropoff_action_allowed(doc, areas, wh):
-		frappe.throw("You are not allowed to perform drop-off actions for this ticket.")
+	if field_supervisor_data_scope_active() and not cluster_supervisor_data_scope_active():
+		if getattr(doc, "transfer_type", None) != "External":
+			frappe.throw("You can only act on External logistics tickets.")
+		if not ltt_external_dropoff_action_allowed(doc, areas, wh):
+			frappe.throw("You are not allowed to perform drop-off actions for this ticket.")
+		return
+	if cluster_supervisor_data_scope_active():
+		tt = ((getattr(doc, "transfer_type", None) or "Internal") or "Internal").strip()
+		if tt == "Internal":
+			ok = ltt_external_pickup_action_allowed(doc, areas, wh)
+		else:
+			ok = ltt_external_dropoff_action_allowed(doc, areas, wh)
+		if not ok:
+			frappe.throw("You are not allowed to perform drop-off actions for this ticket.")
 
 
 def assert_field_supervisor_ltt_read(doc: Any) -> None:
 	"""For mutating APIs that apply to whole ticket (cancel, report, resolve): require any scoped leg."""
-	if not field_supervisor_data_scope_active():
+	if not supervisor_geo_scope_active():
 		return
-	areas, wh = _fs_scope_areas_and_warehouses()
+	areas, wh = _scoped_supervisor_areas_and_warehouses()
 	if not get_user_scope_area_roots():
 		frappe.throw(
-			"Field Supervisor must have at least one scope area "
+			"You must have at least one assigned scope area "
 			f"(User.{USER_SCOPE_AREAS_FIELDNAME} or legacy {USER_ASSIGNED_FIELD_FIELDNAME!r})."
 		)
-	if getattr(doc, "transfer_type", None) != "External":
-		frappe.throw("Field Supervisor can only act on External logistics tickets.")
-	if not ltt_external_any_leg_for_supervisor(doc, areas, wh):
-		frappe.throw("You are not allowed to modify this logistics ticket.")
+	if field_supervisor_data_scope_active() and not cluster_supervisor_data_scope_active():
+		if getattr(doc, "transfer_type", None) != "External":
+			frappe.throw("You can only act on External logistics tickets.")
+		if not ltt_external_any_leg_for_supervisor(doc, areas, wh):
+			frappe.throw("You are not allowed to modify this logistics ticket.")
+		return
+	if cluster_supervisor_data_scope_active():
+		if not ltt_external_any_leg_for_supervisor(doc, areas, wh):
+			frappe.throw("You are not allowed to modify this logistics ticket.")
 
 
 def raise_if_field_supervisor_blocked_in_review(execution_doc: Any) -> None:
@@ -265,11 +302,11 @@ def raise_if_field_supervisor_blocked_in_review(execution_doc: Any) -> None:
 
 
 def assert_execution_in_field_scope(execution_name: str) -> None:
-	if not field_supervisor_data_scope_active():
+	if not supervisor_geo_scope_active():
 		return
 	if not get_user_scope_area_roots():
 		frappe.throw(
-			"Field Supervisor must have at least one scope area "
+			"You must have at least one assigned scope area "
 			f"(User.{USER_SCOPE_AREAS_FIELDNAME} or legacy {USER_ASSIGNED_FIELD_FIELDNAME!r})."
 		)
 	allowed = get_user_scope_expanded_area_names()
