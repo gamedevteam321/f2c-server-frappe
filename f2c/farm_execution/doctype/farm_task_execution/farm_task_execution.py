@@ -46,6 +46,31 @@ class FarmTaskExecution(Document):
 		self._validate_status_rules()
 		self._validate_inputs_consumed_qty()
 		self._compute_consumed_qty()
+		self._validate_field_supervisor_scope()
+
+	def _validate_field_supervisor_scope(self):
+		from f2c.access.field_scope import (
+			field_supervisor_data_scope_active,
+			get_user_scope_area_roots,
+			get_user_scope_expanded_area_names,
+		)
+
+		if not field_supervisor_data_scope_active():
+			return
+		if not get_user_scope_area_roots():
+			frappe.throw(
+				"Field Supervisor must have at least one assigned Geo Fencing scope area on the User record."
+			)
+		allowed = get_user_scope_expanded_area_names()
+		if (self.field or "").strip() and self.field not in allowed:
+			frappe.throw("This execution is outside your assigned scope.")
+		before = getattr(self, "_doc_before_save", None)
+		old_s = ((before.status if before else None) or "").strip() if before else ""
+		new_s = (self.status or "").strip()
+		if old_s == "In Review":
+			if new_s != "In Review":
+				frappe.throw("Field Supervisor cannot change execution status from In Review.")
+			frappe.throw("Field Supervisor cannot modify an execution while it is In Review.")
 
 	def _sync_and_validate_progress_images(self):
 		"""
@@ -1769,7 +1794,10 @@ def submit_for_review(execution_name: str, skip_images: int = 0) -> str:
 			# Begin transaction and lock the row to prevent concurrent modifications
 			frappe.db.begin()
 			doc = frappe.get_doc("Farm Task Execution", execution_name, for_update=True)
-			
+			from f2c.access.field_scope import assert_execution_in_field_scope
+
+			assert_execution_in_field_scope(execution_name)
+
 			if doc.status != "In Progress":
 				frappe.db.rollback()
 				if doc.status == "On Hold":
@@ -1852,10 +1880,16 @@ def approve_execution(execution_name: str) -> str:
 			# Begin transaction and lock the row to prevent concurrent modifications
 			frappe.db.begin()
 			doc = frappe.get_doc("Farm Task Execution", execution_name, for_update=True)
-			
+			from f2c.access.field_scope import assert_execution_in_field_scope, field_supervisor_data_scope_active
+
+			assert_execution_in_field_scope(execution_name)
+
 			if doc.status != "In Review":
 				frappe.db.rollback()
 				frappe.throw(f"Cannot approve execution. Current status is {doc.status}. Only 'In Review' executions can be approved and moved to 'Completed'.")
+			if field_supervisor_data_scope_active():
+				frappe.db.rollback()
+				frappe.throw("Field Supervisor cannot approve executions from In Review.")
 			
 			doc.status = "Completed"
 			# Ensure actual_end is set
@@ -2005,6 +2039,10 @@ def update_input_return_types(execution_name: str, input_updates: List[Dict[str,
 	if not isinstance(input_updates, list):
 		input_updates = []
 	doc = frappe.get_doc("Farm Task Execution", execution_name)
+	from f2c.access.field_scope import assert_execution_in_field_scope, raise_if_field_supervisor_blocked_in_review
+
+	assert_execution_in_field_scope(execution_name)
+	raise_if_field_supervisor_blocked_in_review(doc)
 	if doc.status != "In Review":
 		frappe.throw(
 			f"Cannot update input return types. Execution status is {doc.status}. Only 'In Review' executions are allowed."
@@ -2057,6 +2095,10 @@ def update_equipment_return_types_and_sync_tickets(
 		equipment_updates = []
 
 	doc = frappe.get_doc("Farm Task Execution", execution_name)
+	from f2c.access.field_scope import assert_execution_in_field_scope, raise_if_field_supervisor_blocked_in_review
+
+	assert_execution_in_field_scope(execution_name)
+	raise_if_field_supervisor_blocked_in_review(doc)
 	if doc.status != "In Review":
 		frappe.throw(f"Cannot update return equipment. Execution status is {doc.status}. Only 'In Review' executions can update return types and sync tickets.")
 
@@ -2213,6 +2255,10 @@ def create_stock_return_ticket_for_execution(execution_name: str, stock_items: L
 	if not payload:
 		frappe.throw("At least one stock item with qty > 0 is required")
 	doc = frappe.get_doc("Farm Task Execution", execution_name)
+	from f2c.access.field_scope import assert_execution_in_field_scope, raise_if_field_supervisor_blocked_in_review
+
+	assert_execution_in_field_scope(execution_name)
+	raise_if_field_supervisor_blocked_in_review(doc)
 	# Optional: only allow items that are execution inputs with return_type Returnable or End Activity Returnable
 	allowed_item_codes = set()
 	for inp in doc.get("inputs") or []:
@@ -2296,6 +2342,10 @@ def create_input_return_ticket_for_execution(execution_name: str) -> str:
 	if not execution_name:
 		frappe.throw("execution_name is required")
 	doc = frappe.get_doc("Farm Task Execution", execution_name)
+	from f2c.access.field_scope import assert_execution_in_field_scope, raise_if_field_supervisor_blocked_in_review
+
+	assert_execution_in_field_scope(execution_name)
+	raise_if_field_supervisor_blocked_in_review(doc)
 	if doc.status != "In Review":
 		frappe.throw(
 			f"Cannot create input return ticket. Execution status is {doc.status}. Only 'In Review' executions are allowed."

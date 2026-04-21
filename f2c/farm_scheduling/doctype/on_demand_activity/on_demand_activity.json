@@ -2,7 +2,7 @@
  "actions": [],
  "allow_rename": 1,
  "autoname": "format:ODA-{####}",
- "creation": "2025-12-18 00:00:00.000000",
+ "creation": "2025-12-18 00:00:00",
  "doctype": "DocType",
  "document_type": "Document",
  "engine": "InnoDB",
@@ -77,8 +77,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Field",
-   "options": "Geo Fencing Area",
-   "reqd": 0
+   "options": "Geo Fencing Area"
   },
   {
    "fetch_from": "field.area_name",
@@ -106,16 +105,14 @@
    "fieldname": "planned_start",
    "fieldtype": "Datetime",
    "in_list_view": 1,
-   "label": "Planned Start",
-   "reqd": 0
+   "label": "Planned Start"
   },
   {
    "depends_on": "eval:doc.status=='Scheduled' || doc.activity_type=='Land'",
    "fieldname": "planned_end",
    "fieldtype": "Datetime",
    "in_list_view": 1,
-   "label": "Planned End",
-   "reqd": 0
+   "label": "Planned End"
   },
   {
    "fieldname": "section_break_reason",
@@ -123,11 +120,11 @@
    "label": "Activity Reason"
   },
   {
+   "description": "Reason for this on-demand activity",
    "fieldname": "reason",
    "fieldtype": "Small Text",
    "label": "Reason",
-   "reqd": 1,
-   "description": "Reason for this on-demand activity"
+   "reqd": 1
   },
   {
    "depends_on": "eval:doc.activity_type=='Land'",
@@ -140,8 +137,7 @@
    "fieldname": "blocks",
    "fieldtype": "Table",
    "label": "Blocks",
-   "options": "On Demand Activity Block",
-   "reqd": 0
+   "options": "On Demand Activity Block"
   },
   {
    "fieldname": "section_break_activity",
@@ -154,16 +150,14 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Activity Group Type",
-   "options": "Activity Group Type",
-   "reqd": 0
+   "options": "Activity Group Type"
   },
   {
    "fieldname": "activity",
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Activity",
-   "options": "Farm Activity",
-   "reqd": 0
+   "options": "Farm Activity"
   },
   {
    "fetch_from": "activity.activity_name",
@@ -351,18 +345,17 @@
    "read_only": 1
   },
   {
+   "depends_on": "eval:doc.activity_type=='Campaign'",
    "fieldname": "section_break_campaign",
    "fieldtype": "Section Break",
-   "label": "Campaign Details",
-   "depends_on": "eval:doc.activity_type=='Campaign'"
+   "label": "Campaign Details"
   },
   {
    "depends_on": "eval:doc.activity_type=='Campaign'",
    "fieldname": "campaign_name",
    "fieldtype": "Data",
    "in_list_view": 1,
-   "label": "Campaign Name",
-   "reqd": 0
+   "label": "Campaign Name"
   },
   {
    "depends_on": "eval:doc.activity_type=='Campaign'",
@@ -397,7 +390,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-12-18 00:00:00.000000",
+ "modified": "2026-04-21 12:48:25.426697",
  "modified_by": "Administrator",
  "module": "Farm Scheduling",
  "name": "On Demand Activity",
@@ -425,6 +418,12 @@
    "role": "All",
    "share": 1,
    "write": 1
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Field Supervisor"
   }
  ],
  "row_format": "Dynamic",
@@ -433,4 +432,3 @@
  "states": [],
  "track_changes": 1
 }
-

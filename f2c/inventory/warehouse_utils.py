@@ -26,7 +26,7 @@ def get_ledger_warehouse(warehouse_name: str) -> str | None:
 		return None
 	wh = str(warehouse_name).strip()
 	try:
-		is_group = frappe.db.get_value("Warehouse", wh, "is_group")
+		is_group = frappe.db.get_value("Warehouse", wh, "is_group", ignore_permissions=True)
 		if is_group is None:
 			return None
 		if is_group == 0:
@@ -37,6 +37,7 @@ def get_ledger_warehouse(warehouse_name: str) -> str | None:
 			filters={"parent_warehouse": wh, "is_group": 0},
 			fields=["name", "warehouse_name"],
 			limit=10,
+			ignore_permissions=True,
 		)
 		if not children:
 			return None
@@ -79,6 +80,7 @@ def get_ledger_warehouses_for_areas(area_names: str | List[str]) -> List[str]:
 			fields=["warehouse"],
 			filters={"parent": ["in", names], "parenttype": "Geo Fencing Area"},
 			limit_page_length=0,
+			ignore_permissions=True,
 		)
 		seen: set[str] = set()
 		out: List[str] = []

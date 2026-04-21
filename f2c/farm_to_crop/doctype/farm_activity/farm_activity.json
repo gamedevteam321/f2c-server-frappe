@@ -1,160 +1,203 @@
 {
-    "actions": [],
-    "allow_import": 1,
-    "allow_rename": 1,
-    "creation": "2025-11-20 15:00:00.000000",
-    "doctype": "DocType",
-    "document_type": "Document",
-    "engine": "InnoDB",
-    "field_order": [
-        "id",
-        "activity_name",
-        "activity_group_type",
-        "parent_activity",
-        "section_break_equipment_suggestions",
-        "section_break_suggested_machinery",
-        "suggested_machinery",
-        "section_break_suggested_implements",
-        "suggested_implements",
-        "section_break_suggested_hand_tools",
-        "suggested_hand_tools",
-        "section_break_suggested_other_tools",
-        "suggested_other_tools",
-        "section_break_tasks",
-        "farm_tasks"
-    ],
-    "fields": [
-        {
-            "fieldname": "id",
-            "fieldtype": "Select",
-            "label": "Series",
-            "options": "FA-",
-            "reqd": 1,
-            "default": "FA-"
-        },
-        {
-            "fieldname": "activity_name",
-            "fieldtype": "Data",
-            "in_list_view": 1,
-            "label": "Activity Name",
-            "reqd": 1
-        },
-        {
-            "fieldname": "activity_group_type",
-            "fieldtype": "Link",
-            "in_list_view": 1,
-            "in_standard_filter": 1,
-            "label": "Activity Group Type",
-            "options": "Activity Group Type",
-            "reqd": 1
-        },
-        {
-            "fieldname": "parent_activity",
-            "fieldtype": "Link",
-            "label": "Parent Activity",
-            "options": "Farm Activity"
-        },
-        {
-            "fieldname": "section_break_equipment_suggestions",
-            "fieldtype": "Section Break",
-            "label": "Equipment Suggestions"
-        },
-        {
-            "fieldname": "section_break_suggested_machinery",
-            "fieldtype": "Section Break",
-            "label": "Suggested Machinery"
-        },
-        {
-            "fieldname": "suggested_machinery",
-            "fieldtype": "Table",
-            "label": "Machinery",
-            "options": "Farm Activity Suggested Machinery"
-        },
-        {
-            "fieldname": "section_break_suggested_implements",
-            "fieldtype": "Section Break",
-            "label": "Suggested Implements"
-        },
-        {
-            "fieldname": "suggested_implements",
-            "fieldtype": "Table",
-            "label": "Implements",
-            "options": "Farm Activity Suggested Implement"
-        },
-        {
-            "fieldname": "section_break_suggested_hand_tools",
-            "fieldtype": "Section Break",
-            "label": "Suggested Hand Tools"
-        },
-        {
-            "fieldname": "suggested_hand_tools",
-            "fieldtype": "Table",
-            "label": "Hand Tools",
-            "options": "Farm Activity Suggested Hand Tool"
-        },
-        {
-            "fieldname": "section_break_suggested_other_tools",
-            "fieldtype": "Section Break",
-            "label": "Suggested Other Tools"
-        },
-        {
-            "fieldname": "suggested_other_tools",
-            "fieldtype": "Table",
-            "label": "Other Tools",
-            "options": "Farm Activity Suggested Other Tool"
-        },
-        {
-            "fieldname": "section_break_tasks",
-            "fieldtype": "Section Break",
-            "label": "Farm Tasks"
-        },
-        {
-            "fieldname": "farm_tasks",
-            "fieldtype": "Table",
-            "label": "Tasks",
-            "options": "Farm Activity Task"
-        }
-    ],
-    "index_web_pages_for_search": 1,
-    "is_tree": 1,
-    "links": [],
-    "modified": "2025-12-03 00:00:00.000000",
-    "modified_by": "Administrator",
-    "module": "Farm To Crop",
-    "name": "Farm Activity",
-    "naming_rule": "Expression",
-    "nsm_parent_field": "parent_activity",
-    "parent_field": "parent_activity",
-    "owner": "Administrator",
-    "permissions": [
-        {
-            "create": 1,
-            "delete": 1,
-            "email": 1,
-            "export": 1,
-            "print": 1,
-            "read": 1,
-            "report": 1,
-            "role": "System Manager",
-            "share": 1,
-            "write": 1
-        },
-        {
-            "create": 1,
-            "email": 1,
-            "export": 1,
-            "print": 1,
-            "read": 1,
-            "report": 1,
-            "role": "All",
-            "share": 1,
-            "write": 1
-        }
-    ],
-    "sort_field": "modified",
-    "sort_order": "ASC",
-    "states": [],
-    "track_changes": 1
+ "actions": [],
+ "allow_import": 1,
+ "allow_rename": 1,
+ "creation": "2025-11-20 15:00:00",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "engine": "InnoDB",
+ "field_order": [
+  "id",
+  "activity_name",
+  "activity_group_type",
+  "parent_activity",
+  "section_break_equipment_suggestions",
+  "section_break_suggested_machinery",
+  "suggested_machinery",
+  "section_break_suggested_implements",
+  "suggested_implements",
+  "section_break_suggested_hand_tools",
+  "suggested_hand_tools",
+  "section_break_suggested_other_tools",
+  "suggested_other_tools",
+  "section_break_tasks",
+  "farm_tasks",
+  "lft",
+  "rgt",
+  "is_group",
+  "old_parent",
+  "parent_farm_activity"
+ ],
+ "fields": [
+  {
+   "default": "FA-",
+   "fieldname": "id",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "FA-",
+   "reqd": 1
+  },
+  {
+   "fieldname": "activity_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Activity Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "activity_group_type",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Activity Group Type",
+   "options": "Activity Group Type",
+   "reqd": 1
+  },
+  {
+   "fieldname": "parent_activity",
+   "fieldtype": "Link",
+   "label": "Parent Activity",
+   "options": "Farm Activity"
+  },
+  {
+   "fieldname": "section_break_equipment_suggestions",
+   "fieldtype": "Section Break",
+   "label": "Equipment Suggestions"
+  },
+  {
+   "fieldname": "section_break_suggested_machinery",
+   "fieldtype": "Section Break",
+   "label": "Suggested Machinery"
+  },
+  {
+   "fieldname": "suggested_machinery",
+   "fieldtype": "Table",
+   "label": "Machinery",
+   "options": "Farm Activity Suggested Machinery"
+  },
+  {
+   "fieldname": "section_break_suggested_implements",
+   "fieldtype": "Section Break",
+   "label": "Suggested Implements"
+  },
+  {
+   "fieldname": "suggested_implements",
+   "fieldtype": "Table",
+   "label": "Implements",
+   "options": "Farm Activity Suggested Implement"
+  },
+  {
+   "fieldname": "section_break_suggested_hand_tools",
+   "fieldtype": "Section Break",
+   "label": "Suggested Hand Tools"
+  },
+  {
+   "fieldname": "suggested_hand_tools",
+   "fieldtype": "Table",
+   "label": "Hand Tools",
+   "options": "Farm Activity Suggested Hand Tool"
+  },
+  {
+   "fieldname": "section_break_suggested_other_tools",
+   "fieldtype": "Section Break",
+   "label": "Suggested Other Tools"
+  },
+  {
+   "fieldname": "suggested_other_tools",
+   "fieldtype": "Table",
+   "label": "Other Tools",
+   "options": "Farm Activity Suggested Other Tool"
+  },
+  {
+   "fieldname": "section_break_tasks",
+   "fieldtype": "Section Break",
+   "label": "Farm Tasks"
+  },
+  {
+   "fieldname": "farm_tasks",
+   "fieldtype": "Table",
+   "label": "Tasks",
+   "options": "Farm Activity Task"
+  },
+  {
+   "fieldname": "lft",
+   "fieldtype": "Int",
+   "hidden": 1,
+   "label": "Left",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "rgt",
+   "fieldtype": "Int",
+   "hidden": 1,
+   "label": "Right",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "is_group",
+   "fieldtype": "Check",
+   "label": "Is Group"
+  },
+  {
+   "fieldname": "old_parent",
+   "fieldtype": "Link",
+   "label": "Old Parent",
+   "options": "Farm Activity"
+  },
+  {
+   "fieldname": "parent_farm_activity",
+   "fieldtype": "Link",
+   "ignore_user_permissions": 1,
+   "label": "Parent Farm Activity",
+   "options": "Farm Activity"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "is_tree": 1,
+ "links": [],
+ "modified": "2026-04-21 12:48:25.945527",
+ "modified_by": "Administrator",
+ "module": "Farm to Crop",
+ "name": "Farm Activity",
+ "naming_rule": "Expression",
+ "nsm_parent_field": "parent_farm_activity",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "All",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Field Supervisor"
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "ASC",
+ "states": [],
+ "track_changes": 1
 }
-
-

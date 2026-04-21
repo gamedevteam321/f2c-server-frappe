@@ -1,388 +1,403 @@
 {
-  "doctype": "DocType",
-  "name": "Farm Task Execution",
-  "module": "Farm Execution",
-  "document_type": "Document",
-  "autoname": "format:FTE-{####}",
-  "allow_rename": 1,
-  "track_changes": 1,
-  "index_web_pages_for_search": 1,
-  "field_order": [
-    "schedule_ref",
-    "on_demand_activity_ref",
-    "crop_plan",
-    "field",
-    "column_break_1",
-    "status",
-    "actual_start",
-    "actual_end",
-    "execution_type",
-    "paused_at",
-    "resumed_at",
-    "section_break_context",
-    "blocks",
-    "farm_activity",
-    "activity_name",
-    "sequence",
-    "approved_input_mix",
-    "approved_input_mix_name",
-    "section_break_water",
-    "is_spray",
-    "planned_spray_water_liters",
-    "actual_spray_water_liters",
-    "column_break_water",
-    "actual_irrigation_water_liters",
-    "section_break_inputs",
-    "inputs",
-    "section_break_stock",
-    "source_warehouse",
-    "target_warehouse",
-    "issue_stock_entry",
-    "return_stock_entry",
-    "consumption_stock_entry",
-    "section_break_equipment",
-    "equipment",
-    "pre_execution_equipment_photo",
-    "section_break_labour",
-    "planned_male_count",
-    "planned_female_count",
-    "labour_attendance",
-    "checkin_in_photo",
-    "checkin_out_photo",
-    "section_break_progress_images",
-    "progress_image_count",
-    "progress_images",
-    "remark",
-    "section_break_abort",
-    "abort_category",
-    "abort_reason",
-    "abort_notes"
-  ],
-  "fields": [
-    {
-      "fieldname": "schedule_ref",
-      "fieldtype": "Link",
-      "label": "Schedule",
-      "options": "Crop Plan Schedule",
-      "in_standard_filter": 1
-    },
-    {
-      "fieldname": "on_demand_activity_ref",
-      "fieldtype": "Link",
-      "label": "On Demand Activity",
-      "options": "On Demand Activity",
-      "in_standard_filter": 1
-    },
-    {
-      "fieldname": "crop_plan",
-      "fieldtype": "Link",
-      "label": "Crop Plan",
-      "options": "Crop Plan",
-      "read_only": 1,
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "field",
-      "fieldtype": "Link",
-      "label": "Field",
-      "options": "Geo Fencing Area",
-      "read_only": 1,
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "column_break_1",
-      "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "status",
-      "fieldtype": "Select",
-      "label": "Status",
-      "options": "Ready\nIn Progress\nOn Hold\nIn Review\nReported\nRescheduled\nCompleted\nAborted",
-      "default": "In Progress",
-      "in_list_view": 1,
-      "in_standard_filter": 1
-    },
-    {
-      "fieldname": "actual_start",
-      "fieldtype": "Datetime",
-      "label": "Actual Start"
-    },
-    {
-      "fieldname": "actual_end",
-      "fieldtype": "Datetime",
-      "label": "Actual End"
-    },
-    {
-      "fieldname": "execution_type",
-      "fieldtype": "Select",
-      "label": "Execution Type",
-      "options": "Single Day\nMulti Day",
-      "default": "Single Day"
-    },
-    {
-      "fieldname": "paused_at",
-      "fieldtype": "Datetime",
-      "label": "Paused At",
-      "read_only": 1
-    },
-    {
-      "fieldname": "resumed_at",
-      "fieldtype": "Datetime",
-      "label": "Resumed At",
-      "read_only": 1
-    },
-    {
-      "fieldname": "section_break_context",
-      "fieldtype": "Section Break",
-      "label": "Context"
-    },
-    {
-      "fieldname": "blocks",
-      "fieldtype": "Table",
-      "label": "Blocks",
-      "options": "Farm Task Execution Block"
-    },
-    {
-      "fieldname": "farm_activity",
-      "fieldtype": "Link",
-      "label": "Farm Activity",
-      "options": "Farm Activity",
-      "read_only": 1
-    },
-    {
-      "fieldname": "activity_name",
-      "fieldtype": "Data",
-      "label": "Activity Name",
-      "read_only": 1
-    },
-    {
-      "fieldname": "sequence",
-      "fieldtype": "Int",
-      "label": "Sequence",
-      "read_only": 1
-    },
-    {
-      "fieldname": "approved_input_mix",
-      "fieldtype": "Link",
-      "label": "Approved Input Mix",
-      "options": "Farm Tasks",
-      "read_only": 1
-    },
-    {
-      "fieldname": "approved_input_mix_name",
-      "fieldtype": "Data",
-      "label": "Approved Input Mix Name",
-      "read_only": 1,
-      "fetch_from": "approved_input_mix.task_name"
-    },
-    {
-      "fieldname": "section_break_water",
-      "fieldtype": "Section Break",
-      "label": "Water"
-    },
-    {
-      "fieldname": "is_spray",
-      "fieldtype": "Check",
-      "label": "Is Spray",
-      "read_only": 1
-    },
-    {
-      "fieldname": "planned_spray_water_liters",
-      "fieldtype": "Float",
-      "label": "Planned Spray Water (Liters)",
-      "read_only": 1,
-      "precision": "3"
-    },
-    {
-      "fieldname": "actual_spray_water_liters",
-      "fieldtype": "Float",
-      "label": "Actual Spray Water (Liters)",
-      "precision": "3",
-      "depends_on": "eval:doc.is_spray==1"
-    },
-    {
-      "fieldname": "column_break_water",
-      "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "actual_irrigation_water_liters",
-      "fieldtype": "Float",
-      "label": "Actual Irrigation Water (Liters)",
-      "precision": "3"
-    },
-    {
-      "fieldname": "section_break_inputs",
-      "fieldtype": "Section Break",
-      "label": "Inputs"
-    },
-    {
-      "fieldname": "inputs",
-      "fieldtype": "Table",
-      "label": "Inputs",
-      "options": "Farm Task Execution Input"
-    },
-    {
-      "fieldname": "section_break_stock",
-      "fieldtype": "Section Break",
-      "label": "Stock"
-    },
-    {
-      "fieldname": "source_warehouse",
-      "fieldtype": "Link",
-      "label": "Source Warehouse",
-      "options": "Warehouse"
-    },
-    {
-      "fieldname": "target_warehouse",
-      "fieldtype": "Link",
-      "label": "Target Warehouse (Field/Operations)",
-      "options": "Warehouse"
-    },
-    {
-      "fieldname": "issue_stock_entry",
-      "fieldtype": "Link",
-      "label": "Issue Stock Entry",
-      "options": "Stock Entry",
-      "read_only": 1
-    },
-    {
-      "fieldname": "return_stock_entry",
-      "fieldtype": "Link",
-      "label": "Return Stock Entry",
-      "options": "Stock Entry",
-      "read_only": 1
-    },
-    {
-      "fieldname": "consumption_stock_entry",
-      "fieldtype": "Link",
-      "label": "Consumption Stock Entry",
-      "options": "Stock Entry",
-      "read_only": 1
-    },
-    {
-      "fieldname": "section_break_equipment",
-      "fieldtype": "Section Break",
-      "label": "Equipment"
-    },
-    {
-      "fieldname": "equipment",
-      "fieldtype": "Table",
-      "label": "Equipment",
-      "options": "Farm Task Execution Equipment"
-    },
-    {
-      "fieldname": "pre_execution_equipment_photo",
-      "fieldtype": "Text",
-      "label": "Pre-Execution Equipment Photos",
-      "description": "JSON array of file URLs from pre-execution checklist (multiple images supported)"
-    },
-    {
-      "fieldname": "section_break_labour",
-      "fieldtype": "Section Break",
-      "label": "Labour"
-    },
-    {
-      "fieldname": "planned_male_count",
-      "fieldtype": "Int",
-      "label": "Planned Male",
-      "read_only": 1
-    },
-    {
-      "fieldname": "planned_female_count",
-      "fieldtype": "Int",
-      "label": "Planned Female",
-      "read_only": 1
-    },
-    {
-      "fieldname": "labour_attendance",
-      "fieldtype": "Table",
-      "label": "Labour Attendance",
-      "options": "Farm Task Execution Labour"
-    },
-    {
-      "fieldname": "checkin_in_photo",
-      "fieldtype": "Attach Image",
-      "label": "Check-in Photo"
-    },
-    {
-      "fieldname": "checkin_out_photo",
-      "fieldtype": "Attach Image",
-      "label": "Check-out Photo"
-    },
-    {
-      "fieldname": "section_break_progress_images",
-      "fieldtype": "Section Break",
-      "label": "Progress Images"
-    },
-    {
-      "fieldname": "progress_image_count",
-      "fieldtype": "Int",
-      "label": "Progress Image Count",
-      "read_only": 1
-    },
-    {
-      "fieldname": "progress_images",
-      "fieldtype": "Table",
-      "label": "Progress Images",
-      "options": "Farm Task Execution Progress Image"
-    },
-    {
-      "fieldname": "remark",
-      "fieldtype": "Small Text",
-      "label": "Remark"
-    },
-    {
-      "fieldname": "section_break_abort",
-      "fieldtype": "Section Break",
-      "label": "Abort"
-    },
-    {
-      "fieldname": "abort_category",
-      "fieldtype": "Select",
-      "label": "Abort Category",
-      "options": "\nWeather\nEquipment Issue\nLabour Issue\nInput Not Available\nOther",
-      "depends_on": "eval:doc.status=='Aborted'"
-    },
-    {
-      "fieldname": "abort_reason",
-      "fieldtype": "Small Text",
-      "label": "Abort Reason",
-      "depends_on": "eval:doc.status=='Aborted'"
-    },
-    {
-      "fieldname": "abort_notes",
-      "fieldtype": "Small Text",
-      "label": "Abort Notes",
-      "depends_on": "eval:doc.status=='Aborted'"
-    }
-  ],
-  "permissions": [
-    {
-      "role": "System Manager",
-      "read": 1,
-      "write": 1,
-      "create": 1,
-      "delete": 1,
-      "report": 1,
-      "export": 1,
-      "print": 1,
-      "email": 1,
-      "share": 1
-    },
-    {
-      "role": "All",
-      "read": 1,
-      "write": 1,
-      "create": 1,
-      "report": 1,
-      "export": 1,
-      "print": 1,
-      "email": 1,
-      "share": 1
-    }
-  ],
-  "sort_field": "modified",
-  "sort_order": "DESC"
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:FTE-{####}",
+ "creation": "2026-02-23 15:41:58.513179",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "engine": "InnoDB",
+ "field_order": [
+  "schedule_ref",
+  "on_demand_activity_ref",
+  "crop_plan",
+  "field",
+  "column_break_1",
+  "status",
+  "actual_start",
+  "actual_end",
+  "execution_type",
+  "paused_at",
+  "resumed_at",
+  "section_break_context",
+  "blocks",
+  "farm_activity",
+  "activity_name",
+  "sequence",
+  "approved_input_mix",
+  "approved_input_mix_name",
+  "section_break_water",
+  "is_spray",
+  "planned_spray_water_liters",
+  "actual_spray_water_liters",
+  "column_break_water",
+  "actual_irrigation_water_liters",
+  "section_break_inputs",
+  "inputs",
+  "section_break_stock",
+  "source_warehouse",
+  "target_warehouse",
+  "issue_stock_entry",
+  "return_stock_entry",
+  "consumption_stock_entry",
+  "section_break_equipment",
+  "equipment",
+  "pre_execution_equipment_photo",
+  "section_break_labour",
+  "planned_male_count",
+  "planned_female_count",
+  "labour_attendance",
+  "checkin_in_photo",
+  "checkin_out_photo",
+  "section_break_progress_images",
+  "progress_image_count",
+  "progress_images",
+  "remark",
+  "section_break_abort",
+  "abort_category",
+  "abort_reason",
+  "abort_notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "schedule_ref",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Schedule",
+   "options": "Crop Plan Schedule"
+  },
+  {
+   "fieldname": "on_demand_activity_ref",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "On Demand Activity",
+   "options": "On Demand Activity"
+  },
+  {
+   "fieldname": "crop_plan",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Crop Plan",
+   "options": "Crop Plan",
+   "read_only": 1
+  },
+  {
+   "fieldname": "field",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Field",
+   "options": "Geo Fencing Area",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "In Progress",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Ready\nIn Progress\nOn Hold\nIn Review\nReported\nRescheduled\nCompleted\nAborted"
+  },
+  {
+   "fieldname": "actual_start",
+   "fieldtype": "Datetime",
+   "label": "Actual Start"
+  },
+  {
+   "fieldname": "actual_end",
+   "fieldtype": "Datetime",
+   "label": "Actual End"
+  },
+  {
+   "default": "Single Day",
+   "fieldname": "execution_type",
+   "fieldtype": "Select",
+   "label": "Execution Type",
+   "options": "Single Day\nMulti Day"
+  },
+  {
+   "fieldname": "paused_at",
+   "fieldtype": "Datetime",
+   "label": "Paused At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "resumed_at",
+   "fieldtype": "Datetime",
+   "label": "Resumed At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_context",
+   "fieldtype": "Section Break",
+   "label": "Context"
+  },
+  {
+   "fieldname": "blocks",
+   "fieldtype": "Table",
+   "label": "Blocks",
+   "options": "Farm Task Execution Block"
+  },
+  {
+   "fieldname": "farm_activity",
+   "fieldtype": "Link",
+   "label": "Farm Activity",
+   "options": "Farm Activity",
+   "read_only": 1
+  },
+  {
+   "fieldname": "activity_name",
+   "fieldtype": "Data",
+   "label": "Activity Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sequence",
+   "fieldtype": "Int",
+   "label": "Sequence",
+   "read_only": 1
+  },
+  {
+   "fieldname": "approved_input_mix",
+   "fieldtype": "Link",
+   "label": "Approved Input Mix",
+   "options": "Farm Tasks",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "approved_input_mix.task_name",
+   "fieldname": "approved_input_mix_name",
+   "fieldtype": "Data",
+   "label": "Approved Input Mix Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_water",
+   "fieldtype": "Section Break",
+   "label": "Water"
+  },
+  {
+   "fieldname": "is_spray",
+   "fieldtype": "Check",
+   "label": "Is Spray",
+   "read_only": 1
+  },
+  {
+   "fieldname": "planned_spray_water_liters",
+   "fieldtype": "Float",
+   "label": "Planned Spray Water (Liters)",
+   "precision": "3",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.is_spray==1",
+   "fieldname": "actual_spray_water_liters",
+   "fieldtype": "Float",
+   "label": "Actual Spray Water (Liters)",
+   "precision": "3"
+  },
+  {
+   "fieldname": "column_break_water",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "actual_irrigation_water_liters",
+   "fieldtype": "Float",
+   "label": "Actual Irrigation Water (Liters)",
+   "precision": "3"
+  },
+  {
+   "fieldname": "section_break_inputs",
+   "fieldtype": "Section Break",
+   "label": "Inputs"
+  },
+  {
+   "fieldname": "inputs",
+   "fieldtype": "Table",
+   "label": "Inputs",
+   "options": "Farm Task Execution Input"
+  },
+  {
+   "fieldname": "section_break_stock",
+   "fieldtype": "Section Break",
+   "label": "Stock"
+  },
+  {
+   "fieldname": "source_warehouse",
+   "fieldtype": "Link",
+   "label": "Source Warehouse",
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "target_warehouse",
+   "fieldtype": "Link",
+   "label": "Target Warehouse (Field/Operations)",
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "issue_stock_entry",
+   "fieldtype": "Link",
+   "label": "Issue Stock Entry",
+   "options": "Stock Entry",
+   "read_only": 1
+  },
+  {
+   "fieldname": "return_stock_entry",
+   "fieldtype": "Link",
+   "label": "Return Stock Entry",
+   "options": "Stock Entry",
+   "read_only": 1
+  },
+  {
+   "fieldname": "consumption_stock_entry",
+   "fieldtype": "Link",
+   "label": "Consumption Stock Entry",
+   "options": "Stock Entry",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_equipment",
+   "fieldtype": "Section Break",
+   "label": "Equipment"
+  },
+  {
+   "fieldname": "equipment",
+   "fieldtype": "Table",
+   "label": "Equipment",
+   "options": "Farm Task Execution Equipment"
+  },
+  {
+   "description": "JSON array of file URLs from pre-execution checklist (multiple images supported)",
+   "fieldname": "pre_execution_equipment_photo",
+   "fieldtype": "Text",
+   "label": "Pre-Execution Equipment Photos"
+  },
+  {
+   "fieldname": "section_break_labour",
+   "fieldtype": "Section Break",
+   "label": "Labour"
+  },
+  {
+   "fieldname": "planned_male_count",
+   "fieldtype": "Int",
+   "label": "Planned Male",
+   "read_only": 1
+  },
+  {
+   "fieldname": "planned_female_count",
+   "fieldtype": "Int",
+   "label": "Planned Female",
+   "read_only": 1
+  },
+  {
+   "fieldname": "labour_attendance",
+   "fieldtype": "Table",
+   "label": "Labour Attendance",
+   "options": "Farm Task Execution Labour"
+  },
+  {
+   "fieldname": "checkin_in_photo",
+   "fieldtype": "Attach Image",
+   "label": "Check-in Photo"
+  },
+  {
+   "fieldname": "checkin_out_photo",
+   "fieldtype": "Attach Image",
+   "label": "Check-out Photo"
+  },
+  {
+   "fieldname": "section_break_progress_images",
+   "fieldtype": "Section Break",
+   "label": "Progress Images"
+  },
+  {
+   "fieldname": "progress_image_count",
+   "fieldtype": "Int",
+   "label": "Progress Image Count",
+   "read_only": 1
+  },
+  {
+   "fieldname": "progress_images",
+   "fieldtype": "Table",
+   "label": "Progress Images",
+   "options": "Farm Task Execution Progress Image"
+  },
+  {
+   "fieldname": "remark",
+   "fieldtype": "Small Text",
+   "label": "Remark"
+  },
+  {
+   "fieldname": "section_break_abort",
+   "fieldtype": "Section Break",
+   "label": "Abort"
+  },
+  {
+   "depends_on": "eval:doc.status=='Aborted'",
+   "fieldname": "abort_category",
+   "fieldtype": "Select",
+   "label": "Abort Category",
+   "options": "\nWeather\nEquipment Issue\nLabour Issue\nInput Not Available\nOther"
+  },
+  {
+   "depends_on": "eval:doc.status=='Aborted'",
+   "fieldname": "abort_reason",
+   "fieldtype": "Small Text",
+   "label": "Abort Reason"
+  },
+  {
+   "depends_on": "eval:doc.status=='Aborted'",
+   "fieldname": "abort_notes",
+   "fieldtype": "Small Text",
+   "label": "Abort Notes"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-04-21 12:48:24.256589",
+ "modified_by": "Administrator",
+ "module": "Farm Execution",
+ "name": "Farm Task Execution",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "All",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Field Supervisor",
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
 }
-
-

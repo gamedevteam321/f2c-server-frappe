@@ -10,9 +10,27 @@ from f2c.farm_report.doctype.farm_report_ticket.farm_report_ticket import create
 from f2c.inventory.equipment_location_level import (
 	location_warehouse_level_from_location_name as _location_warehouse_level_from_location_name,
 )
+from f2c.access.field_scope import (
+	assert_field_supervisor_ltt_dropoff,
+	assert_field_supervisor_ltt_pickup,
+	assert_field_supervisor_ltt_read,
+	field_supervisor_data_scope_active,
+	get_user_scope_expanded_area_names,
+)
 
 # Include both Draft (0) and Submitted (1) Assets in inventory views; exclude Cancelled (2)
 ASSET_DOCSTATUS_NOT_CANCELLED = [0, 1]
+
+
+def _field_supervisor_ltt_gate(ticket_doc, *, pickup: bool = False, dropoff: bool = False, any_leg: bool = False) -> None:
+	"""Enforce Field Supervisor scope on External LTT mutations (Internal is out of role)."""
+	if any_leg:
+		assert_field_supervisor_ltt_read(ticket_doc)
+		return
+	if pickup:
+		assert_field_supervisor_ltt_pickup(ticket_doc)
+	if dropoff:
+		assert_field_supervisor_ltt_dropoff(ticket_doc)
 
 
 def _location_docnames_under_path_prefix(canonical_location_name: str) -> list[str]:
@@ -560,10 +578,12 @@ def update_ltt_planned_times_if_pending_pickup(
 	return True
 
 
-@frappe.whitelist()
-def get_warehouses_for_geo_area(geo_area: str, strict_geo_area: int = 0):
+def _ledger_warehouse_names_for_geo_area(geo_area: str, strict_geo_area: int = 0) -> list[str]:
+	"""Resolve Geo Fencing Area docname -> ledger Warehouse names (same rules as get_warehouses_for_geo_area)."""
+	geo_area = (geo_area or "").strip()
 	if not geo_area:
-		frappe.throw(_("geo_area is required"))
+		return []
+
 	warehouses = frappe.get_all(
 		"Geo Fencing Area Warehouse",
 		fields=["warehouse"],
@@ -623,11 +643,59 @@ def get_warehouses_for_geo_area(geo_area: str, strict_geo_area: int = 0):
 				filters={"name": ["in", combined], "is_group": 0},
 				pluck="name",
 				limit_page_length=0,
+				ignore_permissions=True,
 			)
 		)
 		combined = [w for w in combined if w in ledger_names]
 
+	return combined
+
+
+@frappe.whitelist()
+def get_warehouses_for_geo_area(geo_area: str, strict_geo_area: int = 0):
+	if not geo_area:
+		frappe.throw(_("geo_area is required"))
+	combined = _ledger_warehouse_names_for_geo_area(geo_area, strict_geo_area)
 	return {"geo_area": geo_area, "warehouses": combined}
+
+
+@frappe.whitelist()
+def get_field_supervisor_inventory_warehouse_rows():
+	"""
+	Ledger warehouses for Field Supervisor inventory UIs (dropdown), across expanded scope Geo areas.
+	Ignores Warehouse DocPerm for the final read; names are derived only from scoped Geo Fencing Areas.
+	"""
+	if not field_supervisor_data_scope_active():
+		return []
+	areas = get_user_scope_expanded_area_names()
+	if not areas:
+		return []
+
+	ordered_names: list[str] = []
+	seen_wh: set[str] = set()
+	for geo in sorted(areas):
+		for w in _ledger_warehouse_names_for_geo_area(geo, strict_geo_area=0):
+			if w and w not in seen_wh:
+				seen_wh.add(w)
+				ordered_names.append(w)
+
+	if not ordered_names:
+		return []
+
+	rows = frappe.get_all(
+		"Warehouse",
+		filters={"name": ["in", ordered_names], "is_group": 0, "disabled": 0},
+		fields=["name", "warehouse_name"],
+		limit_page_length=0,
+		ignore_permissions=True,
+	)
+	by_name = {r["name"]: r for r in rows}
+	out: list[dict] = []
+	for n in ordered_names:
+		row = by_name.get(n)
+		if row:
+			out.append(row)
+	return out
 
 
 def _get_default_company():
@@ -1314,6 +1382,7 @@ def create_logistics_transfer_ticket(
 	)
 
 	ticket = frappe.get_doc(ticket_data)
+	_field_supervisor_ltt_gate(ticket, any_leg=True)
 	ticket.insert(ignore_permissions=True)
 
 	# Default planned dates to creation when not provided (insert does not always persist in-doc patches).
@@ -1358,6 +1427,7 @@ def mark_dispatched(ticket_name: str, dispatch_photo_url=None):
 	if not ticket_name:
 		frappe.throw(_("ticket_name is required"))
 	ticket = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
+	_field_supervisor_ltt_gate(ticket, pickup=True)
 	if ticket.status != "Pending Pickup":
 		frappe.throw(_("Only Pending Pickup tickets can be dispatched"))
 	phase = getattr(ticket, "pickup_phase", None) or ""
@@ -1383,6 +1453,7 @@ def mark_received(ticket_name: str, receive_photo_url=None):
 	if not ticket_name:
 		frappe.throw(_("ticket_name is required"))
 	ticket = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
+	_field_supervisor_ltt_gate(ticket, dropoff=True)
 	if ticket.status != "In Transit":
 		frappe.throw(_("Only In Transit tickets can be marked Received"))
 	drop_phase = getattr(ticket, "drop_off_phase", None) or ""
@@ -1430,6 +1501,7 @@ def revert_received(ticket_name: str):
 	if not ticket_name:
 		frappe.throw(_("ticket_name is required"))
 	ticket = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
+	_field_supervisor_ltt_gate(ticket, any_leg=True)
 	if ticket.status != "Received":
 		frappe.throw(_("Only Received tickets can be restored to In Transit"))
 
@@ -1465,6 +1537,7 @@ def start_pickup(ticket_name: str):
 	if not ticket_name:
 		frappe.throw(_("ticket_name is required"))
 	ticket = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
+	_field_supervisor_ltt_gate(ticket, pickup=True)
 	if ticket.status != "Pending Pickup":
 		frappe.throw(_("Only Pending Pickup tickets can start pickup"))
 	if getattr(ticket, "pickup_phase", None) != "Upcoming":
@@ -1480,6 +1553,7 @@ def mark_en_route_to_pickup(ticket_name: str):
 	if not ticket_name:
 		frappe.throw(_("ticket_name is required"))
 	ticket = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
+	_field_supervisor_ltt_gate(ticket, pickup=True)
 	if ticket.status != "Pending Pickup":
 		frappe.throw(_("Only Pending Pickup tickets can be marked en route to pickup"))
 	if getattr(ticket, "pickup_phase", None) != "Not Started":
@@ -1495,6 +1569,7 @@ def mark_reached_pickup_point(ticket_name: str):
 	if not ticket_name:
 		frappe.throw(_("ticket_name is required"))
 	ticket = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
+	_field_supervisor_ltt_gate(ticket, pickup=True)
 	if ticket.status != "Pending Pickup":
 		frappe.throw(_("Only Pending Pickup tickets can mark reached pickup point"))
 	if getattr(ticket, "pickup_phase", None) != "In Transit":
@@ -1510,6 +1585,7 @@ def mark_picked_up(ticket_name: str):
 	if not ticket_name:
 		frappe.throw(_("ticket_name is required"))
 	ticket = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
+	_field_supervisor_ltt_gate(ticket, pickup=True)
 	if getattr(ticket, "pickup_phase", None) != "In Transit":
 		frappe.throw(_("Pickup must be In Transit before marking Picked Up"))
 	if ticket.status != "In Transit":
@@ -1526,6 +1602,7 @@ def start_drop_off(ticket_name: str):
 	if not ticket_name:
 		frappe.throw(_("ticket_name is required"))
 	ticket = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
+	_field_supervisor_ltt_gate(ticket, dropoff=True)
 	if getattr(ticket, "pickup_phase", None) != "Picked Up":
 		frappe.throw(_("Pickup must be Picked Up before starting drop off"))
 	if getattr(ticket, "drop_off_phase", None) != "Not Started":
@@ -1541,6 +1618,7 @@ def mark_reached_drop_off_point(ticket_name: str):
 	if not ticket_name:
 		frappe.throw(_("ticket_name is required"))
 	ticket = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
+	_field_supervisor_ltt_gate(ticket, dropoff=True)
 	if getattr(ticket, "pickup_phase", None) != "Picked Up":
 		frappe.throw(_("Pickup must be Picked Up before marking reached drop off point"))
 	if getattr(ticket, "drop_off_phase", None) != "In Transit":
@@ -1556,6 +1634,7 @@ def mark_delivered(ticket_name: str, deliver_photo_url=None):
 	if not ticket_name:
 		frappe.throw(_("ticket_name is required"))
 	ticket = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
+	_field_supervisor_ltt_gate(ticket, dropoff=True)
 	if ticket.status != "In Transit":
 		frappe.throw(_("Only In Transit tickets can be marked Delivered"))
 	if getattr(ticket, "drop_off_phase", None) != "At Drop Off Point":
@@ -1572,6 +1651,7 @@ def mark_reported(ticket_name: str, reason: str = "", report_image: str = "", bl
 	if not ticket_name:
 		frappe.throw(_("ticket_name is required"))
 	ticket = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
+	_field_supervisor_ltt_gate(ticket, any_leg=True)
 	if ticket.status in ("Received", "Cancelled"):
 		frappe.throw(_("Cannot report a Received/Cancelled ticket"))
 	if ticket.status == "Reported":
@@ -1588,6 +1668,7 @@ def resolve_reported(ticket_name: str, resolution_note: str = ""):
 	if not ticket_name:
 		frappe.throw(_("ticket_name is required"))
 	ticket = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
+	_field_supervisor_ltt_gate(ticket, any_leg=True)
 	if ticket.status != "Reported":
 		frappe.throw(_("Only Reported tickets can be resolved"))
 	resolution_note = (resolution_note or "").strip()
@@ -1669,6 +1750,7 @@ def get_logistics_farm_report_resolve_context(ltt_name: str | None = None):
 	if not name:
 		frappe.throw(_("ltt_name is required"))
 	ltt = frappe.get_doc("Logistics Transfer Ticket", name)
+	_field_supervisor_ltt_gate(ltt, any_leg=True)
 	phase = _logistics_farm_report_resolve_phase(ltt)
 	has_tractor = _ltt_has_tractor_asset(ltt)
 	cargo_ok = _ltt_replacement_cargo_allowed(ltt)
@@ -1760,6 +1842,7 @@ def resolve_logistics_farm_report_ticket(
 		frappe.throw(_("Farm Report Ticket has no linked Logistics Transfer Ticket"))
 
 	ltt = frappe.get_doc("Logistics Transfer Ticket", ltt_name)
+	_field_supervisor_ltt_gate(ltt, any_leg=True)
 	phase = _logistics_farm_report_resolve_phase(ltt)
 	if not phase:
 		frappe.throw(
@@ -1970,6 +2053,7 @@ def mark_cancelled(ticket_name: str, reason: str = ""):
 	if not ticket_name:
 		frappe.throw(_("ticket_name is required"))
 	ticket = frappe.get_doc("Logistics Transfer Ticket", ticket_name)
+	_field_supervisor_ltt_gate(ticket, any_leg=True)
 	if ticket.status == "Received":
 		frappe.throw(_("Cannot cancel a Received ticket"))
 	ticket.status = "Cancelled"
@@ -2179,6 +2263,74 @@ def get_location_warehouse_levels_for_warehouses(warehouses=None):
 			out[wh] = _location_warehouse_level_for_warehouse_name(wh)
 		except Exception:
 			out[wh] = None
+	return out
+
+
+def _field_area_label_for_warehouse(warehouse: str) -> str | None:
+	"""
+	Resolve a short geo label for inventory dropdowns: prefer Geo Fencing Area with Field type
+	on the walk from the warehouse-linked geo area up through parent_area; else linked leaf area_name.
+	"""
+	if not warehouse:
+		return None
+	try:
+		res = get_location_for_warehouse(warehouse)
+	except Exception:
+		return None
+	geo = (res or {}).get("geo_area")
+	if not geo:
+		return None
+	visited: set[str] = set()
+	cur = str(geo).strip()
+	while cur and cur not in visited:
+		visited.add(cur)
+		type_link = frappe.db.get_value("Geo Fencing Area", cur, "geo_fencing_type")
+		type_name = None
+		if type_link:
+			type_name = frappe.db.get_value("Geo Fencing Type", type_link, "geo_fencing_type_name") or type_link
+		area_name = frappe.db.get_value("Geo Fencing Area", cur, "area_name")
+		if (type_name or "").strip().lower() == "field":
+			n = (area_name or "").strip()
+			return n or None
+		parent = frappe.db.get_value("Geo Fencing Area", cur, "parent_area")
+		cur = (parent or "").strip()
+	leaf = str((res or {}).get("geo_area") or "").strip()
+	if leaf:
+		n = frappe.db.get_value("Geo Fencing Area", leaf, "area_name")
+		out = (n or "").strip()
+		return out or None
+	return None
+
+
+@frappe.whitelist()
+def get_warehouse_field_area_labels_for_warehouses(warehouses=None):
+	"""
+	Batch map each Warehouse name to a Geo Fencing field (or leaf) area_name for UI option tags.
+	warehouses: JSON array string, e.g. '["WH-A","WH-B"]', or a list.
+	"""
+	import json
+
+	if warehouses is None:
+		names = []
+	elif isinstance(warehouses, str):
+		try:
+			names = json.loads(warehouses)
+		except Exception:
+			s = warehouses.strip()
+			names = [s] if s else []
+	else:
+		names = list(warehouses) if isinstance(warehouses, (list, tuple)) else []
+
+	out = {}
+	for wh in names:
+		if not wh:
+			continue
+		try:
+			lbl = _field_area_label_for_warehouse(wh)
+		except Exception:
+			lbl = None
+		if lbl:
+			out[wh] = lbl
 	return out
 
 

@@ -133,13 +133,19 @@ delete_file_data_content = ["f2c.file_storage.delete_file_data_content"]
 # -----------
 # Permissions evaluated in scripted ways
 
-# permission_query_conditions = {
-# 	"Event": "frappe.desk.doctype.event.event.get_permission_query_conditions",
-# }
-#
-# has_permission = {
-# 	"Event": "frappe.desk.doctype.event.event.has_permission",
-# }
+permission_query_conditions = {
+	"Farm Task Execution": "f2c.access.permission_query.get_farm_task_execution_query",
+	"On Demand Activity": "f2c.access.permission_query.get_on_demand_activity_query",
+	"Crop Plan Schedule": "f2c.access.permission_query.get_crop_plan_schedule_query",
+	"Logistics Transfer Ticket": "f2c.access.permission_query.get_logistics_transfer_ticket_query",
+	"Farm Worker Details": "f2c.access.permission_query.get_farm_worker_details_query",
+	"Farm Worker Attendance": "f2c.access.permission_query.get_farm_worker_attendance_query",
+	"Geo Fencing Area": "f2c.access.permission_query.get_geo_fencing_area_query",
+}
+
+has_permission = {
+	"Farm Worker Attendance": "f2c.access.permission_query.has_farm_worker_attendance_permission",
+}
 
 # DocType Class
 # ---------------
@@ -154,6 +160,9 @@ override_doctype_class = {
 # Hook on document methods and events
 
 doc_events = {
+	"User": {
+		"validate": "f2c.access.user_hooks.validate",
+	},
 	# Stock quantity changes
 	"Stock Entry": {
 		"on_submit": "f2c.inventory.warehouse_stock_sync_hooks.trigger_warehouse_stock_sync",

@@ -1,75 +1,81 @@
 {
-    "actions": [],
-    "allow_import": 1,
-    "allow_rename": 1,
-    "autoname": "field:activity_group_type_name",
-    "creation": "2025-01-20 12:00:00.000000",
-    "doctype": "DocType",
-    "document_type": "Document",
-    "engine": "InnoDB",
-    "field_order": [
-        "activity_group_type_name",
-        "code",
-        "description"
-    ],
-    "fields": [
-        {
-            "fieldname": "activity_group_type_name",
-            "fieldtype": "Data",
-            "in_list_view": 1,
-            "label": "Activity Group Type Name",
-            "reqd": 1,
-            "unique": 1
-        },
-        {
-            "fieldname": "code",
-            "fieldtype": "Data",
-            "in_list_view": 1,
-            "label": "Code",
-            "reqd": 1
-        },
-        {
-            "fieldname": "description",
-            "fieldtype": "Text Editor",
-            "label": "Description"
-        }
-    ],
-    "index_web_pages_for_search": 1,
-    "links": [],
-    "modified": "2025-01-20 12:00:00.000000",
-    "modified_by": "Administrator",
-    "module": "Farm To Crop",
-    "name": "Activity Group Type",
-    "naming_rule": "By fieldname",
-    "owner": "Administrator",
-    "permissions": [
-        {
-            "create": 1,
-            "delete": 1,
-            "email": 1,
-            "export": 1,
-            "print": 1,
-            "read": 1,
-            "report": 1,
-            "role": "System Manager",
-            "share": 1,
-            "write": 1
-        },
-        {
-            "create": 1,
-            "email": 1,
-            "export": 1,
-            "print": 1,
-            "read": 1,
-            "report": 1,
-            "role": "All",
-            "share": 1,
-            "write": 1
-        }
-    ],
-    "sort_field": "modified",
-    "sort_order": "DESC",
-    "states": [],
-    "track_changes": 1
+ "actions": [],
+ "allow_import": 1,
+ "allow_rename": 1,
+ "autoname": "field:activity_group_type_name",
+ "creation": "2025-01-20 12:00:00",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "engine": "InnoDB",
+ "field_order": [
+  "activity_group_type_name",
+  "code",
+  "description"
+ ],
+ "fields": [
+  {
+   "fieldname": "activity_group_type_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Activity Group Type Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "code",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Code",
+   "reqd": 1
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Text Editor",
+   "label": "Description"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-04-21 12:48:26.138332",
+ "modified_by": "Administrator",
+ "module": "Farm to Crop",
+ "name": "Activity Group Type",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "All",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Field Supervisor"
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
 }
-
