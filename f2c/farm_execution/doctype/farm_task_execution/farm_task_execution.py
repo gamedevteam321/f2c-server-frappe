@@ -1145,6 +1145,72 @@ def create_dummy_execution_days_for_testing(execution_name: str = None, num_days
 	return created
 
 
+def _asset_eligible_for_execution_field_warehouse(fte, asset: str) -> bool:
+	"""
+	True if asset exists and is allowed for this execution's field warehouse:
+	exact location match when configured, else same asset list as get_assets_for_warehouse (subtree / fallbacks).
+	"""
+	if not asset or not frappe.db.exists("Asset", asset):
+		return False
+	field = getattr(fte, "field", None) or ""
+	if not field:
+		return True
+	from f2c.farm_execution.equipment_transfer_on_completion import get_target_warehouse_for_field
+	from f2c.inventory.logistics_transfer_ticket_api import get_assets_for_warehouse, get_location_for_warehouse
+
+	wh = get_target_warehouse_for_field(field)
+	if not wh:
+		return True
+	lr = get_location_for_warehouse(wh)
+	loc = (lr or {}).get("location") if lr else None
+	if loc:
+		asset_location = frappe.db.get_value("Asset", asset, "location")
+		if asset_location and asset_location == loc:
+			return True
+	try:
+		res = get_assets_for_warehouse(wh)
+	except Exception:
+		return False
+	if not isinstance(res, dict):
+		return False
+	for row in res.get("assets") or []:
+		if row.get("name") == asset:
+			return True
+	return False
+
+
+def _sync_day_equipment_to_parent_fte(execution_name: str, day_doc) -> None:
+	"""
+	Append any day equipment assets missing from parent Farm Task Execution so new days
+	inherit them via _copy_fte_child_to_day. Only appends assets validated at field warehouse.
+	"""
+	fte = frappe.get_doc("Farm Task Execution", execution_name)
+	existing = {(getattr(r, "asset", None) or "").strip() for r in (fte.equipment or []) if getattr(r, "asset", None)}
+	changed = False
+	for row in day_doc.equipment or []:
+		asset = (getattr(row, "asset", None) or "").strip()
+		if not asset or asset in existing:
+			continue
+		if not _asset_eligible_for_execution_field_warehouse(fte, asset):
+			continue
+		asset_name = getattr(row, "asset_name", None) or frappe.db.get_value("Asset", asset, "asset_name") or asset
+		fte.append(
+			"equipment",
+			{
+				"asset": asset,
+				"asset_name": asset_name,
+				"planned_hours": flt(getattr(row, "planned_hours", None), 2),
+				"actual_hours": flt(getattr(row, "actual_hours", None), 2),
+				"return_type": getattr(row, "return_type", None) or "Non Returnable",
+			},
+		)
+		existing.add(asset)
+		changed = True
+	if changed:
+		fte.save(ignore_permissions=True)
+		frappe.db.commit()
+
+
 @frappe.whitelist()
 def update_day_data(
 	execution_name: str,
@@ -1339,6 +1405,13 @@ def update_day_data(
 
 	day_doc.save(ignore_permissions=True)
 	frappe.db.commit()
+	try:
+		_sync_day_equipment_to_parent_fte(execution_name, day_doc)
+	except Exception as e:
+		frappe.log_error(
+			title="Farm Task Execution equipment sync",
+			message=f"Sync day equipment to parent FTE failed for {execution_name}: {str(e)}",
+		)
 	# Create equipment transfer tickets on End of the day: only Daily Returnable -> return to cluster
 	if ended_for_day:
 		try:
@@ -1634,6 +1707,21 @@ def update_execution_data(
 			if child is None and i < len(doc_equipment):
 				child = doc_equipment[i]
 			if child is None:
+				asset = (row.get("asset") or "").strip()
+				if asset and _asset_eligible_for_execution_field_warehouse(doc, asset):
+					asset_name = row.get("asset_name") or frappe.db.get_value("Asset", asset, "asset_name") or asset
+					planned = row.get("planned_hours")
+					ah = row.get("actual_hours")
+					doc.append(
+						"equipment",
+						{
+							"asset": asset,
+							"asset_name": asset_name,
+							"planned_hours": flt(planned, 2) if planned is not None and str(planned).strip() != "" else 0,
+							"actual_hours": flt(ah, 2) if ah is not None and str(ah).strip() != "" else None,
+							"return_type": str(row.get("return_type") or "").strip() or "Non Returnable",
+						},
+					)
 				continue
 			if "actual_hours" in row and row["actual_hours"] is not None:
 				child.actual_hours = flt(row["actual_hours"], 2)

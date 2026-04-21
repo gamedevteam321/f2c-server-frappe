@@ -2018,10 +2018,29 @@ def _get_equipment_doc_for_asset(asset_name: str) -> tuple[str, str] | None:
 	return None
 
 
+def _shorten_asset_caption_for_display(asset_name: str) -> str:
+	"""
+	Strip trailing serial / chassis tokens often appended to Asset.asset_name
+	(e.g. 'Brand - Model - Tractor - CH:XXXXXXXX') for UI labels.
+	"""
+	import re
+
+	s = str(asset_name or "").strip()
+	if not s:
+		return ""
+	out = re.sub(r"\s*-\s*CH:[A-Z0-9]+\s*$", "", s, flags=re.IGNORECASE)
+	out = re.sub(r"\s*-\s*VIN:[A-Z0-9]+\s*$", "", out, flags=re.IGNORECASE)
+	out = re.sub(r"\s*-\s*[A-Z]{2,4}:[A-Z0-9]{6,}\s*$", "", out, flags=re.IGNORECASE)
+	out = re.sub(r"\s*-\s*Tractor\s*$", "", out, flags=re.IGNORECASE)
+	out = out.strip()
+	return out or s
+
+
 def _enrich_equipment_display_names(assets: list[dict]) -> None:
 	"""
 	Set equipment_display_name from linked equipment docs (machinery_name, implement_name, tool_name).
 	Preferred over Asset.asset_name, which may mirror item description (e.g. Brand - Model - Type).
+	If no equipment doc label, derive a shorter caption from asset_name (strip CH:/VIN: style suffixes).
 	"""
 	names = [str(a.get("name") or "").strip() for a in assets if (a.get("name") or "").strip()]
 	if not names:
@@ -2036,19 +2055,25 @@ def _enrich_equipment_display_names(assets: list[dict]) -> None:
 		rows = frappe.get_all(
 			doctype,
 			filters=[["asset", "in", names]],
-			fields=["asset", field],
-			limit=len(names) + 10,
+			fields=["asset", "name", field],
+			limit=len(names) + 50,
 			ignore_permissions=True,
 		)
 		for r in rows:
 			an = str(r.get("asset") or "").strip()
-			v = str(r.get(field) or "").strip()
+			v = str(r.get(field) or "").strip() or str(r.get("name") or "").strip()
 			if an and v and an not in disp:
 				disp[an] = v
 	for a in assets:
 		an = str(a.get("name") or "").strip()
-		if an and an in disp:
+		if not an:
+			continue
+		if an in disp:
 			a["equipment_display_name"] = disp[an]
+		elif not (a.get("equipment_display_name") or "").strip():
+			base = str(a.get("asset_name") or "").strip()
+			if base:
+				a["equipment_display_name"] = _shorten_asset_caption_for_display(base)
 
 
 @frappe.whitelist()

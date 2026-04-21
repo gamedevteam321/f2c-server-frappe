@@ -169,3 +169,86 @@ class TestFarmTaskExecution(FrappeTestCase):
 		self.assertEqual(fte_name, "FTE-TEST-0002")
 		self.assertEqual(exec_doc.equipment[0].asset, "AST-TRACTOR-001")
 		self.assertEqual(exec_doc.equipment[0].paired_implement, "IMP-ROTAVATOR-001")
+
+	def test_sync_day_equipment_to_parent_fte_appends_new_asset(self):
+		"""Ad-hoc day equipment rows should be copied to parent FTE so new days inherit them."""
+		appended: list = []
+		save_called = {"n": 0}
+
+		class FakeFTE:
+			def __init__(self):
+				self.equipment = [frappe._dict(asset="AST-OLD", asset_name="Old Tool")]
+
+			def append(self, fieldname, row):
+				appended.append((fieldname, dict(row)))
+
+			def save(self, ignore_permissions=True):
+				save_called["n"] += 1
+
+		fte = FakeFTE()
+		day = frappe._dict(
+			equipment=[
+				frappe._dict(
+					asset="AST-OLD",
+					asset_name="Old Tool",
+					planned_hours=1,
+					actual_hours=1,
+					return_type="Non Returnable",
+				),
+				frappe._dict(
+					asset="AST-SHOVEL-001",
+					asset_name="Shovel 1",
+					planned_hours=0,
+					actual_hours=2,
+					return_type="Non Returnable",
+				),
+			]
+		)
+
+		def fake_get_doc(doctype, name):
+			if doctype == "Farm Task Execution" and name == "FTE-SYNC-TEST":
+				return fte
+			raise AssertionError(f"Unexpected get_doc: {doctype} {name}")
+
+		with patch.object(fte_module.frappe, "get_doc", side_effect=fake_get_doc), patch.object(
+			fte_module, "_asset_eligible_for_execution_field_warehouse", return_value=True
+		):
+			fte_module._sync_day_equipment_to_parent_fte("FTE-SYNC-TEST", day)
+
+		self.assertEqual(len(appended), 1)
+		self.assertEqual(appended[0][0], "equipment")
+		self.assertEqual(appended[0][1]["asset"], "AST-SHOVEL-001")
+		self.assertEqual(appended[0][1]["asset_name"], "Shovel 1")
+		self.assertEqual(save_called["n"], 1)
+
+	def test_copy_fte_child_to_day_copies_all_equipment_rows(self):
+		fte = frappe._dict(
+			remark="",
+			actual_spray_water_liters=0,
+			actual_irrigation_water_liters=0,
+			labour_attendance=[],
+			inputs=[],
+			equipment=[
+				frappe._dict(asset="A1", asset_name="Tool 1", planned_hours=1, actual_hours=0, return_type="Non Returnable"),
+				frappe._dict(asset="A2", asset_name="Tool 2", planned_hours=0, actual_hours=0, return_type="Non Returnable"),
+			],
+			progress_images=[],
+		)
+		day_doc = frappe._dict(
+			remark=None,
+			actual_spray_water_liters=None,
+			actual_irrigation_water_liters=None,
+			labour=[],
+			inputs=[],
+			equipment=[],
+			progress_images=[],
+		)
+
+		def append(field, row):
+			(day_doc.setdefault(field, [])).append(frappe._dict(row))
+
+		day_doc.append = append
+		fte_module._copy_fte_child_to_day(fte, day_doc)
+		self.assertEqual(len(day_doc.equipment), 2)
+		self.assertEqual(day_doc.equipment[0].asset, "A1")
+		self.assertEqual(day_doc.equipment[1].asset, "A2")
