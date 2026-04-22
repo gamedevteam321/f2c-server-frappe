@@ -1,151 +1,171 @@
 {
-  "doctype": "DocType",
-  "name": "Logistics Batch",
-  "module": "Inventory",
-  "document_type": "Document",
-  "autoname": "format:LB-{YYYY}-{#####}",
-  "allow_import": 1,
-  "track_changes": 1,
-  "engine": "InnoDB",
-  "field_order": [
-    "source_doctype",
-    "source_name",
-    "batch_type",
-    "planning_status",
-    "column_break_1",
-    "field",
-    "cluster",
-    "farm",
-    "target_warehouse",
-    "section_break_planning",
-    "planned_by",
-    "approved_by",
-    "approved_on",
-    "section_break_rows",
-    "planner_rows"
-  ],
-  "fields": [
-    {
-      "fieldname": "source_doctype",
-      "fieldtype": "Link",
-      "label": "Source DocType",
-      "options": "DocType",
-      "reqd": 1,
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "source_name",
-      "fieldtype": "Dynamic Link",
-      "label": "Source Name",
-      "options": "source_doctype",
-      "reqd": 1,
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "batch_type",
-      "fieldtype": "Select",
-      "label": "Batch Type",
-      "options": "\nCrop Plan Schedule\nOn Demand Activity",
-      "reqd": 1,
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "planning_status",
-      "fieldtype": "Select",
-      "label": "Planning Status",
-      "options": "\nDraft\nApproved\nCancelled\nPartially Executed\nCompleted",
-      "default": "Draft",
-      "reqd": 1,
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "column_break_1",
-      "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "field",
-      "fieldtype": "Link",
-      "label": "Field",
-      "options": "Geo Fencing Area",
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "cluster",
-      "fieldtype": "Link",
-      "label": "Cluster",
-      "options": "Geo Fencing Area"
-    },
-    {
-      "fieldname": "farm",
-      "fieldtype": "Link",
-      "label": "Farm",
-      "options": "Geo Fencing Area"
-    },
-    {
-      "fieldname": "target_warehouse",
-      "fieldtype": "Link",
-      "label": "Target Warehouse",
-      "options": "Warehouse"
-    },
-    {
-      "fieldname": "section_break_planning",
-      "fieldtype": "Section Break",
-      "label": "Planning"
-    },
-    {
-      "fieldname": "planned_by",
-      "fieldtype": "Link",
-      "label": "Planned By",
-      "options": "User"
-    },
-    {
-      "fieldname": "approved_by",
-      "fieldtype": "Link",
-      "label": "Approved By",
-      "options": "User"
-    },
-    {
-      "fieldname": "approved_on",
-      "fieldtype": "Datetime",
-      "label": "Approved On"
-    },
-    {
-      "fieldname": "section_break_rows",
-      "fieldtype": "Section Break",
-      "label": "Planner Rows"
-    },
-    {
-      "fieldname": "planner_rows",
-      "fieldtype": "Table",
-      "label": "Planner Rows",
-      "options": "Logistics Batch Planner Row"
-    }
-  ],
-  "permissions": [
-    {
-      "create": 1,
-      "delete": 1,
-      "email": 1,
-      "export": 1,
-      "print": 1,
-      "read": 1,
-      "report": 1,
-      "share": 1,
-      "write": 1,
-      "role": "System Manager"
-    },
-    {
-      "create": 1,
-      "email": 1,
-      "export": 1,
-      "print": 1,
-      "read": 1,
-      "report": 1,
-      "share": 1,
-      "write": 1,
-      "role": "All"
-    }
-  ],
-  "sort_field": "modified",
-  "sort_order": "DESC"
+ "actions": [],
+ "allow_import": 1,
+ "autoname": "format:LB-{YYYY}-{#####}",
+ "creation": "2026-04-20 17:40:38.851906",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "engine": "InnoDB",
+ "field_order": [
+  "source_doctype",
+  "source_name",
+  "batch_type",
+  "planning_status",
+  "column_break_1",
+  "field",
+  "cluster",
+  "farm",
+  "target_warehouse",
+  "section_break_planning",
+  "planned_by",
+  "approved_by",
+  "approved_on",
+  "section_break_rows",
+  "planner_rows"
+ ],
+ "fields": [
+  {
+   "fieldname": "source_doctype",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Source DocType",
+   "options": "DocType",
+   "reqd": 1
+  },
+  {
+   "fieldname": "source_name",
+   "fieldtype": "Dynamic Link",
+   "in_list_view": 1,
+   "label": "Source Name",
+   "options": "source_doctype",
+   "reqd": 1
+  },
+  {
+   "fieldname": "batch_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Batch Type",
+   "options": "\nCrop Plan Schedule\nOn Demand Activity",
+   "reqd": 1
+  },
+  {
+   "default": "Draft",
+   "fieldname": "planning_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Planning Status",
+   "options": "\nDraft\nApproved\nCancelled\nPartially Executed\nCompleted",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "field",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Field",
+   "options": "Geo Fencing Area"
+  },
+  {
+   "fieldname": "cluster",
+   "fieldtype": "Link",
+   "label": "Cluster",
+   "options": "Geo Fencing Area"
+  },
+  {
+   "fieldname": "farm",
+   "fieldtype": "Link",
+   "label": "Farm",
+   "options": "Geo Fencing Area"
+  },
+  {
+   "fieldname": "target_warehouse",
+   "fieldtype": "Link",
+   "label": "Target Warehouse",
+   "options": "Warehouse"
+  },
+  {
+   "fieldname": "section_break_planning",
+   "fieldtype": "Section Break",
+   "label": "Planning"
+  },
+  {
+   "fieldname": "planned_by",
+   "fieldtype": "Link",
+   "label": "Planned By",
+   "options": "User"
+  },
+  {
+   "fieldname": "approved_by",
+   "fieldtype": "Link",
+   "label": "Approved By",
+   "options": "User"
+  },
+  {
+   "fieldname": "approved_on",
+   "fieldtype": "Datetime",
+   "label": "Approved On"
+  },
+  {
+   "fieldname": "section_break_rows",
+   "fieldtype": "Section Break",
+   "label": "Planner Rows"
+  },
+  {
+   "fieldname": "planner_rows",
+   "fieldtype": "Table",
+   "label": "Planner Rows",
+   "options": "Logistics Batch Planner Row"
+  }
+ ],
+ "links": [],
+ "modified": "2026-04-21 17:15:38.986586",
+ "modified_by": "Administrator",
+ "module": "Inventory",
+ "name": "Logistics Batch",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "All",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Project Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
 }

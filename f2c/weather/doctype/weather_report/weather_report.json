@@ -1,334 +1,362 @@
 {
-  "doctype": "DocType",
-  "name": "Weather Report",
-  "module": "Weather",
-  "document_type": "Document",
-  "autoname": "format:WR-{YYYY}-{MM}-{DD}-{####}",
-  "allow_rename": 0,
-  "track_changes": 1,
-  "index_web_pages_for_search": 1,
-  "field_order": [
-    "section_field_info",
-    "location",
-    "field_name",
-    "geo_fencing_type",
-    "column_break_field",
-    "report_date",
-    "report_time",
-    "section_coordinates",
-    "latitude",
-    "column_break_coords",
-    "longitude",
-    "section_temperature",
-    "temperature",
-    "feels_like",
-    "column_break_temp",
-    "temperature_min",
-    "temperature_max",
-    "section_conditions",
-    "weather_condition",
-    "weather_description",
-    "column_break_cond",
-    "humidity",
-    "cloud_cover",
-    "section_precipitation",
-    "precipitation",
-    "precipitation_probability",
-    "column_break_precip",
-    "rainfall",
-    "section_wind",
-    "wind_speed",
-    "wind_direction",
-    "column_break_wind",
-    "wind_gust",
-    "section_other",
-    "pressure",
-    "visibility",
-    "column_break_other",
-    "uv_index",
-    "dew_point",
-    "section_hourly_forecast",
-    "hourly_forecast",
-    "section_data_source",
-    "data_source",
-    "raw_data"
-  ],
-  "fields": [
-    {
-      "fieldname": "section_field_info",
-      "fieldtype": "Section Break",
-      "label": "Field Information"
-    },
-    {
-      "fieldname": "location",
-      "fieldtype": "Link",
-      "label": "Field",
-      "options": "Geo Fencing Area",
-      "in_list_view": 1,
-      "in_standard_filter": 1,
-      "reqd": 1,
-      "bold": 1
-    },
-    {
-      "fieldname": "field_name",
-      "fieldtype": "Data",
-      "label": "Field Name",
-      "fetch_from": "location.area_name",
-      "read_only": 1,
-      "in_list_view": 1,
-      "bold": 1
-    },
-    {
-      "fieldname": "geo_fencing_type",
-      "fieldtype": "Data",
-      "label": "Field Type",
-      "fetch_from": "location.geo_fencing_type",
-      "read_only": 1
-    },
-    {
-      "fieldname": "column_break_field",
-      "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "report_date",
-      "fieldtype": "Date",
-      "label": "Report Date",
-      "reqd": 1,
-      "in_list_view": 1,
-      "in_standard_filter": 1,
-      "default": "Today"
-    },
-    {
-      "fieldname": "report_time",
-      "fieldtype": "Time",
-      "label": "Report Time"
-    },
-    {
-      "fieldname": "section_coordinates",
-      "fieldtype": "Section Break",
-      "label": "Coordinates",
-      "collapsible": 1
-    },
-    {
-      "fieldname": "latitude",
-      "fieldtype": "Float",
-      "label": "Latitude",
-      "precision": "6"
-    },
-    {
-      "fieldname": "column_break_coords",
-      "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "longitude",
-      "fieldtype": "Float",
-      "label": "Longitude",
-      "precision": "6"
-    },
-    {
-      "fieldname": "section_temperature",
-      "fieldtype": "Section Break",
-      "label": "Temperature"
-    },
-    {
-      "fieldname": "temperature",
-      "fieldtype": "Float",
-      "label": "Temperature (°C)",
-      "precision": "1",
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "feels_like",
-      "fieldtype": "Float",
-      "label": "Feels Like (°C)",
-      "precision": "1"
-    },
-    {
-      "fieldname": "column_break_temp",
-      "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "temperature_min",
-      "fieldtype": "Float",
-      "label": "Min Temperature (°C)",
-      "precision": "1"
-    },
-    {
-      "fieldname": "temperature_max",
-      "fieldtype": "Float",
-      "label": "Max Temperature (°C)",
-      "precision": "1"
-    },
-    {
-      "fieldname": "section_conditions",
-      "fieldtype": "Section Break",
-      "label": "Weather Conditions"
-    },
-    {
-      "fieldname": "weather_condition",
-      "fieldtype": "Data",
-      "label": "Weather Condition",
-      "in_list_view": 1,
-      "in_standard_filter": 1
-    },
-    {
-      "fieldname": "weather_description",
-      "fieldtype": "Small Text",
-      "label": "Weather Description"
-    },
-    {
-      "fieldname": "column_break_cond",
-      "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "humidity",
-      "fieldtype": "Percent",
-      "label": "Humidity (%)"
-    },
-    {
-      "fieldname": "cloud_cover",
-      "fieldtype": "Percent",
-      "label": "Cloud Cover (%)"
-    },
-    {
-      "fieldname": "section_precipitation",
-      "fieldtype": "Section Break",
-      "label": "Precipitation"
-    },
-    {
-      "fieldname": "precipitation",
-      "fieldtype": "Float",
-      "label": "Precipitation (mm)",
-      "precision": "2"
-    },
-    {
-      "fieldname": "precipitation_probability",
-      "fieldtype": "Percent",
-      "label": "Precipitation Probability (%)"
-    },
-    {
-      "fieldname": "column_break_precip",
-      "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "rainfall",
-      "fieldtype": "Float",
-      "label": "Rainfall (mm)",
-      "precision": "2"
-    },
-    {
-      "fieldname": "section_wind",
-      "fieldtype": "Section Break",
-      "label": "Wind"
-    },
-    {
-      "fieldname": "wind_speed",
-      "fieldtype": "Float",
-      "label": "Wind Speed (km/h)",
-      "precision": "1"
-    },
-    {
-      "fieldname": "wind_direction",
-      "fieldtype": "Data",
-      "label": "Wind Direction"
-    },
-    {
-      "fieldname": "column_break_wind",
-      "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "wind_gust",
-      "fieldtype": "Float",
-      "label": "Wind Gust (km/h)",
-      "precision": "1"
-    },
-    {
-      "fieldname": "section_other",
-      "fieldtype": "Section Break",
-      "label": "Other Measurements"
-    },
-    {
-      "fieldname": "pressure",
-      "fieldtype": "Float",
-      "label": "Pressure (hPa)",
-      "precision": "1"
-    },
-    {
-      "fieldname": "visibility",
-      "fieldtype": "Float",
-      "label": "Visibility (km)",
-      "precision": "1"
-    },
-    {
-      "fieldname": "column_break_other",
-      "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "uv_index",
-      "fieldtype": "Int",
-      "label": "UV Index"
-    },
-    {
-      "fieldname": "dew_point",
-      "fieldtype": "Float",
-      "label": "Dew Point (°C)",
-      "precision": "1"
-    },
-    {
-      "fieldname": "section_hourly_forecast",
-      "fieldtype": "Section Break",
-      "label": "Hourly Forecast"
-    },
-    {
-      "fieldname": "hourly_forecast",
-      "fieldtype": "Table",
-      "label": "Hourly Forecast",
-      "options": "Weather Report Hourly Forecast"
-    },
-    {
-      "fieldname": "section_data_source",
-      "fieldtype": "Section Break",
-      "label": "Data Source",
-      "collapsible": 1
-    },
-    {
-      "fieldname": "data_source",
-      "fieldtype": "Select",
-      "label": "Data Source",
-      "options": "\nGoogle Weather API\nManual Entry\nWeather Station\nOther"
-    },
-    {
-      "fieldname": "raw_data",
-      "fieldtype": "Code",
-      "label": "Raw Data (JSON)",
-      "options": "JSON"
-    }
-  ],
-  "permissions": [
-    {
-      "role": "System Manager",
-      "read": 1,
-      "write": 1,
-      "create": 1,
-      "delete": 1,
-      "report": 1,
-      "export": 1,
-      "print": 1,
-      "email": 1,
-      "share": 1
-    },
-    {
-      "role": "All",
-      "read": 1,
-      "write": 1,
-      "create": 1,
-      "report": 1,
-      "export": 1,
-      "print": 1,
-      "email": 1,
-      "share": 1
-    }
-  ],
-  "sort_field": "report_date",
-  "sort_order": "DESC"
+ "actions": [],
+ "autoname": "format:WR-{YYYY}-{MM}-{DD}-{####}",
+ "creation": "2026-02-10 16:08:09.951356",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "engine": "InnoDB",
+ "field_order": [
+  "section_field_info",
+  "location",
+  "field_name",
+  "geo_fencing_type",
+  "column_break_field",
+  "report_date",
+  "report_time",
+  "section_coordinates",
+  "latitude",
+  "column_break_coords",
+  "longitude",
+  "section_temperature",
+  "temperature",
+  "feels_like",
+  "column_break_temp",
+  "temperature_min",
+  "temperature_max",
+  "section_conditions",
+  "weather_condition",
+  "weather_description",
+  "column_break_cond",
+  "humidity",
+  "cloud_cover",
+  "section_precipitation",
+  "precipitation",
+  "precipitation_probability",
+  "column_break_precip",
+  "rainfall",
+  "section_wind",
+  "wind_speed",
+  "wind_direction",
+  "column_break_wind",
+  "wind_gust",
+  "section_other",
+  "pressure",
+  "visibility",
+  "column_break_other",
+  "uv_index",
+  "dew_point",
+  "section_hourly_forecast",
+  "hourly_forecast",
+  "section_data_source",
+  "data_source",
+  "raw_data"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_field_info",
+   "fieldtype": "Section Break",
+   "label": "Field Information"
+  },
+  {
+   "bold": 1,
+   "fieldname": "location",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Field",
+   "options": "Geo Fencing Area",
+   "reqd": 1
+  },
+  {
+   "bold": 1,
+   "fetch_from": "location.area_name",
+   "fieldname": "field_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Field Name",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "location.geo_fencing_type",
+   "fieldname": "geo_fencing_type",
+   "fieldtype": "Data",
+   "label": "Field Type",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_field",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Today",
+   "fieldname": "report_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Report Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "report_time",
+   "fieldtype": "Time",
+   "label": "Report Time"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_coordinates",
+   "fieldtype": "Section Break",
+   "label": "Coordinates"
+  },
+  {
+   "fieldname": "latitude",
+   "fieldtype": "Float",
+   "label": "Latitude",
+   "precision": "6"
+  },
+  {
+   "fieldname": "column_break_coords",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "longitude",
+   "fieldtype": "Float",
+   "label": "Longitude",
+   "precision": "6"
+  },
+  {
+   "fieldname": "section_temperature",
+   "fieldtype": "Section Break",
+   "label": "Temperature"
+  },
+  {
+   "fieldname": "temperature",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Temperature (\u00b0C)",
+   "precision": "1"
+  },
+  {
+   "fieldname": "feels_like",
+   "fieldtype": "Float",
+   "label": "Feels Like (\u00b0C)",
+   "precision": "1"
+  },
+  {
+   "fieldname": "column_break_temp",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "temperature_min",
+   "fieldtype": "Float",
+   "label": "Min Temperature (\u00b0C)",
+   "precision": "1"
+  },
+  {
+   "fieldname": "temperature_max",
+   "fieldtype": "Float",
+   "label": "Max Temperature (\u00b0C)",
+   "precision": "1"
+  },
+  {
+   "fieldname": "section_conditions",
+   "fieldtype": "Section Break",
+   "label": "Weather Conditions"
+  },
+  {
+   "fieldname": "weather_condition",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Weather Condition"
+  },
+  {
+   "fieldname": "weather_description",
+   "fieldtype": "Small Text",
+   "label": "Weather Description"
+  },
+  {
+   "fieldname": "column_break_cond",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "humidity",
+   "fieldtype": "Percent",
+   "label": "Humidity (%)"
+  },
+  {
+   "fieldname": "cloud_cover",
+   "fieldtype": "Percent",
+   "label": "Cloud Cover (%)"
+  },
+  {
+   "fieldname": "section_precipitation",
+   "fieldtype": "Section Break",
+   "label": "Precipitation"
+  },
+  {
+   "fieldname": "precipitation",
+   "fieldtype": "Float",
+   "label": "Precipitation (mm)",
+   "precision": "2"
+  },
+  {
+   "fieldname": "precipitation_probability",
+   "fieldtype": "Percent",
+   "label": "Precipitation Probability (%)"
+  },
+  {
+   "fieldname": "column_break_precip",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "rainfall",
+   "fieldtype": "Float",
+   "label": "Rainfall (mm)",
+   "precision": "2"
+  },
+  {
+   "fieldname": "section_wind",
+   "fieldtype": "Section Break",
+   "label": "Wind"
+  },
+  {
+   "fieldname": "wind_speed",
+   "fieldtype": "Float",
+   "label": "Wind Speed (km/h)",
+   "precision": "1"
+  },
+  {
+   "fieldname": "wind_direction",
+   "fieldtype": "Data",
+   "label": "Wind Direction"
+  },
+  {
+   "fieldname": "column_break_wind",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "wind_gust",
+   "fieldtype": "Float",
+   "label": "Wind Gust (km/h)",
+   "precision": "1"
+  },
+  {
+   "fieldname": "section_other",
+   "fieldtype": "Section Break",
+   "label": "Other Measurements"
+  },
+  {
+   "fieldname": "pressure",
+   "fieldtype": "Float",
+   "label": "Pressure (hPa)",
+   "precision": "1"
+  },
+  {
+   "fieldname": "visibility",
+   "fieldtype": "Float",
+   "label": "Visibility (km)",
+   "precision": "1"
+  },
+  {
+   "fieldname": "column_break_other",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "uv_index",
+   "fieldtype": "Int",
+   "label": "UV Index"
+  },
+  {
+   "fieldname": "dew_point",
+   "fieldtype": "Float",
+   "label": "Dew Point (\u00b0C)",
+   "precision": "1"
+  },
+  {
+   "fieldname": "section_hourly_forecast",
+   "fieldtype": "Section Break",
+   "label": "Hourly Forecast"
+  },
+  {
+   "fieldname": "hourly_forecast",
+   "fieldtype": "Table",
+   "label": "Hourly Forecast",
+   "options": "Weather Report Hourly Forecast"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_data_source",
+   "fieldtype": "Section Break",
+   "label": "Data Source"
+  },
+  {
+   "fieldname": "data_source",
+   "fieldtype": "Select",
+   "label": "Data Source",
+   "options": "\nGoogle Weather API\nManual Entry\nWeather Station\nOther"
+  },
+  {
+   "fieldname": "raw_data",
+   "fieldtype": "Code",
+   "label": "Raw Data (JSON)",
+   "options": "JSON"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-04-21 17:15:45.454267",
+ "modified_by": "Administrator",
+ "module": "Weather",
+ "name": "Weather Report",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "All",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Farm Manager",
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Project Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "report_date",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
 }

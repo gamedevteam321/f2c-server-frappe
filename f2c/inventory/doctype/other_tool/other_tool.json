@@ -1,320 +1,360 @@
 {
-  "doctype": "DocType",
-  "name": "Other Tool",
-  "module": "Inventory",
-  "document_type": "Document",
-  "autoname": "format:OTOOL-{#####}",
-  "allow_import": 1,
-  "allow_rename": 1,
-  "is_submittable": 1,
-  "track_changes": 1,
-  "index_web_pages_for_search": 1,
-  "engine": "InnoDB",
-  "field_order": [
-    "asset_info_section",
-    "asset",
-    "column_break_asset_link",
-    "create_asset_note",
-    "item_code",
-    "company",
-    "location",
-    "purchase_date",
-    "is_existing_asset",
-    "available_for_use_date",
-    "asset_owner",
-    "asset_owner_company",
-    "purchase_receipt",
-    "purchase_invoice",
-    "asset_name",
-    "image_section",
-    "hero_image",
-    "column_break_img",
-    "gallery",
-    "equipment_doc_section",
-    "equipment_documents",
-    "basic_info_section",
-    "other_tool_template",
-    "other_tool_type",
-    "tool_name",
-    "brand",
-    "model",
-    "column_break_basic",
-    "material",
-    "dimensions",
-    "weight",
-    "price",
-    "status",
-    "additional_section",
-    "features",
-    "description",
-    "specs_json"
-  ],
-  "fields": [
-    {
-      "fieldname": "asset_info_section",
-      "fieldtype": "Section Break",
-      "label": "Asset Information"
-    },
-    {
-      "fieldname": "asset",
-      "fieldtype": "Link",
-      "label": "Asset (Optional: link an existing Asset)",
-      "options": "Asset",
-      "in_list_view": 1,
-      "in_standard_filter": 1
-    },
-    {
-      "fieldname": "column_break_asset_link",
-      "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "create_asset_note",
-      "fieldtype": "HTML",
-      "label": "Note",
-      "options": "<div style=\"color:#6b7280;font-size:13px\">If you do not select an Asset, the system will auto-create an Asset from the required fields below.</div>"
-    },
-    {
-      "depends_on": "eval:!doc.asset",
-      "fieldname": "item_code",
-      "fieldtype": "Link",
-      "label": "Item Code",
-      "options": "Item",
-      "reqd": 1
-    },
-    {
-      "depends_on": "eval:!doc.asset",
-      "fieldname": "company",
-      "fieldtype": "Link",
-      "label": "Company",
-      "options": "Company",
-      "reqd": 1
-    },
-    {
-      "depends_on": "eval:!doc.asset",
-      "fieldname": "location",
-      "fieldtype": "Link",
-      "label": "Location",
-      "options": "Location",
-      "reqd": 1
-    },
-    {
-      "depends_on": "eval:!doc.asset",
-      "fieldname": "purchase_date",
-      "fieldtype": "Date",
-      "label": "Purchase Date",
-      "reqd": 1
-    },
-    {
-      "default": "0",
-      "depends_on": "eval:!doc.asset",
-      "fieldname": "is_existing_asset",
-      "fieldtype": "Check",
-      "label": "Is Existing Asset"
-    },
-    {
-      "depends_on": "eval:!doc.asset",
-      "fieldname": "available_for_use_date",
-      "fieldtype": "Date",
-      "label": "Available-for-use Date"
-    },
-    {
-      "default": "Company",
-      "depends_on": "eval:!doc.asset",
-      "fieldname": "asset_owner",
-      "fieldtype": "Select",
-      "label": "Asset Owner",
-      "options": "\nCompany\nSupplier\nCustomer"
-    },
-    {
-      "allow_on_submit": 1,
-      "depends_on": "eval:!doc.asset && doc.asset_owner == \"Company\"",
-      "fieldname": "asset_owner_company",
-      "fieldtype": "Link",
-      "label": "Asset Owner Company",
-      "options": "Company"
-    },
-    {
-      "depends_on": "eval:!doc.asset && !doc.is_existing_asset",
-      "fieldname": "purchase_receipt",
-      "fieldtype": "Link",
-      "label": "Purchase Receipt",
-      "options": "Purchase Receipt"
-    },
-    {
-      "depends_on": "eval:!doc.asset && !doc.is_existing_asset",
-      "fieldname": "purchase_invoice",
-      "fieldtype": "Link",
-      "label": "Purchase Invoice",
-      "options": "Purchase Invoice"
-    },
-    {
-      "depends_on": "eval:!doc.asset",
-      "fieldname": "asset_name",
-      "fieldtype": "Data",
-      "label": "Asset Name (Optional)",
-      "description": "If not provided, it will be auto-generated from Brand/Model/Type."
-    },
-    {
-      "fieldname": "image_section",
-      "fieldtype": "Section Break",
-      "label": "Images"
-    },
-    {
-      "fieldname": "hero_image",
-      "fieldtype": "Attach Image",
-      "label": "Hero Image"
-    },
-    {
-      "fieldname": "column_break_img",
-      "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "gallery",
-      "fieldtype": "Table",
-      "label": "Gallery",
-      "options": "Equipment Image"
-    },
-    {
-      "fieldname": "equipment_doc_section",
-      "fieldtype": "Section Break",
-      "label": "Equipment Documents"
-    },
-    {
-      "fieldname": "equipment_documents",
-      "fieldtype": "Table",
-      "label": "Documents (PDF, DOCX)",
-      "options": "Equipment Document"
-    },
-    {
-      "fieldname": "basic_info_section",
-      "fieldtype": "Section Break",
-      "label": "Basic Info"
-    },
-    {
-      "fieldname": "other_tool_template",
-      "fieldtype": "Link",
-      "label": "Other Tool Template",
-      "options": "Other Tool Template",
-      "in_standard_filter": 1
-    },
-    {
-      "fieldname": "other_tool_type",
-      "fieldtype": "Data",
-      "label": "Other Tool Type",
-      "reqd": 1,
-      "in_list_view": 1,
-      "in_standard_filter": 1
-    },
-    {
-      "fieldname": "tool_name",
-      "fieldtype": "Data",
-      "label": "Tool Name",
-      "reqd": 1,
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "brand",
-      "fieldtype": "Data",
-      "label": "Brand"
-    },
-    {
-      "fieldname": "model",
-      "fieldtype": "Data",
-      "label": "Model"
-    },
-    {
-      "fieldname": "column_break_basic",
-      "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "material",
-      "fieldtype": "Data",
-      "label": "Material"
-    },
-    {
-      "fieldname": "dimensions",
-      "fieldtype": "Data",
-      "label": "Dimensions"
-    },
-    {
-      "fieldname": "weight",
-      "fieldtype": "Float",
-      "label": "Weight"
-    },
-    {
-      "fieldname": "price",
-      "fieldtype": "Currency",
-      "label": "Price"
-    },
-    {
-      "allow_on_submit": 1,
-      "fieldname": "status",
-      "fieldtype": "Select",
-      "label": "Status",
-      "in_list_view": 1,
-      "options": "\nAvailable\nIn Use\nMaintenance\nRepair\nRetired",
-      "default": "Available"
-    },
-    {
-      "fieldname": "additional_section",
-      "fieldtype": "Section Break",
-      "label": "Additional"
-    },
-    {
-      "allow_on_submit": 1,
-      "fieldname": "features",
-      "fieldtype": "Text",
-      "label": "Features"
-    },
-    {
-      "allow_on_submit": 1,
-      "fieldname": "description",
-      "fieldtype": "Text",
-      "label": "Description"
-    },
-    {
-      "allow_on_submit": 1,
-      "description": "Stores dynamic spec fields (Base + Category + Sub-category overlays) as JSON.",
-      "fieldname": "specs_json",
-      "fieldtype": "JSON",
-      "hidden": 1,
-      "label": "Specs JSON"
-    }
-  ],
-  "permissions": [
-    {
-      "amend": 1,
-      "cancel": 1,
-      "create": 1,
-      "delete": 1,
-      "email": 1,
-      "export": 1,
-      "print": 1,
-      "read": 1,
-      "report": 1,
-      "share": 1,
-      "submit": 1,
-      "write": 1,
-      "role": "System Manager"
-    },
-    {
-      "amend": 1,
-      "cancel": 1,
-      "create": 1,
-      "email": 1,
-      "export": 1,
-      "print": 1,
-      "read": 1,
-      "report": 1,
-      "share": 1,
-      "submit": 1,
-      "write": 1,
-      "role": "All"
-    }
-  ],
-  "sort_field": "modified",
-  "sort_order": "DESC",
-  "title_field": "tool_name"
+ "actions": [],
+ "allow_import": 1,
+ "allow_rename": 1,
+ "autoname": "format:OTOOL-{#####}",
+ "creation": "2026-03-17 11:24:50.639143",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "engine": "InnoDB",
+ "field_order": [
+  "asset_info_section",
+  "asset",
+  "column_break_asset_link",
+  "create_asset_note",
+  "item_code",
+  "company",
+  "location",
+  "purchase_date",
+  "is_existing_asset",
+  "available_for_use_date",
+  "asset_owner",
+  "asset_owner_company",
+  "purchase_receipt",
+  "purchase_invoice",
+  "asset_name",
+  "image_section",
+  "hero_image",
+  "column_break_img",
+  "gallery",
+  "equipment_doc_section",
+  "equipment_documents",
+  "basic_info_section",
+  "other_tool_template",
+  "other_tool_type",
+  "tool_name",
+  "brand",
+  "model",
+  "column_break_basic",
+  "material",
+  "dimensions",
+  "weight",
+  "price",
+  "status",
+  "additional_section",
+  "features",
+  "description",
+  "specs_json",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "fieldname": "asset_info_section",
+   "fieldtype": "Section Break",
+   "label": "Asset Information"
+  },
+  {
+   "fieldname": "asset",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Asset (Optional: link an existing Asset)",
+   "options": "Asset"
+  },
+  {
+   "fieldname": "column_break_asset_link",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "create_asset_note",
+   "fieldtype": "HTML",
+   "label": "Note",
+   "options": "<div style=\"color:#6b7280;font-size:13px;\">If you do not select an Asset, the system will auto-create an Asset from the required fields below.</div>"
+  },
+  {
+   "depends_on": "eval:!doc.asset",
+   "fieldname": "item_code",
+   "fieldtype": "Link",
+   "label": "Item Code",
+   "options": "Item",
+   "reqd": 1
+  },
+  {
+   "depends_on": "eval:!doc.asset",
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "depends_on": "eval:!doc.asset",
+   "fieldname": "location",
+   "fieldtype": "Link",
+   "label": "Location",
+   "options": "Location",
+   "reqd": 1
+  },
+  {
+   "depends_on": "eval:!doc.asset",
+   "fieldname": "purchase_date",
+   "fieldtype": "Date",
+   "label": "Purchase Date",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "depends_on": "eval:!doc.asset",
+   "fieldname": "is_existing_asset",
+   "fieldtype": "Check",
+   "label": "Is Existing Asset"
+  },
+  {
+   "depends_on": "eval:!doc.asset",
+   "fieldname": "available_for_use_date",
+   "fieldtype": "Date",
+   "label": "Available-for-use Date"
+  },
+  {
+   "default": "Company",
+   "depends_on": "eval:!doc.asset",
+   "fieldname": "asset_owner",
+   "fieldtype": "Select",
+   "label": "Asset Owner",
+   "options": "\nCompany\nSupplier\nCustomer"
+  },
+  {
+   "allow_on_submit": 1,
+   "depends_on": "eval:!doc.asset && doc.asset_owner == \"Company\"",
+   "fieldname": "asset_owner_company",
+   "fieldtype": "Link",
+   "label": "Asset Owner Company",
+   "options": "Company"
+  },
+  {
+   "depends_on": "eval:!doc.asset && !doc.is_existing_asset",
+   "fieldname": "purchase_receipt",
+   "fieldtype": "Link",
+   "label": "Purchase Receipt",
+   "options": "Purchase Receipt"
+  },
+  {
+   "depends_on": "eval:!doc.asset && !doc.is_existing_asset",
+   "fieldname": "purchase_invoice",
+   "fieldtype": "Link",
+   "label": "Purchase Invoice",
+   "options": "Purchase Invoice"
+  },
+  {
+   "depends_on": "eval:!doc.asset",
+   "description": "If not provided, it will be auto-generated from Brand/Model/Type.",
+   "fieldname": "asset_name",
+   "fieldtype": "Data",
+   "label": "Asset Name (Optional)"
+  },
+  {
+   "fieldname": "image_section",
+   "fieldtype": "Section Break",
+   "label": "Images"
+  },
+  {
+   "fieldname": "hero_image",
+   "fieldtype": "Attach Image",
+   "label": "Hero Image"
+  },
+  {
+   "fieldname": "column_break_img",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "gallery",
+   "fieldtype": "Table",
+   "label": "Gallery",
+   "options": "Equipment Image"
+  },
+  {
+   "fieldname": "equipment_doc_section",
+   "fieldtype": "Section Break",
+   "label": "Equipment Documents"
+  },
+  {
+   "fieldname": "equipment_documents",
+   "fieldtype": "Table",
+   "label": "Documents (PDF, DOCX)",
+   "options": "Equipment Document"
+  },
+  {
+   "fieldname": "basic_info_section",
+   "fieldtype": "Section Break",
+   "label": "Basic Info"
+  },
+  {
+   "fieldname": "other_tool_template",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Other Tool Template",
+   "options": "Other Tool Template"
+  },
+  {
+   "fieldname": "other_tool_type",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Other Tool Type",
+   "reqd": 1
+  },
+  {
+   "fieldname": "tool_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Tool Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "brand",
+   "fieldtype": "Data",
+   "label": "Brand"
+  },
+  {
+   "fieldname": "model",
+   "fieldtype": "Data",
+   "label": "Model"
+  },
+  {
+   "fieldname": "column_break_basic",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "material",
+   "fieldtype": "Data",
+   "label": "Material"
+  },
+  {
+   "fieldname": "dimensions",
+   "fieldtype": "Data",
+   "label": "Dimensions"
+  },
+  {
+   "fieldname": "weight",
+   "fieldtype": "Float",
+   "label": "Weight"
+  },
+  {
+   "fieldname": "price",
+   "fieldtype": "Currency",
+   "label": "Price"
+  },
+  {
+   "allow_on_submit": 1,
+   "default": "Available",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "\nAvailable\nIn Use\nMaintenance\nRepair\nRetired"
+  },
+  {
+   "fieldname": "additional_section",
+   "fieldtype": "Section Break",
+   "label": "Additional"
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "features",
+   "fieldtype": "Text",
+   "label": "Features"
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "description",
+   "fieldtype": "Text",
+   "label": "Description"
+  },
+  {
+   "allow_on_submit": 1,
+   "description": "Stores dynamic spec fields (Base + Category + Sub-category overlays) as JSON.",
+   "fieldname": "specs_json",
+   "fieldtype": "JSON",
+   "hidden": 1,
+   "label": "Specs JSON"
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Other Tool",
+   "print_hide": 1,
+   "read_only": 1,
+   "search_index": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2026-04-21 17:15:43.978064",
+ "modified_by": "Administrator",
+ "module": "Inventory",
+ "name": "Other Tool",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "amend": 1,
+   "cancel": 1,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "amend": 1,
+   "cancel": 1,
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "All",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Farm Manager",
+   "write": 1
+  },
+  {
+   "amend": 1,
+   "cancel": 1,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Project Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "tool_name",
+ "track_changes": 1
 }
-
-

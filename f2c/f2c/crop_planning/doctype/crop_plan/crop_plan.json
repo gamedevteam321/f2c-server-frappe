@@ -55,7 +55,7 @@
             "fieldtype": "Float",
             "label": "Field Area (Acres)",
             "read_only": 1,
-            "precision": "10"
+            "precision": "9"
         },
         {
             "fieldname": "total_blocks",

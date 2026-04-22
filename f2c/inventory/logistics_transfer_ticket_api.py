@@ -16,6 +16,7 @@ from f2c.access.field_scope import (
 	assert_field_supervisor_ltt_read,
 	get_user_scope_expanded_area_names,
 	supervisor_geo_scope_active,
+	user_has_project_manager_role,
 )
 
 # Include both Draft (0) and Submitted (1) Assets in inventory views; exclude Cancelled (2)
@@ -662,40 +663,52 @@ def get_warehouses_for_geo_area(geo_area: str, strict_geo_area: int = 0):
 @frappe.whitelist()
 def get_field_supervisor_inventory_warehouse_rows():
 	"""
-	Ledger warehouses for Field Supervisor inventory UIs (dropdown), across expanded scope Geo areas.
-	Ignores Warehouse DocPerm for the final read; names are derived only from scoped Geo Fencing Areas.
+	Ledger rows for inventory UIs when `get_list` on Warehouse would 403 (Field/Cluster/Driver/Farm Manager).
+
+	- Geo-scoped roles: warehouses linked to expanded User scope areas (ignore_permissions read).
+	- Project Manager: all active ledger warehouses (ignore_permissions read); PM bypasses geo scope on server.
 	"""
-	if not supervisor_geo_scope_active():
-		return []
-	areas = get_user_scope_expanded_area_names()
-	if not areas:
-		return []
+	if supervisor_geo_scope_active():
+		areas = get_user_scope_expanded_area_names()
+		if not areas:
+			return []
 
-	ordered_names: list[str] = []
-	seen_wh: set[str] = set()
-	for geo in sorted(areas):
-		for w in _ledger_warehouse_names_for_geo_area(geo, strict_geo_area=0):
-			if w and w not in seen_wh:
-				seen_wh.add(w)
-				ordered_names.append(w)
+		ordered_names: list[str] = []
+		seen_wh: set[str] = set()
+		for geo in sorted(areas):
+			for w in _ledger_warehouse_names_for_geo_area(geo, strict_geo_area=0):
+				if w and w not in seen_wh:
+					seen_wh.add(w)
+					ordered_names.append(w)
 
-	if not ordered_names:
-		return []
+		if not ordered_names:
+			return []
 
-	rows = frappe.get_all(
-		"Warehouse",
-		filters={"name": ["in", ordered_names], "is_group": 0, "disabled": 0},
-		fields=["name", "warehouse_name"],
-		limit_page_length=0,
-		ignore_permissions=True,
-	)
-	by_name = {r["name"]: r for r in rows}
-	out: list[dict] = []
-	for n in ordered_names:
-		row = by_name.get(n)
-		if row:
-			out.append(row)
-	return out
+		rows = frappe.get_all(
+			"Warehouse",
+			filters={"name": ["in", ordered_names], "is_group": 0, "disabled": 0},
+			fields=["name", "warehouse_name", "parent_warehouse"],
+			limit_page_length=0,
+			ignore_permissions=True,
+		)
+		by_name = {r["name"]: r for r in rows}
+		out: list[dict] = []
+		for n in ordered_names:
+			row = by_name.get(n)
+			if row:
+				out.append(row)
+		return out
+
+	if user_has_project_manager_role():
+		return frappe.get_all(
+			"Warehouse",
+			filters={"is_group": 0, "disabled": 0},
+			fields=["name", "warehouse_name", "parent_warehouse"],
+			limit_page_length=2000,
+			ignore_permissions=True,
+		) or []
+
+	return []
 
 
 def _get_default_company():

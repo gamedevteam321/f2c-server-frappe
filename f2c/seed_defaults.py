@@ -2,11 +2,14 @@ import frappe
 
 from f2c.access.constants import (
 	CLUSTER_SUPERVISOR_ROLE,
+	DRIVER_ROLE,
+	EMPLOYEE_ALLOWED_GEO_FIELDNAME,
+	FARM_MANAGER_ROLE,
 	FIELD_SUPERVISOR_ROLE,
+	PROJECT_MANAGER_ROLE,
 	USER_ASSIGNED_FIELD_FIELDNAME,
-	USER_SCOPE_AREAS_FIELDNAME,
-	USER_SCOPE_CHILD_DOCTYPE,
 )
+from f2c.access.migrate_user_scope_to_employee import run_migrate_user_scope_to_employee
 from f2c.farm_to_crop.doctype.water_source.seed_data import seed_water_source
 
 
@@ -233,8 +236,59 @@ def ensure_cluster_supervisor_role() -> None:
 		frappe.log_error(frappe.get_traceback(), "f2c ensure_cluster_supervisor_role failed")
 
 
+def ensure_driver_role() -> None:
+	"""Create Driver role if missing (idempotent)."""
+	if frappe.db.exists("Role", DRIVER_ROLE):
+		return
+	try:
+		frappe.get_doc(
+			{
+				"doctype": "Role",
+				"role_name": DRIVER_ROLE,
+				"desk_access": 0,
+			}
+		).insert(ignore_permissions=True)
+		frappe.db.commit()
+	except Exception:
+		frappe.log_error(frappe.get_traceback(), "f2c ensure_driver_role failed")
+
+
+def ensure_farm_manager_role() -> None:
+	"""Create Farm Manager role if missing (idempotent)."""
+	if frappe.db.exists("Role", FARM_MANAGER_ROLE):
+		return
+	try:
+		frappe.get_doc(
+			{
+				"doctype": "Role",
+				"role_name": FARM_MANAGER_ROLE,
+				"desk_access": 0,
+			}
+		).insert(ignore_permissions=True)
+		frappe.db.commit()
+	except Exception:
+		frappe.log_error(frappe.get_traceback(), "f2c ensure_farm_manager_role failed")
+
+
+def ensure_project_manager_role() -> None:
+	"""Create Project Manager role if missing (idempotent)."""
+	if frappe.db.exists("Role", PROJECT_MANAGER_ROLE):
+		return
+	try:
+		frappe.get_doc(
+			{
+				"doctype": "Role",
+				"role_name": PROJECT_MANAGER_ROLE,
+				"desk_access": 0,
+			}
+		).insert(ignore_permissions=True)
+		frappe.db.commit()
+	except Exception:
+		frappe.log_error(frappe.get_traceback(), "f2c ensure_project_manager_role failed")
+
+
 def _hide_legacy_user_f2c_assigned_field() -> None:
-	"""Keep DB column for merge logic; do not show on User form (F2C Scope Areas is the only UI)."""
+	"""Keep DB column for optional fallback; hidden — scope is configured on Employee Allowed Geo Areas."""
 	name = frappe.db.get_value("Custom Field", {"dt": "User", "fieldname": USER_ASSIGNED_FIELD_FIELDNAME}, "name")
 	if not name:
 		return
@@ -243,8 +297,8 @@ def _hide_legacy_user_f2c_assigned_field() -> None:
 		if not cf.hidden:
 			cf.hidden = 1
 			cf.description = (
-				"Legacy single Geo Fencing Area (read by server if present). "
-				"Configure scope in F2C Scope Areas; this field is hidden."
+				"Legacy single Geo Fencing Area (read by server only if Employee Allowed Geo Areas is empty). "
+				"Configure scope on the Employee record (Attendance & Leaves); this field is hidden."
 			)
 			cf.save(ignore_permissions=True)
 			frappe.db.commit()
@@ -253,7 +307,7 @@ def _hide_legacy_user_f2c_assigned_field() -> None:
 
 
 def ensure_user_f2c_assigned_field() -> None:
-	"""Custom Field on User: legacy link (hidden); scope is F2C Scope Areas only in the UI."""
+	"""Custom Field on User: legacy link (hidden); primary scope is Employee.allowed_geo_areas."""
 	if frappe.db.exists("Custom Field", {"dt": "User", "fieldname": USER_ASSIGNED_FIELD_FIELDNAME}):
 		_hide_legacy_user_f2c_assigned_field()
 		return
@@ -268,8 +322,8 @@ def ensure_user_f2c_assigned_field() -> None:
 				"options": "Geo Fencing Area",
 				"hidden": 1,
 				"description": (
-					"Legacy single Geo Fencing Area (read by server if present). "
-					"Configure scope in F2C Scope Areas; this field is hidden."
+					"Legacy single Geo Fencing Area (read by server only if Employee Allowed Geo Areas is empty). "
+					"Configure scope on the Employee record (Attendance & Leaves); this field is hidden."
 				),
 				"insert_after": "mobile_no",
 			}
@@ -279,32 +333,27 @@ def ensure_user_f2c_assigned_field() -> None:
 		frappe.log_error(frappe.get_traceback(), "f2c ensure_user_f2c_assigned_field failed")
 
 
-def ensure_user_f2c_scope_areas_table() -> None:
-	"""Child table on User: multiple Geo Fencing Area roots for Field or Cluster supervisor scope."""
-	if not frappe.db.exists("DocType", USER_SCOPE_CHILD_DOCTYPE):
+def patch_employee_allowed_geo_areas_description() -> None:
+	"""Align Employee Allowed Geo Areas help text with F2C role rules (idempotent)."""
+	name = frappe.db.get_value("Custom Field", {"dt": "Employee", "fieldname": EMPLOYEE_ALLOWED_GEO_FIELDNAME}, "name")
+	if not name:
 		return
-	if frappe.db.exists("Custom Field", {"dt": "User", "fieldname": USER_SCOPE_AREAS_FIELDNAME}):
-		return
+	desc = (
+		"Field Supervisor: use Add Row to assign one or more Field-level Geo Fencing Areas (each row is a root). "
+		"Cluster Supervisor / Driver: use Add Row to assign one or more Cluster-level Geo Fencing Areas (each row is a root). "
+		"Farm Manager: assign Farm, Cluster, or Field level areas (each row is a root). "
+		"Sub-areas inherit access. Only System Manager, Administrator, or Project Manager may edit this table for users with those scoped roles. "
+		"For attendance punch-in on farm land, Field-level areas are used where applicable."
+	)
 	try:
-		frappe.get_doc(
-			{
-				"doctype": "Custom Field",
-				"dt": "User",
-				"fieldname": USER_SCOPE_AREAS_FIELDNAME,
-				"label": "F2C Scope Areas",
-				"fieldtype": "Table",
-				"options": USER_SCOPE_CHILD_DOCTYPE,
-				"description": (
-					"Field Supervisor: use Add Row to assign one or more Field-level Geo Fencing Areas (each row is a root). "
-					"Cluster Supervisor: use Add Row to assign one or more Cluster-level Geo Fencing Areas (each row is a root). "
-					"Sub-areas inherit access. Only System Manager / Administrator may edit this table."
-				),
-				"insert_after": USER_ASSIGNED_FIELD_FIELDNAME,
-			}
-		).insert(ignore_permissions=True)
+		cf = frappe.get_doc("Custom Field", name)
+		if (cf.description or "").strip() == desc.strip():
+			return
+		cf.description = desc
+		cf.save(ignore_permissions=True)
 		frappe.db.commit()
 	except Exception:
-		frappe.log_error(frappe.get_traceback(), "f2c ensure_user_f2c_scope_areas_table failed")
+		frappe.log_error(frappe.get_traceback(), "f2c patch_employee_allowed_geo_areas_description failed")
 
 
 def ensure_field_supervisor_doctype_permissions() -> None:
@@ -400,27 +449,6 @@ def ensure_field_supervisor_doctype_permissions() -> None:
 			frappe.log_error(frappe.get_traceback(), f"f2c Field Supervisor DocPerm {doctype} failed")
 
 
-def patch_user_f2c_scope_areas_description() -> None:
-	"""Align F2C Scope Areas help text with Field vs Cluster supervisor roots (idempotent)."""
-	name = frappe.db.get_value("Custom Field", {"dt": "User", "fieldname": USER_SCOPE_AREAS_FIELDNAME}, "name")
-	if not name:
-		return
-	desc = (
-		"Field Supervisor: use Add Row to assign one or more Field-level Geo Fencing Areas (each row is a root). "
-		"Cluster Supervisor: use Add Row to assign one or more Cluster-level Geo Fencing Areas (each row is a root). "
-		"Sub-areas inherit access. Only System Manager / Administrator may edit this table."
-	)
-	try:
-		cf = frappe.get_doc("Custom Field", name)
-		if (cf.description or "").strip() == desc.strip():
-			return
-		cf.description = desc
-		cf.save(ignore_permissions=True)
-		frappe.db.commit()
-	except Exception:
-		frappe.log_error(frappe.get_traceback(), "f2c patch_user_f2c_scope_areas_description failed")
-
-
 def ensure_cluster_supervisor_doctype_permissions() -> None:
 	"""DocPerm rows for Cluster Supervisor: like Field Supervisor but no On Demand Activity; Supplier Contact without delete."""
 	if not frappe.db.exists("Role", CLUSTER_SUPERVISOR_ROLE):
@@ -514,6 +542,265 @@ def ensure_cluster_supervisor_doctype_permissions() -> None:
 			frappe.log_error(frappe.get_traceback(), f"f2c Cluster Supervisor DocPerm {doctype} failed")
 
 
+def ensure_driver_doctype_permissions() -> None:
+	"""DocPerm rows for Driver: logistics (LTT) plus read-only masters for inventory / transfers."""
+	if not frappe.db.exists("Role", DRIVER_ROLE):
+		return
+	perms: list[tuple[str, dict]] = [
+		(
+			"Farm Task Execution",
+			{"read": 1, "write": 0, "create": 0, "delete": 0, "export": 0, "print": 1, "email": 0, "report": 1, "share": 0},
+		),
+		(
+			"Logistics Transfer Ticket",
+			{"read": 1, "write": 1, "create": 1, "delete": 0, "export": 1, "print": 1, "email": 0, "report": 1, "share": 0},
+		),
+		(
+			"Geo Fencing Area",
+			{"read": 1, "write": 0, "create": 0, "delete": 0, "export": 0, "print": 1, "email": 0, "report": 1, "share": 0},
+		),
+		(
+			"Location",
+			{"read": 1, "write": 0, "create": 0, "delete": 0, "export": 0, "print": 1, "email": 0, "report": 1, "share": 0},
+		),
+		(
+			"Warehouse",
+			{"read": 1, "write": 0, "create": 0, "delete": 0, "export": 0, "print": 1, "email": 0, "report": 1, "share": 0},
+		),
+		(
+			"Stock Entry",
+			{"read": 1, "write": 0, "create": 0, "delete": 0, "export": 0, "print": 1, "email": 0, "report": 1, "share": 0},
+		),
+		(
+			"Bin",
+			{"read": 1, "write": 0, "create": 0, "delete": 0, "export": 0, "print": 1, "email": 0, "report": 1, "share": 0},
+		),
+		(
+			"Asset",
+			{"read": 1, "write": 0, "create": 0, "delete": 0, "export": 0, "print": 1, "email": 0, "report": 1, "share": 0},
+		),
+		(
+			"Item",
+			{"read": 1, "write": 0, "create": 0, "delete": 0, "export": 0, "print": 1, "email": 0, "report": 1, "share": 0},
+		),
+		(
+			"F2C Settings",
+			{"read": 1, "write": 0, "create": 0, "delete": 0, "export": 0, "print": 0, "email": 0, "report": 0, "share": 0},
+		),
+	]
+	for doctype, perm in perms:
+		if not frappe.db.exists("DocType", doctype):
+			continue
+		try:
+			dt = frappe.get_doc("DocType", doctype)
+			if any(getattr(p, "role", None) == DRIVER_ROLE for p in (dt.permissions or [])):
+				continue
+			row = {"role": DRIVER_ROLE, **perm}
+			dt.append("permissions", row)
+			dt.save(ignore_permissions=True)
+			frappe.db.commit()
+		except Exception:
+			frappe.log_error(frappe.get_traceback(), f"f2c Driver DocPerm {doctype} failed")
+
+
+def ensure_farm_manager_doctype_permissions() -> None:
+	"""DocPerm rows for Farm Manager: geo-scoped full app (React audit useFrappeGetDocList + CS/FS parity, Apr 2026)."""
+	if not frappe.db.exists("Role", FARM_MANAGER_ROLE):
+		return
+	_rw = {"read": 1, "write": 1, "create": 1, "delete": 0, "export": 1, "print": 1, "email": 0, "report": 1, "share": 0}
+	_rw_nc = {"read": 1, "write": 1, "create": 0, "delete": 0, "export": 1, "print": 1, "email": 0, "report": 1, "share": 0}
+	_ro = {"read": 1, "write": 0, "create": 0, "delete": 0, "export": 0, "print": 1, "email": 0, "report": 1, "share": 0}
+	_ro_f2c = {"read": 1, "write": 0, "create": 0, "delete": 0, "export": 0, "print": 0, "email": 0, "report": 0, "share": 0}
+	_supplier = {"read": 1, "write": 1, "create": 1, "delete": 0, "export": 1, "print": 1, "email": 0, "report": 1, "share": 0}
+	perms: list[tuple[str, dict]] = [
+		("Farm Task Execution", _rw_nc),
+		("Logistics Transfer Ticket", _rw),
+		("Farm Worker Details", _rw),
+		("Farm Worker Attendance", _rw),
+		("Crop Plan Schedule", _rw_nc),
+		("Crop Plan", _ro),
+		("On Demand Activity", _rw_nc),
+		("Geo Fencing Area", _ro),
+		("Geo Fencing Type", _ro),
+		("Farm Activity", _ro),
+		("Activity Group Type", _ro),
+		("Farm Report Ticket", _rw_nc),
+		("Location", _ro),
+		("Warehouse", _ro),
+		("Stock Entry", _rw_nc),
+		("Bin", _ro),
+		("Asset", _ro),
+		("Item", _ro),
+		("F2C Settings", _ro_f2c),
+		("Supplier Contact", _supplier),
+		("Warehouse Stock", _rw_nc),
+		("Material Request", _rw_nc),
+		("Stock Transfer Ticket", _rw_nc),
+		("Pick List", _rw_nc),
+		("Farm Project", _ro),
+		("POP", _rw_nc),
+		("Land Preparation", _rw_nc),
+		("Crop", _ro),
+		("Crop Stage", _ro),
+		("Farm Tasks", _rw_nc),
+		("Spacing", _rw_nc),
+		("POP-Activity List", _rw_nc),
+		("Machinery", _rw_nc),
+		("Implement", _rw_nc),
+		("Hand Tool", _rw_nc),
+		("Other Tool", _rw_nc),
+		("Weather Report", _rw_nc),
+		("Water Source", _ro),
+		("Irrigation Type", _ro),
+		("UOM", _ro),
+		("Company", _ro),
+		("User", _ro),
+	]
+	for doctype, perm in perms:
+		if not frappe.db.exists("DocType", doctype):
+			continue
+		try:
+			dt = frappe.get_doc("DocType", doctype)
+			if any(getattr(p, "role", None) == FARM_MANAGER_ROLE for p in (dt.permissions or [])):
+				continue
+			row = {"role": FARM_MANAGER_ROLE, **perm}
+			dt.append("permissions", row)
+			dt.save(ignore_permissions=True)
+			frappe.db.commit()
+		except Exception:
+			frappe.log_error(frappe.get_traceback(), f"f2c Farm Manager DocPerm {doctype} failed")
+
+
+def patch_crop_plan_docperm_for_f2c_scoped_roles() -> None:
+	"""Ensure Crop Plan DocPerm rows match F2C intent for React scheduling.
+
+	``ensure_*_doctype_permissions`` / PM clone skip when *any* DocPerm row already exists for
+	that role+permlevel. A mistaken row (e.g. read unchecked) is never corrected without this patch.
+	"""
+	from frappe.utils import cint
+
+	if not frappe.db.exists("DocType", "Crop Plan"):
+		return
+	# Same intent as Field Supervisor / Cluster Supervisor / Farm Manager entries for Crop Plan.
+	target_ro = {
+		"read": 1,
+		"write": 0,
+		"create": 0,
+		"delete": 0,
+		"export": 0,
+		"print": 1,
+		"email": 0,
+		"report": 1,
+		"share": 0,
+	}
+	# Align with Crop Plan / System Manager row in doctype JSON (PM is meant to mirror broad access).
+	target_pm = {
+		"read": 1,
+		"write": 1,
+		"create": 1,
+		"delete": 1,
+		"export": 1,
+		"print": 1,
+		"email": 1,
+		"report": 1,
+		"share": 1,
+	}
+	role_targets: list[tuple[str, dict]] = [
+		(FIELD_SUPERVISOR_ROLE, target_ro),
+		(CLUSTER_SUPERVISOR_ROLE, target_ro),
+		(FARM_MANAGER_ROLE, target_ro),
+	]
+	if frappe.db.exists("Role", PROJECT_MANAGER_ROLE):
+		role_targets.append((PROJECT_MANAGER_ROLE, target_pm))
+	try:
+		dt = frappe.get_doc("DocType", "Crop Plan")
+		changed = False
+		for role, target in role_targets:
+			if not frappe.db.exists("Role", role):
+				continue
+			found = False
+			for p in dt.permissions or []:
+				if getattr(p, "role", None) != role:
+					continue
+				if cint(getattr(p, "permlevel", 0) or 0) != 0:
+					continue
+				found = True
+				for k, v in target.items():
+					if cint(getattr(p, k, 0) or 0) != cint(v):
+						setattr(p, k, cint(v))
+						changed = True
+			if not found:
+				dt.append("permissions", {"role": role, **target})
+				changed = True
+		if changed:
+			dt.save(ignore_permissions=True)
+			frappe.db.commit()
+	except Exception:
+		frappe.log_error(frappe.get_traceback(), "f2c patch_crop_plan_docperm_for_f2c_scoped_roles failed")
+
+
+def ensure_project_manager_doctype_permissions() -> None:
+	"""Clone System Manager DocPerm rows onto Project Manager (idempotent).
+
+	Matches spreadsheet intent "all modules / complete access"; grants very broad rights across the site.
+	For React-only or reduced Desk power, replace this template with a narrower DocPerm set.
+	"""
+	from frappe.utils import cint
+
+	if not frappe.db.exists("Role", PROJECT_MANAGER_ROLE):
+		return
+	if not frappe.db.exists("Role", "System Manager"):
+		return
+	skip_keys = frozenset(
+		{
+			"name",
+			"creation",
+			"modified",
+			"modified_by",
+			"owner",
+			"docstatus",
+			"idx",
+			"parentfield",
+			"parenttype",
+			"parent",
+			"role",
+		}
+	)
+	sm_rows = frappe.get_all(
+		"DocPerm",
+		filters={"role": "System Manager"},
+		fields="*",
+		limit_page_length=0,
+		ignore_permissions=True,
+	)
+	for row in sm_rows or []:
+		parent = (row.get("parent") or "").strip()
+		if not parent or not frappe.db.exists("DocType", parent):
+			continue
+		permlevel = cint(row.get("permlevel"))
+		if frappe.db.exists(
+			"DocPerm",
+			{"parent": parent, "role": PROJECT_MANAGER_ROLE, "permlevel": permlevel},
+		):
+			continue
+		perm: dict = {}
+		for k, v in row.items():
+			if k in skip_keys:
+				continue
+			perm[k] = v
+		perm["role"] = PROJECT_MANAGER_ROLE
+		try:
+			dt = frappe.get_doc("DocType", parent)
+			dt.append("permissions", perm)
+			dt.save(ignore_permissions=True)
+			frappe.db.commit()
+		except Exception:
+			frappe.log_error(
+				frappe.get_traceback(),
+				f"f2c Project Manager DocPerm clone failed for {parent!r}",
+			)
+
+
 def after_migrate() -> None:
 	"""Hook: run after `bench migrate`."""
 	try:
@@ -526,11 +813,18 @@ def after_migrate() -> None:
 		ensure_f2c_settings()
 		ensure_field_supervisor_role()
 		ensure_cluster_supervisor_role()
+		ensure_driver_role()
+		ensure_farm_manager_role()
+		ensure_project_manager_role()
 		ensure_user_f2c_assigned_field()
-		ensure_user_f2c_scope_areas_table()
-		patch_user_f2c_scope_areas_description()
+		patch_employee_allowed_geo_areas_description()
+		run_migrate_user_scope_to_employee()
 		ensure_field_supervisor_doctype_permissions()
 		ensure_cluster_supervisor_doctype_permissions()
+		ensure_driver_doctype_permissions()
+		ensure_farm_manager_doctype_permissions()
+		ensure_project_manager_doctype_permissions()
+		patch_crop_plan_docperm_for_f2c_scoped_roles()
 	except Exception:
 		# Never block migrations due to seed failures
 		frappe.log_error(frappe.get_traceback(), "f2c.after_migrate seed_defaults failed")

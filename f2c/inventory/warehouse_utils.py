@@ -101,6 +101,45 @@ def get_ledger_warehouses_for_areas(area_names: str | List[str]) -> List[str]:
 		return []
 
 
+def _expand_geo_fencing_area_descendants(roots: List[str]) -> List[str]:
+	"""Each root plus every Geo Fencing Area reachable via parent_area (BFS). Same idea as access.field_scope.expand_geo_fencing_descendants but local to avoid import cycles."""
+	names = [str(r).strip() for r in roots if r and str(r).strip()]
+	if not names:
+		return []
+	seen: set[str] = set(names)
+	frontier = list(names)
+	for _ in range(500):
+		if not frontier:
+			break
+		children = frappe.get_all(
+			"Geo Fencing Area",
+			filters={"parent_area": ["in", frontier]},
+			pluck="name",
+			limit_page_length=0,
+			ignore_permissions=True,
+		)
+		next_frontier: List[str] = []
+		for c in children or []:
+			if not c or c in seen:
+				continue
+			seen.add(c)
+			next_frontier.append(c)
+		frontier = next_frontier
+	return sorted(seen)
+
+
+@frappe.whitelist()
+def get_geo_descendant_area_names(root_name: str) -> List[str]:
+	"""
+	Cluster (or any geo root) plus all descendant Geo Fencing Area names at any depth.
+	Used when client-side two-hop Geo Fencing Area lists miss deeper trees (e.g. Cluster Supervisor inventory).
+	"""
+	root = str(root_name or "").strip()
+	if not root:
+		return []
+	return _expand_geo_fencing_area_descendants([root])
+
+
 def get_source_warehouse_by_item_location(
 	input_items: List[Dict[str, Any]],
 	candidate_warehouses: List[str],

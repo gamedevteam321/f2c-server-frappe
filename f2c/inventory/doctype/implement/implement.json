@@ -1,436 +1,477 @@
 {
-  "doctype": "DocType",
-  "name": "Implement",
-  "module": "Inventory",
-  "document_type": "Document",
-  "autoname": "format:IMP-{#####}",
-  "allow_import": 1,
-  "allow_rename": 1,
-  "is_submittable": 1,
-  "track_changes": 1,
-  "index_web_pages_for_search": 1,
-  "engine": "InnoDB",
-  "field_order": [
-    "asset_info_section",
-    "asset",
-    "column_break_asset_link",
-    "create_asset_note",
-    "item_code",
-    "company",
-    "location",
-    "purchase_date",
-    "is_existing_asset",
-    "available_for_use_date",
-    "asset_owner",
-    "asset_owner_company",
-    "purchase_receipt",
-    "purchase_invoice",
-    "asset_name",
-    "image_section",
-    "hero_image",
-    "column_break_img",
-    "gallery",
-    "equipment_doc_section",
-    "equipment_documents",
-    "basic_info_section",
-    "implement_template",
-    "implement_type",
-    "implement_name",
-    "brand",
-    "model",
-    "category",
-    "column_break_basic",
-    "price",
-    "power_requirement",
-    "technical_section",
-    "working_width",
-    "working_depth",
-    "weight",
-    "tines_blades",
-    "pto_speed",
-    "column_break_tech",
-    "hitch_type",
-    "dimensions_section",
-    "length",
-    "width",
-    "height",
-    "additional_section",
-    "transmission_type",
-    "safety_devices",
-    "features",
-    "applications",
-    "description",
-    "specs_json",
-    "attachment_section",
-    "attached_to_machinery",
-    "attachment_status",
-    "attachment_updated_on"
-  ],
-  "fields": [
-    {
-      "fieldname": "asset_info_section",
-      "fieldtype": "Section Break",
-      "label": "Asset Information"
-    },
-    {
-      "fieldname": "asset",
-      "fieldtype": "Link",
-      "label": "Asset (Optional: link an existing Asset)",
-      "options": "Asset",
-      "in_list_view": 1,
-      "in_standard_filter": 1
-    },
-    {
-      "fieldname": "column_break_asset_link",
-      "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "create_asset_note",
-      "fieldtype": "HTML",
-      "label": "Note",
-      "options": "<div style=\"color:#6b7280;font-size:13px\">If you do not select an Asset, the system will auto-create an Asset from the required fields below.</div>"
-    },
-    {
-      "depends_on": "eval:!doc.asset",
-      "fieldname": "item_code",
-      "fieldtype": "Link",
-      "label": "Item Code",
-      "options": "Item",
-      "reqd": 1
-    },
-    {
-      "depends_on": "eval:!doc.asset",
-      "fieldname": "company",
-      "fieldtype": "Link",
-      "label": "Company",
-      "options": "Company",
-      "reqd": 1
-    },
-    {
-      "depends_on": "eval:!doc.asset",
-      "fieldname": "location",
-      "fieldtype": "Link",
-      "label": "Location",
-      "options": "Location",
-      "reqd": 1
-    },
-    {
-      "depends_on": "eval:!doc.asset",
-      "fieldname": "purchase_date",
-      "fieldtype": "Date",
-      "label": "Purchase Date",
-      "reqd": 1
-    },
-    {
-      "default": "0",
-      "depends_on": "eval:!doc.asset",
-      "fieldname": "is_existing_asset",
-      "fieldtype": "Check",
-      "label": "Is Existing Asset"
-    },
-    {
-      "depends_on": "eval:!doc.asset",
-      "fieldname": "available_for_use_date",
-      "fieldtype": "Date",
-      "label": "Available-for-use Date"
-    },
-    {
-      "default": "Company",
-      "depends_on": "eval:!doc.asset",
-      "fieldname": "asset_owner",
-      "fieldtype": "Select",
-      "label": "Asset Owner",
-      "options": "\nCompany\nSupplier\nCustomer"
-    },
-    {
-      "allow_on_submit": 1,
-      "depends_on": "eval:!doc.asset && doc.asset_owner == \"Company\"",
-      "fieldname": "asset_owner_company",
-      "fieldtype": "Link",
-      "label": "Asset Owner Company",
-      "options": "Company"
-    },
-    {
-      "depends_on": "eval:!doc.asset && !doc.is_existing_asset",
-      "fieldname": "purchase_receipt",
-      "fieldtype": "Link",
-      "label": "Purchase Receipt",
-      "options": "Purchase Receipt"
-    },
-    {
-      "depends_on": "eval:!doc.asset && !doc.is_existing_asset",
-      "fieldname": "purchase_invoice",
-      "fieldtype": "Link",
-      "label": "Purchase Invoice",
-      "options": "Purchase Invoice"
-    },
-    {
-      "depends_on": "eval:!doc.asset",
-      "fieldname": "asset_name",
-      "fieldtype": "Data",
-      "label": "Asset Name (Optional)",
-      "description": "If not provided, it will be auto-generated from Brand/Model/Type/Serial."
-    },
-    {
-      "fieldname": "image_section",
-      "fieldtype": "Section Break",
-      "label": "Images"
-    },
-    {
-      "fieldname": "hero_image",
-      "fieldtype": "Attach Image",
-      "label": "Hero Image"
-    },
-    {
-      "fieldname": "column_break_img",
-      "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "gallery",
-      "fieldtype": "Table",
-      "label": "Gallery",
-      "options": "Equipment Image"
-    },
-    {
-      "fieldname": "equipment_doc_section",
-      "fieldtype": "Section Break",
-      "label": "Equipment Documents"
-    },
-    {
-      "fieldname": "equipment_documents",
-      "fieldtype": "Table",
-      "label": "Documents (PDF, DOCX)",
-      "options": "Equipment Document"
-    },
-    {
-      "fieldname": "basic_info_section",
-      "fieldtype": "Section Break",
-      "label": "Basic Info"
-    },
-    {
-      "fieldname": "implement_template",
-      "fieldtype": "Link",
-      "label": "Implement Template",
-      "options": "Implement Template",
-      "in_standard_filter": 1
-    },
-    {
-      "fieldname": "implement_type",
-      "fieldtype": "Select",
-      "label": "Implement Type",
-      "reqd": 1,
-      "in_list_view": 1,
-      "in_standard_filter": 1,
-      "options": "\nRotavator\nCultivator\nMB Plough\nDisc Harrow\nSeed Drill - Planter\nTrailer - Trolley\nDozer Blade\nPlow\nHarrow\nSeeder\nPlanter\nOther"
-    },
-    {
-      "fieldname": "implement_name",
-      "fieldtype": "Data",
-      "label": "Implement Name",
-      "reqd": 1,
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "brand",
-      "fieldtype": "Data",
-      "label": "Brand"
-    },
-    {
-      "fieldname": "model",
-      "fieldtype": "Data",
-      "label": "Model"
-    },
-    {
-      "fieldname": "category",
-      "fieldtype": "Data",
-      "label": "Category"
-    },
-    {
-      "fieldname": "column_break_basic",
-      "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "price",
-      "fieldtype": "Currency",
-      "label": "Price"
-    },
-    {
-      "fieldname": "power_requirement",
-      "fieldtype": "Data",
-      "label": "Power Requirement"
-    },
-    {
-      "allow_on_submit": 1,
-      "fieldname": "status",
-      "fieldtype": "Select",
-      "label": "Status",
-      "in_list_view": 1,
-      "options": "\nAvailable\nIn Use\nMaintenance\nRepair\nRetired",
-      "default": "Available"
-    },
-    {
-      "fieldname": "technical_section",
-      "fieldtype": "Section Break",
-      "label": "Technical Specs"
-    },
-    {
-      "fieldname": "working_width",
-      "fieldtype": "Float",
-      "label": "Working Width"
-    },
-    {
-      "fieldname": "working_depth",
-      "fieldtype": "Float",
-      "label": "Working Depth"
-    },
-    {
-      "fieldname": "weight",
-      "fieldtype": "Float",
-      "label": "Weight"
-    },
-    {
-      "fieldname": "tines_blades",
-      "fieldtype": "Data",
-      "label": "Tines/Blades"
-    },
-    {
-      "fieldname": "pto_speed",
-      "fieldtype": "Data",
-      "label": "PTO Speed"
-    },
-    {
-      "fieldname": "column_break_tech",
-      "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "hitch_type",
-      "fieldtype": "Data",
-      "label": "Hitch Type"
-    },
-    {
-      "fieldname": "dimensions_section",
-      "fieldtype": "Section Break",
-      "label": "Dimensions"
-    },
-    {
-      "fieldname": "length",
-      "fieldtype": "Float",
-      "label": "Length"
-    },
-    {
-      "fieldname": "width",
-      "fieldtype": "Float",
-      "label": "Width"
-    },
-    {
-      "fieldname": "height",
-      "fieldtype": "Float",
-      "label": "Height"
-    },
-    {
-      "fieldname": "additional_section",
-      "fieldtype": "Section Break",
-      "label": "Additional"
-    },
-    {
-      "fieldname": "transmission_type",
-      "fieldtype": "Data",
-      "label": "Transmission Type"
-    },
-    {
-      "fieldname": "safety_devices",
-      "fieldtype": "Text",
-      "label": "Safety Devices"
-    },
-    {
-      "allow_on_submit": 1,
-      "fieldname": "features",
-      "fieldtype": "Text",
-      "label": "Features"
-    },
-    {
-      "allow_on_submit": 1,
-      "fieldname": "applications",
-      "fieldtype": "Text",
-      "label": "Applications"
-    },
-    {
-      "allow_on_submit": 1,
-      "fieldname": "description",
-      "fieldtype": "Text",
-      "label": "Description"
-    },
-    {
-      "allow_on_submit": 1,
-      "description": "Stores dynamic spec fields (Base + Category + Sub-category overlays) as JSON.",
-      "fieldname": "specs_json",
-      "fieldtype": "JSON",
-      "hidden": 1,
-      "label": "Specs JSON"
-    },
-    {
-      "fieldname": "attachment_section",
-      "fieldtype": "Section Break",
-      "label": "Tractor Attachment"
-    },
-    {
-      "allow_on_submit": 1,
-      "fieldname": "attached_to_machinery",
-      "fieldtype": "Link",
-      "label": "Attached To Tractor",
-      "options": "Machinery"
-    },
-    {
-      "allow_on_submit": 1,
-      "fieldname": "attachment_status",
-      "fieldtype": "Select",
-      "label": "Attachment Status",
-      "options": "Detached\nAttached",
-      "default": "Detached",
-      "read_only": 1
-    },
-    {
-      "allow_on_submit": 1,
-      "fieldname": "attachment_updated_on",
-      "fieldtype": "Datetime",
-      "label": "Attachment Updated On",
-      "read_only": 1
-    }
-  ],
-  "permissions": [
-    {
-      "amend": 1,
-      "cancel": 1,
-      "create": 1,
-      "delete": 1,
-      "email": 1,
-      "export": 1,
-      "print": 1,
-      "read": 1,
-      "report": 1,
-      "share": 1,
-      "submit": 1,
-      "write": 1,
-      "role": "System Manager"
-    },
-    {
-      "amend": 1,
-      "cancel": 1,
-      "create": 1,
-      "email": 1,
-      "export": 1,
-      "print": 1,
-      "read": 1,
-      "report": 1,
-      "share": 1,
-      "submit": 1,
-      "write": 1,
-      "role": "All"
-    }
-  ],
-  "sort_field": "modified",
-  "sort_order": "DESC",
-  "title_field": "implement_name"
+ "actions": [],
+ "allow_import": 1,
+ "allow_rename": 1,
+ "autoname": "format:IMP-{#####}",
+ "creation": "2026-04-16 17:37:46.060682",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "engine": "InnoDB",
+ "field_order": [
+  "asset_info_section",
+  "asset",
+  "column_break_asset_link",
+  "create_asset_note",
+  "item_code",
+  "company",
+  "location",
+  "purchase_date",
+  "is_existing_asset",
+  "available_for_use_date",
+  "asset_owner",
+  "asset_owner_company",
+  "purchase_receipt",
+  "purchase_invoice",
+  "asset_name",
+  "image_section",
+  "hero_image",
+  "column_break_img",
+  "gallery",
+  "equipment_doc_section",
+  "equipment_documents",
+  "basic_info_section",
+  "implement_template",
+  "implement_type",
+  "implement_name",
+  "brand",
+  "model",
+  "category",
+  "column_break_basic",
+  "price",
+  "power_requirement",
+  "technical_section",
+  "working_width",
+  "working_depth",
+  "weight",
+  "tines_blades",
+  "pto_speed",
+  "column_break_tech",
+  "hitch_type",
+  "dimensions_section",
+  "length",
+  "width",
+  "height",
+  "additional_section",
+  "transmission_type",
+  "safety_devices",
+  "features",
+  "applications",
+  "description",
+  "specs_json",
+  "attachment_section",
+  "attached_to_machinery",
+  "attachment_status",
+  "attachment_updated_on",
+  "status",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "fieldname": "asset_info_section",
+   "fieldtype": "Section Break",
+   "label": "Asset Information"
+  },
+  {
+   "fieldname": "asset",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Asset (Optional: link an existing Asset)",
+   "options": "Asset"
+  },
+  {
+   "fieldname": "column_break_asset_link",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "create_asset_note",
+   "fieldtype": "HTML",
+   "label": "Note",
+   "options": "<div style=\"color:#6b7280;font-size:13px;\">If you do not select an Asset, the system will auto-create an Asset from the required fields below.</div>"
+  },
+  {
+   "depends_on": "eval:!doc.asset",
+   "fieldname": "item_code",
+   "fieldtype": "Link",
+   "label": "Item Code",
+   "options": "Item",
+   "reqd": 1
+  },
+  {
+   "depends_on": "eval:!doc.asset",
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "depends_on": "eval:!doc.asset",
+   "fieldname": "location",
+   "fieldtype": "Link",
+   "label": "Location",
+   "options": "Location",
+   "reqd": 1
+  },
+  {
+   "depends_on": "eval:!doc.asset",
+   "fieldname": "purchase_date",
+   "fieldtype": "Date",
+   "label": "Purchase Date",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "depends_on": "eval:!doc.asset",
+   "fieldname": "is_existing_asset",
+   "fieldtype": "Check",
+   "label": "Is Existing Asset"
+  },
+  {
+   "depends_on": "eval:!doc.asset",
+   "fieldname": "available_for_use_date",
+   "fieldtype": "Date",
+   "label": "Available-for-use Date"
+  },
+  {
+   "default": "Company",
+   "depends_on": "eval:!doc.asset",
+   "fieldname": "asset_owner",
+   "fieldtype": "Select",
+   "label": "Asset Owner",
+   "options": "\nCompany\nSupplier\nCustomer"
+  },
+  {
+   "allow_on_submit": 1,
+   "depends_on": "eval:!doc.asset && doc.asset_owner == \"Company\"",
+   "fieldname": "asset_owner_company",
+   "fieldtype": "Link",
+   "label": "Asset Owner Company",
+   "options": "Company"
+  },
+  {
+   "depends_on": "eval:!doc.asset && !doc.is_existing_asset",
+   "fieldname": "purchase_receipt",
+   "fieldtype": "Link",
+   "label": "Purchase Receipt",
+   "options": "Purchase Receipt"
+  },
+  {
+   "depends_on": "eval:!doc.asset && !doc.is_existing_asset",
+   "fieldname": "purchase_invoice",
+   "fieldtype": "Link",
+   "label": "Purchase Invoice",
+   "options": "Purchase Invoice"
+  },
+  {
+   "depends_on": "eval:!doc.asset",
+   "description": "If not provided, it will be auto-generated from Brand/Model/Type/Serial.",
+   "fieldname": "asset_name",
+   "fieldtype": "Data",
+   "label": "Asset Name (Optional)"
+  },
+  {
+   "fieldname": "image_section",
+   "fieldtype": "Section Break",
+   "label": "Images"
+  },
+  {
+   "fieldname": "hero_image",
+   "fieldtype": "Attach Image",
+   "label": "Hero Image"
+  },
+  {
+   "fieldname": "column_break_img",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "gallery",
+   "fieldtype": "Table",
+   "label": "Gallery",
+   "options": "Equipment Image"
+  },
+  {
+   "fieldname": "equipment_doc_section",
+   "fieldtype": "Section Break",
+   "label": "Equipment Documents"
+  },
+  {
+   "fieldname": "equipment_documents",
+   "fieldtype": "Table",
+   "label": "Documents (PDF, DOCX)",
+   "options": "Equipment Document"
+  },
+  {
+   "fieldname": "basic_info_section",
+   "fieldtype": "Section Break",
+   "label": "Basic Info"
+  },
+  {
+   "fieldname": "implement_template",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Implement Template",
+   "options": "Implement Template"
+  },
+  {
+   "fieldname": "implement_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Implement Type",
+   "options": "\nRotavator\nCultivator\nMB Plough\nDisc Harrow\nSeed Drill - Planter\nTrailer - Trolley\nDozer Blade\nPlow\nHarrow\nSeeder\nPlanter\nOther",
+   "reqd": 1
+  },
+  {
+   "fieldname": "implement_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Implement Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "brand",
+   "fieldtype": "Data",
+   "label": "Brand"
+  },
+  {
+   "fieldname": "model",
+   "fieldtype": "Data",
+   "label": "Model"
+  },
+  {
+   "fieldname": "category",
+   "fieldtype": "Data",
+   "label": "Category"
+  },
+  {
+   "fieldname": "column_break_basic",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "price",
+   "fieldtype": "Currency",
+   "label": "Price"
+  },
+  {
+   "fieldname": "power_requirement",
+   "fieldtype": "Data",
+   "label": "Power Requirement"
+  },
+  {
+   "allow_on_submit": 1,
+   "default": "Available",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "\nAvailable\nIn Use\nMaintenance\nRepair\nRetired"
+  },
+  {
+   "fieldname": "technical_section",
+   "fieldtype": "Section Break",
+   "label": "Technical Specs"
+  },
+  {
+   "fieldname": "working_width",
+   "fieldtype": "Float",
+   "label": "Working Width"
+  },
+  {
+   "fieldname": "working_depth",
+   "fieldtype": "Float",
+   "label": "Working Depth"
+  },
+  {
+   "fieldname": "weight",
+   "fieldtype": "Float",
+   "label": "Weight"
+  },
+  {
+   "fieldname": "tines_blades",
+   "fieldtype": "Data",
+   "label": "Tines/Blades"
+  },
+  {
+   "fieldname": "pto_speed",
+   "fieldtype": "Data",
+   "label": "PTO Speed"
+  },
+  {
+   "fieldname": "column_break_tech",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "hitch_type",
+   "fieldtype": "Data",
+   "label": "Hitch Type"
+  },
+  {
+   "fieldname": "dimensions_section",
+   "fieldtype": "Section Break",
+   "label": "Dimensions"
+  },
+  {
+   "fieldname": "length",
+   "fieldtype": "Float",
+   "label": "Length"
+  },
+  {
+   "fieldname": "width",
+   "fieldtype": "Float",
+   "label": "Width"
+  },
+  {
+   "fieldname": "height",
+   "fieldtype": "Float",
+   "label": "Height"
+  },
+  {
+   "fieldname": "additional_section",
+   "fieldtype": "Section Break",
+   "label": "Additional"
+  },
+  {
+   "fieldname": "transmission_type",
+   "fieldtype": "Data",
+   "label": "Transmission Type"
+  },
+  {
+   "fieldname": "safety_devices",
+   "fieldtype": "Text",
+   "label": "Safety Devices"
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "features",
+   "fieldtype": "Text",
+   "label": "Features"
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "applications",
+   "fieldtype": "Text",
+   "label": "Applications"
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "description",
+   "fieldtype": "Text",
+   "label": "Description"
+  },
+  {
+   "allow_on_submit": 1,
+   "description": "Stores dynamic spec fields (Base + Category + Sub-category overlays) as JSON.",
+   "fieldname": "specs_json",
+   "fieldtype": "JSON",
+   "hidden": 1,
+   "label": "Specs JSON"
+  },
+  {
+   "fieldname": "attachment_section",
+   "fieldtype": "Section Break",
+   "label": "Tractor Attachment"
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "attached_to_machinery",
+   "fieldtype": "Link",
+   "label": "Attached To Tractor",
+   "options": "Machinery"
+  },
+  {
+   "allow_on_submit": 1,
+   "default": "Detached",
+   "fieldname": "attachment_status",
+   "fieldtype": "Select",
+   "label": "Attachment Status",
+   "options": "Detached\nAttached",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "attachment_updated_on",
+   "fieldtype": "Datetime",
+   "label": "Attachment Updated On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Implement",
+   "print_hide": 1,
+   "read_only": 1,
+   "search_index": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2026-04-21 17:15:44.643809",
+ "modified_by": "Administrator",
+ "module": "Inventory",
+ "name": "Implement",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "amend": 1,
+   "cancel": 1,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "amend": 1,
+   "cancel": 1,
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "All",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Farm Manager",
+   "write": 1
+  },
+  {
+   "amend": 1,
+   "cancel": 1,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Project Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "implement_name",
+ "track_changes": 1
 }
-
-

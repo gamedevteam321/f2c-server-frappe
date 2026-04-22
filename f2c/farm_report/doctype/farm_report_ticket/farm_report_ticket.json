@@ -291,7 +291,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-04-21 15:23:55.646537",
+ "modified": "2026-04-21 17:15:43.306862",
  "modified_by": "Administrator",
  "module": "Farm Report",
  "name": "Farm Report Ticket",
@@ -332,6 +332,26 @@
    "read": 1,
    "report": 1,
    "role": "Cluster Supervisor",
+   "write": 1
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Farm Manager",
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Project Manager",
+   "share": 1,
    "write": 1
   }
  ],

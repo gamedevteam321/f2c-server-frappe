@@ -1,497 +1,516 @@
 {
-  "doctype": "DocType",
-  "name": "Machinery Template",
-  "module": "Inventory",
-  "document_type": "Document",
-  "autoname": "format:MTPL-MCH-{#####}",
-  "allow_import": 1,
-  "allow_rename": 1,
-  "track_changes": 1,
-  "engine": "InnoDB",
-  "title_field": "template_name",
-  "field_order": [
-    "template_info_section",
-    "template_name",
-    "column_break_t1",
-    "machinery_type",
-    "brand",
-    "model",
-    "default_status",
-    "item_settings_section",
-    "default_item_code",
-    "column_break_item",
-    "item_group",
-    "stock_uom",
-    "asset_category",
-    "asset_naming_series",
-    "default_standard_rate",
-    "engine_section",
-    "hp",
-    "cylinders",
-    "cc",
-    "rpm",
-    "torque",
-    "cooling",
-    "fuel_type",
-    "column_break_engine_1",
-    "engine_model",
-    "transmission_section",
-    "transmission_type",
-    "gearbox",
-    "clutch",
-    "speeds_forward",
-    "speeds_reverse",
-    "brakes_section",
-    "brake_type",
-    "column_break_brakes",
-    "steering_type",
-    "hydraulics_section",
-    "lifting_capacity",
-    "linkage",
-    "pto_specs",
-    "fuel_dimensions_section",
-    "tank_capacity",
-    "weight",
-    "wheelbase",
-    "length",
-    "column_break_dims",
-    "width",
-    "height",
-    "wheels_section",
-    "drive_type",
-    "front_tyre_size",
-    "rear_tyre_size",
-    "cutting_section",
-    "cutter_width",
-    "cutting_height",
-    "reel_controls",
-    "threshing_section",
-    "drum_specs",
-    "drum_speed",
-    "concave_adjustment",
-    "spray_section",
-    "spray_tank_capacity",
-    "spray_width",
-    "nozzle_count",
-    "pressure_range",
-    "pump_type",
-    "additional_section",
-    "warranty",
-    "battery",
-    "default_description",
-    "default_features",
-    "specs_json"
-  ],
-  "fields": [
-    {
-      "fieldname": "template_info_section",
-      "fieldtype": "Section Break",
-      "label": "Template Info"
-    },
-    {
-      "fieldname": "template_name",
-      "fieldtype": "Data",
-      "label": "Template Name",
-      "reqd": 1,
-      "in_list_view": 1,
-      "in_standard_filter": 1
-    },
-    {
-      "fieldname": "column_break_t1",
-      "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "machinery_type",
-      "fieldtype": "Select",
-      "label": "Machinery Type",
-      "reqd": 1,
-      "in_list_view": 1,
-      "in_standard_filter": 1,
-      "options": "\nTractor\nPump\nSprayer\nGenerator\nVehicle\nEarthmoving\nIrrigation\nPower & Electrical\nHarvester\nCombine Harvester\nSpray Gun\nThresher\nBaler\nTiller\nOther"
-    },
-    {
-      "fieldname": "brand",
-      "fieldtype": "Data",
-      "label": "Brand",
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "model",
-      "fieldtype": "Data",
-      "label": "Model",
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "default_status",
-      "fieldtype": "Select",
-      "hidden": 1,
-      "label": "Default Status",
-      "options": "\nAvailable\nIn Use\nMaintenance\nRetired",
-      "default": "Available"
-    },
-    {
-      "fieldname": "item_settings_section",
-      "fieldtype": "Section Break",
-      "label": "Item Settings"
-    },
-    {
-      "fieldname": "default_item_code",
-      "fieldtype": "Link",
-      "label": "Default Item Code",
-      "options": "Item"
-    },
-    {
-      "fieldname": "column_break_item",
-      "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "item_group",
-      "fieldtype": "Link",
-      "label": "Item Group",
-      "options": "Item Group"
-    },
-    {
-      "fieldname": "stock_uom",
-      "fieldtype": "Link",
-      "label": "Stock UOM",
-      "options": "UOM",
-      "default": "Nos"
-    },
-    {
-      "fieldname": "asset_category",
-      "fieldtype": "Link",
-      "label": "Asset Category",
-      "options": "Asset Category"
-    },
-    {
-      "fieldname": "asset_naming_series",
-      "fieldtype": "Data",
-      "label": "Asset Naming Series"
-    },
-    {
-      "fieldname": "default_standard_rate",
-      "fieldtype": "Currency",
-      "label": "Default Standard Rate"
-    },
-    {
-      "fieldname": "engine_section",
-      "fieldtype": "Section Break",
-      "label": "Engine",
-      "depends_on": "eval:['Tractor','Harvester','Combine Harvester','Thresher','Baler','Tiller'].includes(doc.machinery_type)"
-    },
-    {
-      "fieldname": "hp",
-      "fieldtype": "Float",
-      "label": "HP"
-    },
-    {
-      "fieldname": "cylinders",
-      "fieldtype": "Int",
-      "label": "Cylinders"
-    },
-    {
-      "fieldname": "cc",
-      "fieldtype": "Float",
-      "label": "CC"
-    },
-    {
-      "fieldname": "rpm",
-      "fieldtype": "Int",
-      "label": "RPM"
-    },
-    {
-      "fieldname": "torque",
-      "fieldtype": "Float",
-      "label": "Torque"
-    },
-    {
-      "fieldname": "cooling",
-      "fieldtype": "Select",
-      "label": "Cooling",
-      "options": "\nAir\nLiquid\nOil"
-    },
-    {
-      "fieldname": "fuel_type",
-      "fieldtype": "Data",
-      "label": "Fuel Type"
-    },
-    {
-      "fieldname": "column_break_engine_1",
-      "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "engine_model",
-      "fieldtype": "Data",
-      "label": "Engine Model"
-    },
-    {
-      "fieldname": "transmission_section",
-      "fieldtype": "Section Break",
-      "label": "Transmission",
-      "depends_on": "eval:doc.machinery_type == 'Tractor'"
-    },
-    {
-      "fieldname": "transmission_type",
-      "fieldtype": "Select",
-      "label": "Transmission Type",
-      "options": "\nManual\nAutomatic\nHydrostatic\nCVT\nOther"
-    },
-    {
-      "fieldname": "gearbox",
-      "fieldtype": "Data",
-      "label": "Gearbox"
-    },
-    {
-      "fieldname": "clutch",
-      "fieldtype": "Data",
-      "label": "Clutch"
-    },
-    {
-      "fieldname": "speeds_forward",
-      "fieldtype": "Int",
-      "label": "Speeds (Forward)"
-    },
-    {
-      "fieldname": "speeds_reverse",
-      "fieldtype": "Int",
-      "label": "Speeds (Reverse)"
-    },
-    {
-      "fieldname": "brakes_section",
-      "fieldtype": "Section Break",
-      "label": "Brakes & Steering",
-      "depends_on": "eval:doc.machinery_type == 'Tractor'"
-    },
-    {
-      "fieldname": "brake_type",
-      "fieldtype": "Select",
-      "label": "Brake Type",
-      "options": "\nMechanical\nHydraulic\nDisc\nDrum\nOther"
-    },
-    {
-      "fieldname": "column_break_brakes",
-      "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "steering_type",
-      "fieldtype": "Select",
-      "label": "Steering Type",
-      "options": "\nManual\nPower\nHydrostatic\nOther"
-    },
-    {
-      "fieldname": "hydraulics_section",
-      "fieldtype": "Section Break",
-      "label": "Hydraulics & PTO",
-      "depends_on": "eval:doc.machinery_type == 'Tractor'"
-    },
-    {
-      "fieldname": "lifting_capacity",
-      "fieldtype": "Float",
-      "label": "Lifting Capacity"
-    },
-    {
-      "fieldname": "linkage",
-      "fieldtype": "Data",
-      "label": "Linkage"
-    },
-    {
-      "fieldname": "pto_specs",
-      "fieldtype": "Data",
-      "label": "PTO Specs"
-    },
-    {
-      "fieldname": "fuel_dimensions_section",
-      "fieldtype": "Section Break",
-      "label": "Fuel & Dimensions"
-    },
-    {
-      "fieldname": "tank_capacity",
-      "fieldtype": "Float",
-      "label": "Tank Capacity"
-    },
-    {
-      "fieldname": "weight",
-      "fieldtype": "Float",
-      "label": "Weight"
-    },
-    {
-      "fieldname": "wheelbase",
-      "fieldtype": "Float",
-      "label": "Wheelbase"
-    },
-    {
-      "fieldname": "length",
-      "fieldtype": "Float",
-      "label": "Length"
-    },
-    {
-      "fieldname": "column_break_dims",
-      "fieldtype": "Column Break"
-    },
-    {
-      "fieldname": "width",
-      "fieldtype": "Float",
-      "label": "Width"
-    },
-    {
-      "fieldname": "height",
-      "fieldtype": "Float",
-      "label": "Height"
-    },
-    {
-      "fieldname": "wheels_section",
-      "fieldtype": "Section Break",
-      "label": "Wheels & Tyres",
-      "depends_on": "eval:doc.machinery_type == 'Tractor'"
-    },
-    {
-      "fieldname": "drive_type",
-      "fieldtype": "Select",
-      "label": "Drive Type",
-      "options": "\n2WD\n4WD\nAWD\nOther"
-    },
-    {
-      "fieldname": "front_tyre_size",
-      "fieldtype": "Data",
-      "label": "Front Tyre Size"
-    },
-    {
-      "fieldname": "rear_tyre_size",
-      "fieldtype": "Data",
-      "label": "Rear Tyre Size"
-    },
-    {
-      "fieldname": "cutting_section",
-      "fieldtype": "Section Break",
-      "label": "Cutting Mechanism",
-      "depends_on": "eval:['Harvester','Combine Harvester'].includes(doc.machinery_type)"
-    },
-    {
-      "fieldname": "cutter_width",
-      "fieldtype": "Float",
-      "label": "Cutter Width"
-    },
-    {
-      "fieldname": "cutting_height",
-      "fieldtype": "Float",
-      "label": "Cutting Height"
-    },
-    {
-      "fieldname": "reel_controls",
-      "fieldtype": "Data",
-      "label": "Reel Controls"
-    },
-    {
-      "fieldname": "threshing_section",
-      "fieldtype": "Section Break",
-      "label": "Threshing",
-      "depends_on": "eval:['Harvester','Combine Harvester','Thresher'].includes(doc.machinery_type)"
-    },
-    {
-      "fieldname": "drum_specs",
-      "fieldtype": "Data",
-      "label": "Drum Specs"
-    },
-    {
-      "fieldname": "drum_speed",
-      "fieldtype": "Data",
-      "label": "Drum Speed"
-    },
-    {
-      "fieldname": "concave_adjustment",
-      "fieldtype": "Data",
-      "label": "Concave Adjustment"
-    },
-    {
-      "fieldname": "spray_section",
-      "fieldtype": "Section Break",
-      "label": "Spray Specifications",
-      "depends_on": "eval:doc.machinery_type == 'Spray Gun'"
-    },
-    {
-      "fieldname": "spray_tank_capacity",
-      "fieldtype": "Float",
-      "label": "Tank Capacity"
-    },
-    {
-      "fieldname": "spray_width",
-      "fieldtype": "Float",
-      "label": "Spray Width"
-    },
-    {
-      "fieldname": "nozzle_count",
-      "fieldtype": "Int",
-      "label": "Nozzle Count"
-    },
-    {
-      "fieldname": "pressure_range",
-      "fieldtype": "Data",
-      "label": "Pressure Range"
-    },
-    {
-      "fieldname": "pump_type",
-      "fieldtype": "Data",
-      "label": "Pump Type"
-    },
-    {
-      "fieldname": "additional_section",
-      "fieldtype": "Section Break",
-      "label": "Additional"
-    },
-    {
-      "fieldname": "warranty",
-      "fieldtype": "Data",
-      "label": "Warranty"
-    },
-    {
-      "fieldname": "battery",
-      "fieldtype": "Data",
-      "label": "Battery"
-    },
-    {
-      "fieldname": "default_description",
-      "fieldtype": "Text",
-      "label": "Default Description"
-    },
-    {
-      "fieldname": "default_features",
-      "fieldtype": "Text",
-      "label": "Default Features"
-    },
-    {
-      "description": "Stores dynamic spec fields (Base + Category + Sub-category overlays) as JSON.",
-      "fieldname": "specs_json",
-      "fieldtype": "JSON",
-      "hidden": 1,
-      "label": "Specs JSON"
-    }
-  ],
-  "permissions": [
-    {
-      "create": 1,
-      "delete": 1,
-      "email": 1,
-      "export": 1,
-      "print": 1,
-      "read": 1,
-      "report": 1,
-      "share": 1,
-      "write": 1,
-      "role": "System Manager"
-    },
-    {
-      "create": 1,
-      "email": 1,
-      "export": 1,
-      "print": 1,
-      "read": 1,
-      "report": 1,
-      "share": 1,
-      "write": 1,
-      "role": "All"
-    }
-  ],
-  "sort_field": "modified",
-  "sort_order": "DESC"
+ "actions": [],
+ "allow_import": 1,
+ "allow_rename": 1,
+ "autoname": "format:MTPL-MCH-{#####}",
+ "creation": "2026-04-08 11:28:27.363475",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "engine": "InnoDB",
+ "field_order": [
+  "template_info_section",
+  "template_name",
+  "column_break_t1",
+  "machinery_type",
+  "brand",
+  "model",
+  "default_status",
+  "item_settings_section",
+  "default_item_code",
+  "column_break_item",
+  "item_group",
+  "stock_uom",
+  "asset_category",
+  "asset_naming_series",
+  "default_standard_rate",
+  "engine_section",
+  "hp",
+  "cylinders",
+  "cc",
+  "rpm",
+  "torque",
+  "cooling",
+  "fuel_type",
+  "column_break_engine_1",
+  "engine_model",
+  "transmission_section",
+  "transmission_type",
+  "gearbox",
+  "clutch",
+  "speeds_forward",
+  "speeds_reverse",
+  "brakes_section",
+  "brake_type",
+  "column_break_brakes",
+  "steering_type",
+  "hydraulics_section",
+  "lifting_capacity",
+  "linkage",
+  "pto_specs",
+  "fuel_dimensions_section",
+  "tank_capacity",
+  "weight",
+  "wheelbase",
+  "length",
+  "column_break_dims",
+  "width",
+  "height",
+  "wheels_section",
+  "drive_type",
+  "front_tyre_size",
+  "rear_tyre_size",
+  "cutting_section",
+  "cutter_width",
+  "cutting_height",
+  "reel_controls",
+  "threshing_section",
+  "drum_specs",
+  "drum_speed",
+  "concave_adjustment",
+  "spray_section",
+  "spray_tank_capacity",
+  "spray_width",
+  "nozzle_count",
+  "pressure_range",
+  "pump_type",
+  "additional_section",
+  "warranty",
+  "battery",
+  "default_description",
+  "default_features",
+  "specs_json"
+ ],
+ "fields": [
+  {
+   "fieldname": "template_info_section",
+   "fieldtype": "Section Break",
+   "label": "Template Info"
+  },
+  {
+   "fieldname": "template_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Template Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_t1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "machinery_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Machinery Type",
+   "options": "\nTractor\nPump\nSprayer\nGenerator\nVehicle\nEarthmoving\nIrrigation\nPower & Electrical\nHarvester\nCombine Harvester\nSpray Gun\nThresher\nBaler\nTiller\nOther",
+   "reqd": 1
+  },
+  {
+   "fieldname": "brand",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Brand"
+  },
+  {
+   "fieldname": "model",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Model"
+  },
+  {
+   "default": "Available",
+   "fieldname": "default_status",
+   "fieldtype": "Select",
+   "hidden": 1,
+   "label": "Default Status",
+   "options": "\nAvailable\nIn Use\nMaintenance\nRetired"
+  },
+  {
+   "fieldname": "item_settings_section",
+   "fieldtype": "Section Break",
+   "label": "Item Settings"
+  },
+  {
+   "fieldname": "default_item_code",
+   "fieldtype": "Link",
+   "label": "Default Item Code",
+   "options": "Item"
+  },
+  {
+   "fieldname": "column_break_item",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "item_group",
+   "fieldtype": "Link",
+   "label": "Item Group",
+   "options": "Item Group"
+  },
+  {
+   "default": "Nos",
+   "fieldname": "stock_uom",
+   "fieldtype": "Link",
+   "label": "Stock UOM",
+   "options": "UOM"
+  },
+  {
+   "fieldname": "asset_category",
+   "fieldtype": "Link",
+   "label": "Asset Category",
+   "options": "Asset Category"
+  },
+  {
+   "fieldname": "asset_naming_series",
+   "fieldtype": "Data",
+   "label": "Asset Naming Series"
+  },
+  {
+   "fieldname": "default_standard_rate",
+   "fieldtype": "Currency",
+   "label": "Default Standard Rate"
+  },
+  {
+   "depends_on": "eval:['Tractor','Harvester','Combine Harvester','Thresher','Baler','Tiller'].includes(doc.machinery_type)",
+   "fieldname": "engine_section",
+   "fieldtype": "Section Break",
+   "label": "Engine"
+  },
+  {
+   "fieldname": "hp",
+   "fieldtype": "Float",
+   "label": "HP"
+  },
+  {
+   "fieldname": "cylinders",
+   "fieldtype": "Int",
+   "label": "Cylinders"
+  },
+  {
+   "fieldname": "cc",
+   "fieldtype": "Float",
+   "label": "CC"
+  },
+  {
+   "fieldname": "rpm",
+   "fieldtype": "Int",
+   "label": "RPM"
+  },
+  {
+   "fieldname": "torque",
+   "fieldtype": "Float",
+   "label": "Torque"
+  },
+  {
+   "fieldname": "cooling",
+   "fieldtype": "Select",
+   "label": "Cooling",
+   "options": "\nAir\nLiquid\nOil"
+  },
+  {
+   "fieldname": "fuel_type",
+   "fieldtype": "Data",
+   "label": "Fuel Type"
+  },
+  {
+   "fieldname": "column_break_engine_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "engine_model",
+   "fieldtype": "Data",
+   "label": "Engine Model"
+  },
+  {
+   "depends_on": "eval:doc.machinery_type == 'Tractor'",
+   "fieldname": "transmission_section",
+   "fieldtype": "Section Break",
+   "label": "Transmission"
+  },
+  {
+   "fieldname": "transmission_type",
+   "fieldtype": "Select",
+   "label": "Transmission Type",
+   "options": "\nManual\nAutomatic\nHydrostatic\nCVT\nOther"
+  },
+  {
+   "fieldname": "gearbox",
+   "fieldtype": "Data",
+   "label": "Gearbox"
+  },
+  {
+   "fieldname": "clutch",
+   "fieldtype": "Data",
+   "label": "Clutch"
+  },
+  {
+   "fieldname": "speeds_forward",
+   "fieldtype": "Int",
+   "label": "Speeds (Forward)"
+  },
+  {
+   "fieldname": "speeds_reverse",
+   "fieldtype": "Int",
+   "label": "Speeds (Reverse)"
+  },
+  {
+   "depends_on": "eval:doc.machinery_type == 'Tractor'",
+   "fieldname": "brakes_section",
+   "fieldtype": "Section Break",
+   "label": "Brakes & Steering"
+  },
+  {
+   "fieldname": "brake_type",
+   "fieldtype": "Select",
+   "label": "Brake Type",
+   "options": "\nMechanical\nHydraulic\nDisc\nDrum\nOther"
+  },
+  {
+   "fieldname": "column_break_brakes",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "steering_type",
+   "fieldtype": "Select",
+   "label": "Steering Type",
+   "options": "\nManual\nPower\nHydrostatic\nOther"
+  },
+  {
+   "depends_on": "eval:doc.machinery_type == 'Tractor'",
+   "fieldname": "hydraulics_section",
+   "fieldtype": "Section Break",
+   "label": "Hydraulics & PTO"
+  },
+  {
+   "fieldname": "lifting_capacity",
+   "fieldtype": "Float",
+   "label": "Lifting Capacity"
+  },
+  {
+   "fieldname": "linkage",
+   "fieldtype": "Data",
+   "label": "Linkage"
+  },
+  {
+   "fieldname": "pto_specs",
+   "fieldtype": "Data",
+   "label": "PTO Specs"
+  },
+  {
+   "fieldname": "fuel_dimensions_section",
+   "fieldtype": "Section Break",
+   "label": "Fuel & Dimensions"
+  },
+  {
+   "fieldname": "tank_capacity",
+   "fieldtype": "Float",
+   "label": "Tank Capacity"
+  },
+  {
+   "fieldname": "weight",
+   "fieldtype": "Float",
+   "label": "Weight"
+  },
+  {
+   "fieldname": "wheelbase",
+   "fieldtype": "Float",
+   "label": "Wheelbase"
+  },
+  {
+   "fieldname": "length",
+   "fieldtype": "Float",
+   "label": "Length"
+  },
+  {
+   "fieldname": "column_break_dims",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "width",
+   "fieldtype": "Float",
+   "label": "Width"
+  },
+  {
+   "fieldname": "height",
+   "fieldtype": "Float",
+   "label": "Height"
+  },
+  {
+   "depends_on": "eval:doc.machinery_type == 'Tractor'",
+   "fieldname": "wheels_section",
+   "fieldtype": "Section Break",
+   "label": "Wheels & Tyres"
+  },
+  {
+   "fieldname": "drive_type",
+   "fieldtype": "Select",
+   "label": "Drive Type",
+   "options": "\n2WD\n4WD\nAWD\nOther"
+  },
+  {
+   "fieldname": "front_tyre_size",
+   "fieldtype": "Data",
+   "label": "Front Tyre Size"
+  },
+  {
+   "fieldname": "rear_tyre_size",
+   "fieldtype": "Data",
+   "label": "Rear Tyre Size"
+  },
+  {
+   "depends_on": "eval:['Harvester','Combine Harvester'].includes(doc.machinery_type)",
+   "fieldname": "cutting_section",
+   "fieldtype": "Section Break",
+   "label": "Cutting Mechanism"
+  },
+  {
+   "fieldname": "cutter_width",
+   "fieldtype": "Float",
+   "label": "Cutter Width"
+  },
+  {
+   "fieldname": "cutting_height",
+   "fieldtype": "Float",
+   "label": "Cutting Height"
+  },
+  {
+   "fieldname": "reel_controls",
+   "fieldtype": "Data",
+   "label": "Reel Controls"
+  },
+  {
+   "depends_on": "eval:['Harvester','Combine Harvester','Thresher'].includes(doc.machinery_type)",
+   "fieldname": "threshing_section",
+   "fieldtype": "Section Break",
+   "label": "Threshing"
+  },
+  {
+   "fieldname": "drum_specs",
+   "fieldtype": "Data",
+   "label": "Drum Specs"
+  },
+  {
+   "fieldname": "drum_speed",
+   "fieldtype": "Data",
+   "label": "Drum Speed"
+  },
+  {
+   "fieldname": "concave_adjustment",
+   "fieldtype": "Data",
+   "label": "Concave Adjustment"
+  },
+  {
+   "depends_on": "eval:doc.machinery_type == 'Spray Gun'",
+   "fieldname": "spray_section",
+   "fieldtype": "Section Break",
+   "label": "Spray Specifications"
+  },
+  {
+   "fieldname": "spray_tank_capacity",
+   "fieldtype": "Float",
+   "label": "Tank Capacity"
+  },
+  {
+   "fieldname": "spray_width",
+   "fieldtype": "Float",
+   "label": "Spray Width"
+  },
+  {
+   "fieldname": "nozzle_count",
+   "fieldtype": "Int",
+   "label": "Nozzle Count"
+  },
+  {
+   "fieldname": "pressure_range",
+   "fieldtype": "Data",
+   "label": "Pressure Range"
+  },
+  {
+   "fieldname": "pump_type",
+   "fieldtype": "Data",
+   "label": "Pump Type"
+  },
+  {
+   "fieldname": "additional_section",
+   "fieldtype": "Section Break",
+   "label": "Additional"
+  },
+  {
+   "fieldname": "warranty",
+   "fieldtype": "Data",
+   "label": "Warranty"
+  },
+  {
+   "fieldname": "battery",
+   "fieldtype": "Data",
+   "label": "Battery"
+  },
+  {
+   "fieldname": "default_description",
+   "fieldtype": "Text",
+   "label": "Default Description"
+  },
+  {
+   "fieldname": "default_features",
+   "fieldtype": "Text",
+   "label": "Default Features"
+  },
+  {
+   "description": "Stores dynamic spec fields (Base + Category + Sub-category overlays) as JSON.",
+   "fieldname": "specs_json",
+   "fieldtype": "JSON",
+   "hidden": 1,
+   "label": "Specs JSON"
+  }
+ ],
+ "links": [],
+ "modified": "2026-04-21 17:15:26.813855",
+ "modified_by": "Administrator",
+ "module": "Inventory",
+ "name": "Machinery Template",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "All",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Project Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "template_name",
+ "track_changes": 1
 }
-

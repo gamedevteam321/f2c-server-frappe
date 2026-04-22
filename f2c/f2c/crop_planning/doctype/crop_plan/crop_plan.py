@@ -8,6 +8,12 @@ import frappe
 from frappe.model.document import Document
 from frappe.utils import getdate
 
+from f2c.access.field_scope import (
+	get_user_scope_area_roots,
+	get_user_scope_expanded_area_names,
+	supervisor_geo_scope_active,
+)
+
 # Conversion factor: 1 acre = 4046.86 square meters
 SQ_METERS_TO_ACRES = 0.000247105
 
@@ -386,6 +392,19 @@ def get_crop_plan_with_activities(crop_plan_name):
 		Also converts approved_input_mixes back to approved_inputs in activities for frontend compatibility
 	"""
 	crop_plan_doc = frappe.get_doc("Crop Plan", crop_plan_name)
+
+	if supervisor_geo_scope_active():
+		if not get_user_scope_area_roots():
+			frappe.throw(
+				frappe._(
+					"Assign at least one geo area (Employee Allowed Geo Areas or legacy User assigned field)."
+				),
+				frappe.PermissionError,
+			)
+		field_val = (getattr(crop_plan_doc, "field", None) or "").strip()
+		allowed = get_user_scope_expanded_area_names()
+		if field_val and field_val not in allowed:
+			frappe.throw(frappe._("Not permitted"), frappe.PermissionError)
 	
 	# Convert to dict
 	crop_plan_dict = crop_plan_doc.as_dict()

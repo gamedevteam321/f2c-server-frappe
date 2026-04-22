@@ -390,7 +390,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-04-21 12:48:25.426697",
+ "modified": "2026-04-21 17:15:42.343654",
  "modified_by": "Administrator",
  "module": "Farm Scheduling",
  "name": "On Demand Activity",
@@ -424,6 +424,26 @@
    "read": 1,
    "report": 1,
    "role": "Field Supervisor"
+  },
+  {
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Farm Manager",
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Project Manager",
+   "share": 1,
+   "write": 1
   }
  ],
  "row_format": "Dynamic",

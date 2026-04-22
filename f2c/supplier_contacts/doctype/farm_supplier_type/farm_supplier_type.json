@@ -1,9 +1,8 @@
 {
  "actions": [],
  "allow_import": 1,
- "allow_rename": 0,
  "autoname": "field:farm_supplier_type_name",
- "creation": "2026-02-16 00:00:00.000000",
+ "creation": "2026-02-16 00:00:00",
  "doctype": "DocType",
  "document_type": "Document",
  "engine": "InnoDB",
@@ -36,7 +35,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-02-16 00:00:00.000000",
+ "modified": "2026-04-21 17:15:25.487632",
  "modified_by": "Administrator",
  "module": "Supplier Contacts",
  "name": "Farm Supplier Type",
@@ -65,8 +64,21 @@
    "role": "All",
    "share": 1,
    "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Project Manager",
+   "share": 1,
+   "write": 1
   }
  ],
+ "row_format": "Dynamic",
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": [],

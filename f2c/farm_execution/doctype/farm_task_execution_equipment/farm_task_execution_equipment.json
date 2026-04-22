@@ -1,113 +1,108 @@
 {
-  "doctype": "DocType",
-  "name": "Farm Task Execution Equipment",
-  "module": "Farm Execution",
-  "document_type": "Document",
-  "istable": 1,
-  "editable_grid": 1,
-  "allow_rename": 1,
-  "track_changes": 1,
-  "field_order": [
-    "asset",
-    "asset_name",
-    "paired_implement",
-    "planned_hours",
-    "actual_hours",
-    "return_type",
-    "pre_execution_present",
-    "fuel_reading_start",
-    "fuel_photo",
-    "fuel_reading_end",
-    "fuel_consumption"
-  ],
-  "fields": [
-    {
-      "fieldname": "asset",
-      "fieldtype": "Link",
-      "label": "Asset",
-      "options": "Asset",
-      "reqd": 1,
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "asset_name",
-      "fieldtype": "Data",
-      "label": "Asset Name",
-      "fetch_from": "asset.asset_name",
-      "read_only": 1,
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "paired_implement",
-      "fieldtype": "Link",
-      "label": "Paired Implement",
-      "options": "Implement"
-    },
-    {
-      "fieldname": "planned_hours",
-      "fieldtype": "Float",
-      "label": "Planned Hours",
-      "precision": "2",
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "actual_hours",
-      "fieldtype": "Float",
-      "label": "Actual Hours",
-      "precision": "2",
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "return_type",
-      "fieldtype": "Select",
-      "label": "Return Type",
-      "options": "Returnable\nNon Returnable\nDaily Returnable\nEnd Activity Returnable",
-      "default": "Non Returnable",
-      "in_list_view": 1
-    },
-    {
-      "fieldname": "pre_execution_present",
-      "fieldtype": "Check",
-      "label": "Pre-Execution Present",
-      "default": 0
-    },
-    {
-      "fieldname": "fuel_reading_start",
-      "fieldtype": "Data",
-      "label": "Fuel Reading (Start)"
-    },
-    {
-      "fieldname": "fuel_photo",
-      "fieldtype": "Attach",
-      "label": "Fuel Photo Proof"
-    },
-    {
-      "fieldname": "fuel_reading_end",
-      "fieldtype": "Data",
-      "label": "Fuel Reading (End)"
-    },
-    {
-      "fieldname": "fuel_consumption",
-      "fieldtype": "Float",
-      "label": "Fuel Consumption",
-      "precision": "2"
-    }
-  ],
-  "permissions": [
-    {
-      "role": "System Manager",
-      "read": 1,
-      "write": 1,
-      "create": 1,
-      "delete": 1
-    },
-    {
-      "role": "All",
-      "read": 1,
-      "write": 1,
-      "create": 1
-    }
-  ],
-  "sort_field": "modified",
-  "sort_order": "DESC"
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-04-16 17:37:44.767888",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "asset",
+  "asset_name",
+  "paired_implement",
+  "planned_hours",
+  "actual_hours",
+  "return_type",
+  "pre_execution_present",
+  "fuel_reading_start",
+  "fuel_photo",
+  "fuel_reading_end",
+  "fuel_consumption"
+ ],
+ "fields": [
+  {
+   "fieldname": "asset",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Asset",
+   "options": "Asset",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "asset.asset_name",
+   "fieldname": "asset_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Asset Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "paired_implement",
+   "fieldtype": "Link",
+   "label": "Paired Implement",
+   "options": "Implement"
+  },
+  {
+   "fieldname": "planned_hours",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Planned Hours",
+   "precision": "2"
+  },
+  {
+   "fieldname": "actual_hours",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Actual Hours",
+   "precision": "2"
+  },
+  {
+   "default": "Non Returnable",
+   "fieldname": "return_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Return Type",
+   "options": "Returnable\nNon Returnable\nDaily Returnable\nEnd Activity Returnable"
+  },
+  {
+   "default": "0",
+   "fieldname": "pre_execution_present",
+   "fieldtype": "Check",
+   "label": "Pre-Execution Present"
+  },
+  {
+   "fieldname": "fuel_reading_start",
+   "fieldtype": "Data",
+   "label": "Fuel Reading (Start)"
+  },
+  {
+   "fieldname": "fuel_photo",
+   "fieldtype": "Attach",
+   "label": "Fuel Photo Proof"
+  },
+  {
+   "fieldname": "fuel_reading_end",
+   "fieldtype": "Data",
+   "label": "Fuel Reading (End)"
+  },
+  {
+   "fieldname": "fuel_consumption",
+   "fieldtype": "Float",
+   "label": "Fuel Consumption",
+   "precision": "2"
+  }
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-04-21 17:15:27.225512",
+ "modified_by": "Administrator",
+ "module": "Farm Execution",
+ "name": "Farm Task Execution Equipment",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
 }

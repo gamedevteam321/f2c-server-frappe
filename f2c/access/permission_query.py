@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""permission_query_conditions hooks for Field / Cluster supervisor geo scoping."""
+"""permission_query_conditions hooks for Field / Cluster supervisor / Driver geo scoping."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import frappe
 
 from f2c.access.field_scope import (
 	allowed_warehouse_names_for_area_names,
-	cluster_supervisor_data_scope_active,
+	cluster_class_ltt_scope_active,
 	field_supervisor_data_scope_active,
 	get_user_scope_area_roots,
 	get_user_scope_expanded_area_names,
@@ -57,6 +57,24 @@ def _geo_parent_chain_upward(area_name: str) -> frozenset[str]:
 	return frozenset(names)
 
 
+def _farm_worker_query_geo_names(user: str | None) -> frozenset[str]:
+	"""Geo names used to filter Farm Worker Details.farm for scoped supervisors.
+
+	Farm Worker Details usually links ``farm`` to a Farm (parent) Geo Fencing Area, while
+	field supervisors are often scoped to a Field/Block (descendant). Expanded scope is
+	descendant-only; include each scope root's ``parent_area`` chain so those workers match.
+	"""
+	if not supervisor_geo_scope_active(user):
+		return frozenset()
+	roots = get_user_scope_area_roots(user)
+	if not roots:
+		return frozenset()
+	out: set[str] = set(get_user_scope_expanded_area_names(user))
+	for r in roots:
+		out.update(_geo_parent_chain_upward(str(r).strip()))
+	return frozenset(out)
+
+
 def get_farm_task_execution_query(user, doctype=None) -> str | None:
 	sc = _supervisor_scope(user)
 	if sc is None:
@@ -87,6 +105,17 @@ def get_crop_plan_schedule_query(user, doctype=None) -> str | None:
 	return f"`tabCrop Plan Schedule`.`field` IN ({_sql_in_list(areas)})"
 
 
+def get_crop_plan_query(user, doctype=None) -> str | None:
+	"""Same geo field scope as Crop Plan Schedule / Farm Task Execution (Farm Manager, FS, CS, Driver)."""
+	sc = _supervisor_scope(user)
+	if sc is None:
+		return None
+	areas, _ = sc
+	if not areas:
+		return "1=0"
+	return f"`tabCrop Plan`.`field` IN ({_sql_in_list(areas)})"
+
+
 def get_logistics_transfer_ticket_query(user, doctype=None) -> str | None:
 	sc = _supervisor_scope(user)
 	if sc is None:
@@ -99,11 +128,11 @@ def get_logistics_transfer_ticket_query(user, doctype=None) -> str | None:
 		f"`tabLogistics Transfer Ticket`.`farm_task_execution` IN ("
 		f"SELECT `name` FROM `tabFarm Task Execution` WHERE `field` IN ({in_areas}))"
 	)
-	cs = cluster_supervisor_data_scope_active(user)
+	cluster_class = cluster_class_ltt_scope_active(user)
 	if not wh:
 		leg = f"({ex_sub})"
 		ext = f"(`tabLogistics Transfer Ticket`.`transfer_type` = 'External' AND {leg})"
-		if cs:
+		if cluster_class:
 			intq = f"(`tabLogistics Transfer Ticket`.`transfer_type` = 'Internal' AND {leg})"
 			return f"({ext} OR {intq})"
 		return ext
@@ -112,7 +141,7 @@ def get_logistics_transfer_ticket_query(user, doctype=None) -> str | None:
 	to_wh = f"`tabLogistics Transfer Ticket`.`to_warehouse` IN ({in_list})"
 	leg = f"({ex_sub} OR {from_wh} OR {to_wh})"
 	ext = f"(`tabLogistics Transfer Ticket`.`transfer_type` = 'External' AND {leg})"
-	if cs:
+	if cluster_class:
 		intq = f"(`tabLogistics Transfer Ticket`.`transfer_type` = 'Internal' AND {leg})"
 		return f"({ext} OR {intq})"
 	return ext
@@ -122,7 +151,7 @@ def get_farm_worker_details_query(user, doctype=None) -> str | None:
 	sc = _supervisor_scope(user)
 	if sc is None:
 		return None
-	areas, _ = sc
+	areas = _farm_worker_query_geo_names(user)
 	if not areas:
 		return "1=0"
 	return f"`tabFarm Worker Details`.`farm` IN ({_sql_in_list(areas)})"
@@ -132,7 +161,7 @@ def get_farm_worker_attendance_query(user, doctype=None) -> str | None:
 	sc = _supervisor_scope(user)
 	if sc is None:
 		return None
-	areas, _ = sc
+	areas = _farm_worker_query_geo_names(user)
 	if not areas:
 		return "1=0"
 	in_areas = _sql_in_list(areas)
@@ -143,7 +172,7 @@ def get_farm_worker_attendance_query(user, doctype=None) -> str | None:
 
 
 def get_geo_fencing_area_query(user, doctype=None) -> str | None:
-	"""Rows whose Geo Fencing Area name is in expanded scope (plus parent chain for Cluster Supervisor)."""
+	"""Rows in expanded scope; plus parent_area chain for cluster-class LTT roles (CS / Driver / Farm Manager), not Field-only."""
 	sc = _supervisor_scope(user)
 	if sc is None:
 		return None
@@ -151,7 +180,7 @@ def get_geo_fencing_area_query(user, doctype=None) -> str | None:
 	if not areas:
 		return "1=0"
 	all_names = set(areas)
-	if cluster_supervisor_data_scope_active(user) and not field_supervisor_data_scope_active(user):
+	if cluster_class_ltt_scope_active(user) and not field_supervisor_data_scope_active(user):
 		for r in get_user_scope_area_roots(user):
 			all_names.update(_geo_parent_chain_upward(str(r).strip()))
 	return f"`tabGeo Fencing Area`.`name` IN ({_sql_in_list(frozenset(all_names))})"

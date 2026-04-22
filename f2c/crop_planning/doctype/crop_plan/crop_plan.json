@@ -1,159 +1,196 @@
 {
-    "actions": [],
-    "allow_import": 1,
-    "allow_rename": 1,
-    "autoname": "naming:autoname",
-    "creation": "2025-12-08 00:00:00.000000",
-    "doctype": "DocType",
-    "document_type": "Document",
-    "engine": "InnoDB",
-    "field_order": [
-        "crop_plan_name",
-        "date",
-        "column_break_1",
-        "field",
-        "field_area_acres",
-        "total_blocks",
-        "section_break_field_details",
-        "soil_type",
-        "column_break_estimated_dates",
-        "estimated_start_date",
-        "estimated_end_date",
-        "section_break_blocks",
-        "blocks",
-        "section_break_activities",
-        "activities",
-        "section_break_approved_inputs",
-        "approved_inputs"
-    ],
-    "fields": [
-        {
-            "fieldname": "crop_plan_name",
-            "fieldtype": "Data",
-            "label": "Crop Plan Name",
-            "reqd": 1
-        },
-        {
-            "fieldname": "date",
-            "fieldtype": "Date",
-            "label": "Date",
-            "reqd": 1
-        },
-        {
-            "fieldname": "column_break_1",
-            "fieldtype": "Column Break"
-        },
-        {
-            "fieldname": "field",
-            "fieldtype": "Link",
-            "label": "Field",
-            "options": "Geo Fencing Area",
-            "reqd": 1
-        },
-        {
-            "fieldname": "field_area_acres",
-            "fieldtype": "Float",
-            "label": "Field Area (Acres)",
-            "read_only": 1,
-            "precision": "10"
-        },
-        {
-            "fieldname": "total_blocks",
-            "fieldtype": "Int",
-            "label": "Total Blocks",
-            "read_only": 1
-        },
-        {
-            "fieldname": "section_break_field_details",
-            "fieldtype": "Section Break",
-            "label": "Field Details"
-        },
-        {
-            "fieldname": "soil_type",
-            "fieldtype": "Select",
-            "label": "Soil Type",
-            "options": "Clay\nSilty Clay\nSandy Clay\nClay Loam\nSilty Clay Loam\nSandy Clay Loam\nLoam\nSilt Loam\nSandy Loam\nLoamy Sand\nSand\nSilt\nOther"
-        },
-        {
-            "fieldname": "column_break_estimated_dates",
-            "fieldtype": "Column Break"
-        },
-        {
-            "fieldname": "estimated_start_date",
-            "fieldtype": "Date",
-            "label": "Estimated Start Date"
-        },
-        {
-            "fieldname": "estimated_end_date",
-            "fieldtype": "Date",
-            "label": "Estimated End Date"
-        },
-        {
-            "fieldname": "section_break_blocks",
-            "fieldtype": "Section Break",
-            "label": "Blocks"
-        },
-        {
-            "fieldname": "blocks",
-            "fieldtype": "Table",
-            "label": "Blocks",
-            "options": "Crop Plan Block"
-        },
-        {
-            "fieldname": "section_break_activities",
-            "fieldtype": "Section Break",
-            "label": "Activities"
-        },
-        {
-            "fieldname": "activities",
-            "fieldtype": "Table",
-            "label": "Activities",
-            "options": "Crop Plan Activity"
-        },
-        {
-            "fieldname": "section_break_approved_inputs",
-            "fieldtype": "Section Break",
-            "label": "Approved Inputs"
-        },
-        {
-            "fieldname": "approved_inputs",
-            "fieldtype": "Table",
-            "label": "Approved Inputs",
-            "options": "Crop Plan Activity Input"
-        }
-    ],
-    "index_web_pages_for_search": 1,
-    "links": [],
-    "modified": "2025-12-09 00:00:00.000000",
-    "modified_by": "Administrator",
-    "module": "Crop Planning",
-    "name": "Crop Plan",
-    "owner": "Administrator",
-    "permissions": [
-        {
-            "create": 1,
-            "delete": 1,
-            "email": 1,
-            "export": 1,
-            "print": 1,
-            "read": 1,
-            "report": 1,
-            "role": "System Manager",
-            "share": 1,
-            "write": 1
-        },
-        {
-            "create": 1,
-            "delete": 1,
-            "email": 1,
-            "export": 1,
-            "print": 1,
-            "read": 1,
-            "report": 1,
-            "role": "Administrator",
-            "share": 1,
-            "write": 1
-        }
-    ],
-    "track_changes": 1
+ "actions": [],
+ "allow_import": 1,
+ "allow_rename": 1,
+ "autoname": "naming:autoname",
+ "creation": "2025-12-08 00:00:00",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "engine": "InnoDB",
+ "field_order": [
+  "crop_plan_name",
+  "date",
+  "column_break_1",
+  "field",
+  "field_area_acres",
+  "total_blocks",
+  "section_break_field_details",
+  "soil_type",
+  "column_break_estimated_dates",
+  "estimated_start_date",
+  "estimated_end_date",
+  "section_break_blocks",
+  "blocks",
+  "section_break_activities",
+  "activities",
+  "section_break_approved_inputs",
+  "approved_inputs"
+ ],
+ "fields": [
+  {
+   "fieldname": "crop_plan_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Crop Plan Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "field",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Field",
+   "options": "Geo Fencing Area",
+   "reqd": 1
+  },
+  {
+   "fieldname": "field_area_acres",
+   "fieldtype": "Float",
+   "label": "Field Area (Acres)",
+   "precision": "9",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_blocks",
+   "fieldtype": "Int",
+   "label": "Total Blocks",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_field_details",
+   "fieldtype": "Section Break",
+   "label": "Field Details"
+  },
+  {
+   "fieldname": "soil_type",
+   "fieldtype": "Select",
+   "label": "Soil Type",
+   "options": "Clay\nSilty Clay\nSandy Clay\nClay Loam\nSilty Clay Loam\nSandy Clay Loam\nLoam\nSilt Loam\nSandy Loam\nLoamy Sand\nSand\nSilt\nOther"
+  },
+  {
+   "fieldname": "column_break_estimated_dates",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "estimated_start_date",
+   "fieldtype": "Date",
+   "label": "Estimated Start Date"
+  },
+  {
+   "fieldname": "estimated_end_date",
+   "fieldtype": "Date",
+   "label": "Estimated End Date"
+  },
+  {
+   "fieldname": "section_break_blocks",
+   "fieldtype": "Section Break",
+   "label": "Blocks"
+  },
+  {
+   "fieldname": "blocks",
+   "fieldtype": "Table",
+   "label": "Blocks",
+   "options": "Crop Plan Block"
+  },
+  {
+   "fieldname": "section_break_activities",
+   "fieldtype": "Section Break",
+   "label": "Activities"
+  },
+  {
+   "fieldname": "activities",
+   "fieldtype": "Table",
+   "label": "Activities",
+   "options": "Crop Plan Activity"
+  },
+  {
+   "fieldname": "section_break_approved_inputs",
+   "fieldtype": "Section Break",
+   "label": "Approved Inputs"
+  },
+  {
+   "fieldname": "approved_inputs",
+   "fieldtype": "Table",
+   "label": "Approved Inputs",
+   "options": "Crop Plan Activity Input"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-04-22 17:25:15.692450",
+ "modified_by": "Administrator",
+ "module": "Crop Planning",
+ "name": "Crop Plan",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Administrator",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Field Supervisor"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Cluster Supervisor"
+  },
+  {
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Farm Manager"
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Project Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
 }

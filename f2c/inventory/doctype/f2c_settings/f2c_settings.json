@@ -139,7 +139,7 @@
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-04-21 15:23:57.538059",
+ "modified": "2026-04-21 17:15:43.801667",
  "modified_by": "Administrator",
  "module": "Inventory",
  "name": "F2C Settings",
@@ -159,6 +159,21 @@
   {
    "read": 1,
    "role": "Cluster Supervisor"
+  },
+  {
+   "read": 1,
+   "role": "Driver"
+  },
+  {
+   "read": 1,
+   "role": "Farm Manager"
+  },
+  {
+   "create": 1,
+   "read": 1,
+   "role": "Project Manager",
+   "share": 1,
+   "write": 1
   }
  ],
  "row_format": "Dynamic",

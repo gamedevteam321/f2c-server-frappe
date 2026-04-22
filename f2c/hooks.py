@@ -136,6 +136,7 @@ delete_file_data_content = ["f2c.file_storage.delete_file_data_content"]
 permission_query_conditions = {
 	"Farm Task Execution": "f2c.access.permission_query.get_farm_task_execution_query",
 	"On Demand Activity": "f2c.access.permission_query.get_on_demand_activity_query",
+	"Crop Plan": "f2c.access.permission_query.get_crop_plan_query",
 	"Crop Plan Schedule": "f2c.access.permission_query.get_crop_plan_schedule_query",
 	"Logistics Transfer Ticket": "f2c.access.permission_query.get_logistics_transfer_ticket_query",
 	"Farm Worker Details": "f2c.access.permission_query.get_farm_worker_details_query",
@@ -162,6 +163,9 @@ override_doctype_class = {
 doc_events = {
 	"User": {
 		"validate": "f2c.access.user_hooks.validate",
+	},
+	"Employee": {
+		"validate": "f2c.access.employee_hooks.validate_employee_geo_scope",
 	},
 	# Stock quantity changes
 	"Stock Entry": {

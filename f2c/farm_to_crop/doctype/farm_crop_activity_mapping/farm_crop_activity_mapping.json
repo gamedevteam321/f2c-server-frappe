@@ -1,177 +1,190 @@
 {
-    "actions": [],
-    "allow_import": 1,
-    "allow_rename": 1,
-    "autoname": "format:POP-{###}",
-    "creation": "2025-01-20 10:00:00.000000",
-    "doctype": "DocType",
-    "document_type": "Document",
-    "engine": "InnoDB",
-    "field_order": [
-        "section_break_crop",
-        "crop",
-        "crop_stage",
-        "crop_stage_name",
-        "column_break_crop",
-        "duration_after_stage",
-        "is_dat",
-        "dat",
-        "section_break_activity",
-        "activity_group_type",
-        "activity",
-        "activity_name",
-        "section_break_tasks",
-        "tasks_items_view",
-        "tasks_items",
-        "section_break_remarks",
-        "remarks"
-    ],
-    "fields": [
-        {
-            "fieldname": "section_break_crop",
-            "fieldtype": "Section Break",
-            "label": "Crop Information"
-        },
-        {
-            "fieldname": "crop",
-            "fieldtype": "Link",
-            "in_list_view": 1,
-            "in_standard_filter": 1,
-            "label": "Crop",
-            "options": "Crop",
-            "reqd": 1
-        },
-        {
-            "fieldname": "crop_stage",
-            "fieldtype": "Link",
-            "in_standard_filter": 1,
-            "label": "Crop Stage",
-            "options": "Crop Stage",
-            "reqd": 1
-        },
-        {
-            "depends_on": "crop_stage",
-            "fetch_from": "crop_stage.stage",
-            "fieldname": "crop_stage_name",
-            "fieldtype": "Data",
-            "in_list_view": 1,
-            "label": "Stage Name",
-            "read_only": 1
-        },
-        {
-            "fieldname": "column_break_crop",
-            "fieldtype": "Column Break"
-        },
-        {
-            "fieldname": "duration_after_stage",
-            "fieldtype": "Int",
-            "label": "Duration After Stage"
-        },
-        {
-            "fieldname": "is_dat",
-            "fieldtype": "Check",
-            "label": "Is DAT"
-        },
-        {
-            "depends_on": "eval:doc.is_dat==1",
-            "fieldname": "dat",
-            "fieldtype": "Int",
-            "label": "DAT"
-        },
-        {
-            "fieldname": "section_break_activity",
-            "fieldtype": "Section Break",
-            "label": "Activity Details"
-        },
-        {
-            "fieldname": "activity_group_type",
-            "fieldtype": "Link",
-            "in_standard_filter": 1,
-            "label": "Activity Group Type",
-            "options": "Activity Group Type",
-            "reqd": 1
-        },
-        {
-            "fieldname": "activity",
-            "fieldtype": "Link",
-            "in_list_view": 1,
-            "in_standard_filter": 1,
-            "label": "Activity",
-            "options": "Farm Activity",
-            "reqd": 1
-        },
-        {
-            "depends_on": "activity",
-            "fetch_from": "activity.activity_name",
-            "fieldname": "activity_name",
-            "fieldtype": "Data",
-            "in_list_view": 1,
-            "label": "Activity Name",
-            "read_only": 1
-        },
-        {
-            "fieldname": "section_break_tasks",
-            "fieldtype": "Section Break",
-            "label": "Approved Input Mixes"
-        },
-        {
-            "fieldname": "tasks_items_view",
-            "fieldtype": "HTML",
-            "label": "Approved Input Mixes View"
-        },
-        {
-            "fieldname": "tasks_items",
-            "fieldtype": "Table",
-            "label": "Approved Input Mix Items",
-            "options": "POP Activity Task Item",
-            "hidden": 1
-        },
-        {
-            "fieldname": "section_break_remarks",
-            "fieldtype": "Section Break",
-            "label": "Additional Information"
-        },
-        {
-            "fieldname": "remarks",
-            "fieldtype": "Text Editor",
-            "label": "Remarks"
-        }
-    ],
-    "index_web_pages_for_search": 1,
-    "links": [],
-    "modified": "2025-12-03 00:00:00.000000",
-    "modified_by": "Administrator",
-    "module": "Farm To Crop",
-    "name": "Farm Crop Activity Mapping",
-    "naming_rule": "By fieldname",
-    "owner": "Administrator",
-    "permissions": [
-        {
-            "create": 1,
-            "delete": 1,
-            "email": 1,
-            "export": 1,
-            "print": 1,
-            "read": 1,
-            "report": 1,
-            "role": "System Manager",
-            "share": 1,
-            "write": 1
-        },
-        {
-            "create": 1,
-            "email": 1,
-            "export": 1,
-            "print": 1,
-            "read": 1,
-            "report": 1,
-            "role": "All",
-            "share": 1,
-            "write": 1
-        }
-    ],
-    "sort_field": "modified",
-    "sort_order": "DESC",
-    "states": [],
-    "track_changes": 1
+ "actions": [],
+ "allow_import": 1,
+ "allow_rename": 1,
+ "autoname": "format:POP-{###}",
+ "creation": "2025-01-20 10:00:00",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "engine": "InnoDB",
+ "field_order": [
+  "section_break_crop",
+  "crop",
+  "crop_stage",
+  "crop_stage_name",
+  "column_break_crop",
+  "duration_after_stage",
+  "is_dat",
+  "dat",
+  "section_break_activity",
+  "activity_group_type",
+  "activity",
+  "activity_name",
+  "section_break_tasks",
+  "tasks_items_view",
+  "tasks_items",
+  "section_break_remarks",
+  "remarks"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_break_crop",
+   "fieldtype": "Section Break",
+   "label": "Crop Information"
+  },
+  {
+   "fieldname": "crop",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Crop",
+   "options": "Crop",
+   "reqd": 1
+  },
+  {
+   "fieldname": "crop_stage",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Crop Stage",
+   "options": "Crop Stage",
+   "reqd": 1
+  },
+  {
+   "depends_on": "crop_stage",
+   "fetch_from": "crop_stage.stage",
+   "fieldname": "crop_stage_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Stage Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_crop",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "duration_after_stage",
+   "fieldtype": "Int",
+   "label": "Duration After Stage"
+  },
+  {
+   "fieldname": "is_dat",
+   "fieldtype": "Check",
+   "label": "Is DAT"
+  },
+  {
+   "depends_on": "eval:doc.is_dat==1",
+   "fieldname": "dat",
+   "fieldtype": "Int",
+   "label": "DAT"
+  },
+  {
+   "fieldname": "section_break_activity",
+   "fieldtype": "Section Break",
+   "label": "Activity Details"
+  },
+  {
+   "fieldname": "activity_group_type",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Activity Group Type",
+   "options": "Activity Group Type",
+   "reqd": 1
+  },
+  {
+   "fieldname": "activity",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Activity",
+   "options": "Farm Activity",
+   "reqd": 1
+  },
+  {
+   "depends_on": "activity",
+   "fetch_from": "activity.activity_name",
+   "fieldname": "activity_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Activity Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_tasks",
+   "fieldtype": "Section Break",
+   "label": "Approved Input Mixes"
+  },
+  {
+   "fieldname": "tasks_items_view",
+   "fieldtype": "HTML",
+   "label": "Approved Input Mixes View"
+  },
+  {
+   "fieldname": "tasks_items",
+   "fieldtype": "Table",
+   "hidden": 1,
+   "label": "Approved Input Mix Items",
+   "options": "POP Activity Task Item"
+  },
+  {
+   "fieldname": "section_break_remarks",
+   "fieldtype": "Section Break",
+   "label": "Additional Information"
+  },
+  {
+   "fieldname": "remarks",
+   "fieldtype": "Text Editor",
+   "label": "Remarks"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-04-21 17:15:24.935658",
+ "modified_by": "Administrator",
+ "module": "Farm to Crop",
+ "name": "Farm Crop Activity Mapping",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "All",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Project Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
 }
