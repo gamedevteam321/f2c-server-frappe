@@ -14,13 +14,47 @@ from f2c.access.constants import (
 	FIELD_LEVEL_GFA_TYPE_NAME,
 	FIELD_SUPERVISOR_ROLE,
 	FULL_ACCESS_USERS,
+	PROJECT_MANAGER_ROLE,
 	ROLES_ALLOWED_TO_EDIT_EMPLOYEE_GEO_SCOPE,
 )
 from f2c.access.field_scope import user_bypasses_field_supervisor_restrictions
 
-_FARM_MANAGER_SCOPE_ROOT_TYPES = frozenset(
-	{FARM_LEVEL_GFA_TYPE_NAME, CLUSTER_LEVEL_GFA_TYPE_NAME, FIELD_LEVEL_GFA_TYPE_NAME}
-)
+# Highest wins when multiple scope roles are assigned: PM > FM > CS/Driver > FS.
+_SCOPE_ROLE_RANKS: dict[str, int] = {
+	PROJECT_MANAGER_ROLE: 4,
+	FARM_MANAGER_ROLE: 3,
+	CLUSTER_SUPERVISOR_ROLE: 2,
+	DRIVER_ROLE: 2,
+	FIELD_SUPERVISOR_ROLE: 1,
+}
+
+_SCOPE_RANK_ALLOWED_ROOT_TYPES: dict[int, frozenset[str]] = {
+	4: frozenset({FARM_LEVEL_GFA_TYPE_NAME, CLUSTER_LEVEL_GFA_TYPE_NAME, FIELD_LEVEL_GFA_TYPE_NAME}),
+	3: frozenset({FARM_LEVEL_GFA_TYPE_NAME, CLUSTER_LEVEL_GFA_TYPE_NAME, FIELD_LEVEL_GFA_TYPE_NAME}),
+	2: frozenset({CLUSTER_LEVEL_GFA_TYPE_NAME, FIELD_LEVEL_GFA_TYPE_NAME}),
+	1: frozenset({FIELD_LEVEL_GFA_TYPE_NAME}),
+}
+
+# Set by attendance_portal.update_employee (etc.) to a list[str] of role names before Employee.save,
+# so geo validation uses the merged portal roles while User is not yet saved to the DB.
+FORCE_USER_ROLES_FOR_GEO_SCOPE_FLAG = "f2c_force_user_roles_for_geo_scope"
+
+
+def _roles_for_geo_scope_validation(linked_user_id: str) -> list[str]:
+	forced = getattr(frappe.flags, FORCE_USER_ROLES_FOR_GEO_SCOPE_FLAG, None)
+	if isinstance(forced, (list, tuple)) and len(forced) > 0:
+		return [str(r).strip() for r in forced if str(r).strip()]
+	return frappe.get_roles(linked_user_id)
+
+
+def _effective_scope_rank(roles: list[str]) -> int | None:
+	"""Return highest scope rank among roles, or None if no scoped F2C role applies."""
+	best = 0
+	rset = frozenset(roles)
+	for role, rank in _SCOPE_ROLE_RANKS.items():
+		if role in rset:
+			best = max(best, rank)
+	return best if best else None
 
 
 def _session_user_may_edit_employee_geo_scope() -> bool:
@@ -41,6 +75,15 @@ def _scope_area_doc_label(area_id: str) -> str:
 	return f"{area_id!r} ({an})" if an else f"{area_id!r}"
 
 
+def _rank_scope_label(rank: int) -> str:
+	return {
+		4: "Project Manager",
+		3: "Farm Manager",
+		2: "Cluster Supervisor / Driver",
+		1: "Field Supervisor",
+	}.get(rank, "scoped role")
+
+
 def validate_allowed_geo_for_linked_user(
 	scope_root_names: list[str],
 	*,
@@ -56,71 +99,34 @@ def validate_allowed_geo_for_linked_user(
 	if not uid or uid in FULL_ACCESS_USERS:
 		return
 
-	roles = frappe.get_roles(uid)
-	has_fs = FIELD_SUPERVISOR_ROLE in roles
-	has_cs = CLUSTER_SUPERVISOR_ROLE in roles
-	has_driver = DRIVER_ROLE in roles
-	has_fm = FARM_MANAGER_ROLE in roles
-
-	if not (has_fs or has_cs or has_driver or has_fm):
+	roles = _roles_for_geo_scope_validation(uid)
+	rank = _effective_scope_rank(roles)
+	if rank is None:
 		return
+
+	allowed_types = _SCOPE_RANK_ALLOWED_ROOT_TYPES[rank]
+	allowed_label = ", ".join(sorted(allowed_types))
 
 	if set(scope_root_names) != set(old_roots):
 		if not _session_user_may_edit_employee_geo_scope():
 			frappe.throw(
 				"Only a System Manager, Administrator, or Project Manager can assign or change Allowed Geo Areas "
-				f"for an employee whose user has role {FIELD_SUPERVISOR_ROLE!r}, {CLUSTER_SUPERVISOR_ROLE!r}, "
-				f"{DRIVER_ROLE!r}, or {FARM_MANAGER_ROLE!r}."
+				f"for an employee whose user has a scoped F2C role ({FIELD_SUPERVISOR_ROLE!r}, {CLUSTER_SUPERVISOR_ROLE!r}, "
+				f"{DRIVER_ROLE!r}, {FARM_MANAGER_ROLE!r}, or {PROJECT_MANAGER_ROLE!r})."
 			)
 
-	if has_fs:
-		if not scope_root_names:
-			frappe.throw(
-				f"Users with role {FIELD_SUPERVISOR_ROLE!r} must have at least one Geo Fencing Area in "
-				"Allowed Geo Areas on the Employee record (Field-level areas only)."
-			)
-		for val in scope_root_names:
-			if not frappe.db.exists("Geo Fencing Area", val):
-				frappe.throw(f"Scope area {val!r} is not a valid Geo Fencing Area.")
-			tn = _geo_fencing_area_type_name(val)
-			if tn != FIELD_LEVEL_GFA_TYPE_NAME:
-				frappe.throw(
-					f"Field Supervisor scope must be {FIELD_LEVEL_GFA_TYPE_NAME!r}-level Geo Fencing Areas only "
-					f"({_scope_area_doc_label(val)} is type {tn!r})."
-				)
-		return
+	if not scope_root_names:
+		frappe.throw(
+			f"At least one Geo Fencing Area is required in Allowed Geo Areas on the Employee record. "
+			f"For the highest active scope role ({_rank_scope_label(rank)}), only these area levels are allowed: {allowed_label}."
+		)
 
-	if has_cs or has_driver:
-		if not scope_root_names:
+	for val in scope_root_names:
+		if not frappe.db.exists("Geo Fencing Area", val):
+			frappe.throw(f"Scope area {val!r} is not a valid Geo Fencing Area.")
+		tn = _geo_fencing_area_type_name(val)
+		if tn not in allowed_types:
 			frappe.throw(
-				f"Users with role {CLUSTER_SUPERVISOR_ROLE!r} or {DRIVER_ROLE!r} must have at least one Geo Fencing Area in "
-				"Allowed Geo Areas on the Employee record (Cluster-level areas only)."
+				f"Allowed Geo Areas must match the highest scope role ({_rank_scope_label(rank)}): "
+				f"only {allowed_label!r} level(s). {_scope_area_doc_label(val)} is type {tn!r}."
 			)
-		for val in scope_root_names:
-			if not frappe.db.exists("Geo Fencing Area", val):
-				frappe.throw(f"Scope area {val!r} is not a valid Geo Fencing Area.")
-			tn = _geo_fencing_area_type_name(val)
-			if tn != CLUSTER_LEVEL_GFA_TYPE_NAME:
-				frappe.throw(
-					f"Cluster Supervisor / Driver scope must use {CLUSTER_LEVEL_GFA_TYPE_NAME!r}-level Geo Fencing Areas only. "
-					f"Linked {_scope_area_doc_label(val)} is type {tn!r}, not {CLUSTER_LEVEL_GFA_TYPE_NAME!r}. "
-					"Open Geo Fencing Area and link the row whose Geo Fencing Type is Cluster (document Name is not the same as Area Name)."
-				)
-		return
-
-	if has_fm:
-		if not scope_root_names:
-			frappe.throw(
-				f"Users with role {FARM_MANAGER_ROLE!r} must have at least one Geo Fencing Area in "
-				"Allowed Geo Areas on the Employee record (Farm, Cluster, or Field level)."
-			)
-		for val in scope_root_names:
-			if not frappe.db.exists("Geo Fencing Area", val):
-				frappe.throw(f"Scope area {val!r} is not a valid Geo Fencing Area.")
-			tn = _geo_fencing_area_type_name(val)
-			if tn not in _FARM_MANAGER_SCOPE_ROOT_TYPES:
-				allowed = ", ".join(sorted(_FARM_MANAGER_SCOPE_ROOT_TYPES))
-				frappe.throw(
-					f"Farm Manager scope roots must be Farm, Cluster, or Field Geo Fencing Areas only "
-					f"({_scope_area_doc_label(val)} is type {tn!r}; allowed: {allowed})."
-				)
