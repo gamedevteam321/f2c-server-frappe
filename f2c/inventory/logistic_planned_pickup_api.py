@@ -1,6 +1,6 @@
 import frappe
 from frappe import _
-from frappe.utils import now_datetime, get_datetime
+from frappe.utils import add_days, get_datetime, now_datetime, today
 
 
 def _ltt_qualifies_as_reported(ticket):
@@ -221,3 +221,10 @@ def get_ltt_location_coords_batch(ticket_names):
                 drop_off = {"lat": float(lat), "lng": float(lng)}
         result[name] = {"pickup": pickup, "drop_off": drop_off}
     return result
+
+
+@frappe.whitelist()
+def get_driver_dashboard_calendar_dates():
+	"""Today and tomorrow as YYYY-MM-DD in Frappe system date (for driver home bucketing)."""
+	td = today()
+	return {"today": td, "tomorrow": add_days(td, 1)}
