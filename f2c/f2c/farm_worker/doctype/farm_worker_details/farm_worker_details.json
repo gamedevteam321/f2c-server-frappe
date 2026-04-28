@@ -12,9 +12,11 @@
     "dob",
     "column_break_1",
     "aadhaar_number",
-    "gender",
-    "section_break_1",
-    "address",
+  "gender",
+  "section_break_profile",
+  "profile_image",
+  "section_break_1",
+  "address",
     "section_break_work_details",
     "farm_project",
     "farm",
@@ -60,6 +62,16 @@
       "label": "Gender",
       "options": "Male\nFemale\nOther",
       "reqd": 1
+    },
+    {
+      "fieldname": "section_break_profile",
+      "fieldtype": "Section Break",
+      "label": "Profile"
+    },
+    {
+      "fieldname": "profile_image",
+      "fieldtype": "Attach Image",
+      "label": "Profile picture"
     },
     {
       "fieldname": "section_break_1",
