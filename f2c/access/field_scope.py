@@ -24,13 +24,14 @@ from f2c.inventory.warehouse_utils import get_ledger_warehouse, get_ledger_wareh
 
 
 def user_bypasses_field_supervisor_restrictions(user: str | None = None) -> bool:
-	"""Administrator username or Project Manager role: no geo scoping or FS review read-only."""
+	"""Administrator user/role or Project Manager role: no geo scoping or FS review read-only."""
 	u = (user or frappe.session.user or "").strip()
 	if not u or u == "Guest":
 		return False
 	if u in FULL_ACCESS_USERS:
 		return True
-	return PROJECT_MANAGER_ROLE in frappe.get_roles(user)
+	user_roles = frozenset(frappe.get_roles(user))
+	return PROJECT_MANAGER_ROLE in user_roles or "Administrator" in user_roles
 
 
 def user_has_project_manager_role(user: str | None = None) -> bool:
